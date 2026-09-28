@@ -50,7 +50,7 @@ export const weekdayOf = (key: string) => {
 };
 
 export function parseMonth(v: string | undefined, todayKey: string) {
-  if (v && /^\d{4}-(0[1-9]|1[0-2])$/.test(v)) return v;
+  if (v && /^20\d\d-(0[1-9]|1[0-2])$/.test(v)) return v; // 2000–2099 only
   return todayKey.slice(0, 7);
 }
 

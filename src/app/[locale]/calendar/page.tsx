@@ -7,17 +7,20 @@ import { DayList } from '@/components/DayList';
 import { EmptyState } from '@/components/EmptyState';
 import { FacetPanel } from '@/components/FacetPanel';
 import { PageShell } from '@/components/PageShell';
+import { SubscribeMenu } from '@/components/SubscribeMenu';
 import { Link } from '@/i18n/navigation';
 import { applyFilters, parseFilters } from '@/lib/events/filters';
 import { getRange, getToday } from '@/lib/events/queries';
 import { monthBounds, monthTitle, parseMonth, shiftMonth } from '@/lib/format/calendar';
-import { alternates } from '@/lib/seo';
+import { pageMeta, validMonth } from '@/lib/seo';
 import type { Locale } from '@/lib/taxonomy';
 
-export async function generateMetadata(): Promise<Metadata> {
+export async function generateMetadata({ searchParams }: PageProps<'/[locale]/calendar'>): Promise<Metadata> {
   const locale = (await getLocale()) as Locale;
   const t = await getTranslations({ locale, namespace: 'Calendar' });
-  return { title: t('title'), alternates: alternates('/calendar', locale) };
+  const m = validMonth((await searchParams).m);
+  const title = m ? `${t('title')} · ${monthTitle(m, locale)}` : t('title');
+  return pageMeta({ path: '/calendar', locale, title, description: t('description'), query: { m } });
 }
 
 export default async function CalendarPage({ searchParams }: PageProps<'/[locale]/calendar'>) {
@@ -25,7 +28,7 @@ export default async function CalendarPage({ searchParams }: PageProps<'/[locale
   const t = await getTranslations({ locale, namespace: 'Calendar' });
   const th = await getTranslations({ locale, namespace: 'Home' });
   return (
-    <PageShell locale={locale} wide>
+    <PageShell locale={locale} path="/calendar" wide>
       <h1 className="pt-6 text-h1 md:pt-10">{t('title')}</h1>
       <div className="mt-6">
         <Suspense fallback={<CategoryChipsFallback locale={locale} allLabel={th('all')} />}>
@@ -58,6 +61,7 @@ async function Month({ locale, searchParams }: { locale: Locale; searchParams: P
   return (
     <>
       <FacetPanel locale={locale} filters={filters} action={base} keep={{ m: ym }} />
+      <SubscribeMenu locale={locale} cats={filters.cats} />
       <div className="mt-8 flex items-center justify-between gap-3">
         <h2 className="text-h2">{monthTitle(ym, locale)}</h2>
         <nav className="flex items-center gap-1" aria-label={t('title')}>

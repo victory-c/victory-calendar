@@ -7,10 +7,27 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   typedRoutes: false,
   poweredByHeader: false,
+  // Root layout lives under [locale], so unmatched URLs need app/global-not-found.tsx.
+  experimental: { globalNotFound: true },
   async headers() {
     return [
-      // Font slices are content-hashed; the index stylesheets are not.
-      { source: '/fonts/:dir/:file*', headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }] },
+      // Baseline hardening for every response (nothing on this site is meant to be framed).
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
+        ],
+      },
+      // Font slices are content-hashed (8 hex chars); only those get the one-year immutable header,
+      // so a 404 for some other name is never cached for a year.
+      {
+        source: '/fonts/:dir/:file([0-9a-f]{8}\\.woff2)',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
+      },
       { source: '/fonts/:sheet.css', headers: [{ key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=604800' }] },
     ];
   },

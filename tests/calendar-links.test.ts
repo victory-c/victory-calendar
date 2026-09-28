@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { googleEvent, googleSubscribe, outlookEvent, targetOrder, webcal } from '@/lib/calendar-links';
+import { feedUrl, googleEvent, googleSubscribe, outlookEvent, outlookSubscribe, targetOrder, webcal } from '@/lib/calendar-links';
 
 const e = {
   title: 'Agents & Evals Night',
@@ -27,6 +27,17 @@ describe('calendar links (formats are undocumented, so pin them)', () => {
   it('Outlook single event', () => {
     expect(outlookEvent(e)).toMatchInlineSnapshot(
       `"https://outlook.live.com/calendar/deeplink/compose?path=%2Fcalendar%2Faction%2Fcompose&rru=addevent&startdt=2026-10-08T01%3A30%3A00.000Z&enddt=2026-10-08T04%3A00%3A00.000Z&subject=Agents+%26+Evals+Night&location=SoMa+loft%2C+San+Francisco&body=%E5%85%AD%E4%B8%AA+demo%0ARSVP%3A+https%3A%2F%2Fluma.com%2Fabc"`,
+    );
+  });
+  it('feed URLs for category, language and going selections', () => {
+    const o = 'https://picks.example.com';
+    expect(feedUrl(o, { cats: ['ai', 'hackathon'], locale: 'zh' })).toBe('https://picks.example.com/calendar.ics?c=ai,hackathon&lang=zh');
+    expect(feedUrl(o, { cats: [], locale: 'en' })).toBe('https://picks.example.com/calendar.ics');
+    expect(feedUrl(o, { locale: 'zh', going: true, cats: ['ai'] })).toBe('https://picks.example.com/calendar/going.ics?lang=zh');
+  });
+  it('Outlook subscribe', () => {
+    expect(outlookSubscribe('https://picks.example.com/calendar.ics?c=ai&lang=zh', 'Victor 精选 · AI 与技术')).toMatchInlineSnapshot(
+      `"https://outlook.live.com/calendar/0/addfromweb?url=https%3A%2F%2Fpicks.example.com%2Fcalendar.ics%3Fc%3Dai%26lang%3Dzh&name=Victor+%E7%B2%BE%E9%80%89+%C2%B7+AI+%E4%B8%8E%E6%8A%80%E6%9C%AF"`,
     );
   });
   it('zh orders Apple, Outlook, .ics, Google', () => {

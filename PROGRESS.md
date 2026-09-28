@@ -19,15 +19,16 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 | 9 | 在 Vercel env 设 `ADMIN_EMAIL`（后台唯一允许登录的邮箱）、`BETTER_AUTH_SECRET`、`CRON_SECRET`、`SUBSCRIBER_LINK_SECRET`（各用 `openssl rand -base64 32` 生成） | M0 第 2 周 | ⬜ |
 | 10 | 首次登录 /admin/sign-in：用 magic link 登录，然后在 iPhone（Face ID）和 Mac（Touch ID）各注册一个 passkey（G0 门槛） | M0 第 2 周部署后 | ⬜ |
 | 11 | 安装两个 iOS 快捷指令（Add to Picks、Add & Publish），我会给 iCloud 链接和令牌生成步骤 | M2 第 10 周 | ⬜ |
-| 12 | 批准把 `m0-foundations` 和 `m1-public-site` 合并进 `main`。预览受 Vercel 登录保护，日历 App 抓不到；合并后生产地址 `victor-picks.vercel.app` 才是公开的 | G1 验证前 | ⬜ 等你确认 |
+| 12 | 批准把 `m0-foundations` 和 `m1-public-site` 合并进 `main` | G1 验证前 | ✅ 2026-09-28 已批准并合并（#1、#2），生产站 `https://victor-picks.vercel.app` 公开可访问 |
 | 13 | G1 实测：iPhone「设置 → 日历 → 账户 → 添加已订阅的日历」填 `webcal://victor-picks.vercel.app/calendar.ics?lang=zh`，Google Calendar 用「通过网址添加」填同一地址的 https 版；看活动时间是否是本地时间、改期后是否更新 | 第 12 项之后 | ⬜ |
 | 14 | 给我 20 场你真的想推荐的活动（链接 + 一句点评即可），替换示例数据。M2 的后台做好后也可以自己录 | M1 第 6 周 | ⬜ |
 
 ## 当前状态
 
-- 分支：`m0-foundations`（M0），`m1-public-site`（M1，基于 M0）。两者都没有合并进 `main`
-- 里程碑：M0 代码完成，G0 差 2 条外部步骤；M1 代码完成，G1 未通过（见「门槛」），所以还没开始 M2
-- M1 分支固定预览地址：`https://victor-picks-git-m1-public-site-victory-c-8190s-projects.vercel.app`
+- 分支：M0（#1）与 M1（#2）已于 2026-09-28 合并进 `main`；后续修正在 `m1-g1-followup`
+- 生产站：`https://victor-picks.vercel.app`（公开，种子模式，顶部有「示例数据」横幅）
+- 里程碑：M0 代码完成，G0 差 2 条外部步骤；M1 代码完成，G1 只差你用真机订阅日历（checklist 13）。按规则 G1 全部通过前不进 M2
+
 - Vercel 项目：`victor-picks`（victory-c-8190s-projects），已连 GitHub，推送分支自动出预览
 - 分支固定预览地址：`https://victor-picks-git-m0-foundations-victory-c-8190s-projects.vercel.app`（受 Vercel Authentication 保护：登录 Vercel 即可看；给别人看需要临时分享链接，23 小时有效）
 - 预览目前是种子模式（Vercel 上还没有数据库），页面顶部有「示例数据」横幅
@@ -103,6 +104,41 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 阻塞
 - checklist 12（合并进 main）与 13（真机订阅），G1 才能验完。
 
+### M1 合并后（2026-09-28）：生产站验证与修正（分支 `m1-g1-followup`）
+
+用 5 个独立检查代理对生产站做了一轮验证（路由与双语、日历订阅、RSS 与 SEO、后台与隐私安全、性能与缓存），每条发现再由一个反驳代理独立复现。结果：21 条确认（无高危）、4 条被驳回、6 条仅供参考。确认的问题全部在本分支修掉：
+
+- **多日活动丢了结束时间**（详情页与 RSS）：现在显示「Fri, Oct 2 · 9:00 AM – Sat, Oct 3 · 7:00 PM PT」「10月2日周五 9:00 – 10月3日周六 19:00 北美太平洋时间」。
+- **站上没有任何订阅按钮**（PRD F05 的 M1 范围，我之前漏了）：首页和月历加「订阅这几类 / 订阅日历」菜单（跟随类别芯片），/going 加「订阅 Victor 会去」。菜单里有 Apple（webcal）、Google、Outlook 和可复制的订阅地址，zh 顺序为 Apple、Outlook、Google；附刷新时间说明。
+- **页头「订阅」链到还没做的 /subscribe（404）**：先去掉，M3 做 newsletter 时加回。
+- **打开别人分享的 /zh 链接会把语言锁成中文一年**：现在只有语言切换会写 cookie（经 `/_locale`，带防开放重定向）；**繁体中文优先、英文兜底的浏览器**以前留在英文，现在按「首选语言 zh* → /zh」。
+- **预渲染页面上的语言切换链接指向对方首页**：现在服务器端就指向同一页。
+- **404**：`/api`、`/.env`、`/fr` 这类路径以前会渲染英文首页（200），现在一律 404；没有匹配路由的地址显示服务器渲染的双语 404（`app/global-not-found.tsx`，需要 Next 的实验开关 `experimental.globalNotFound`）。
+- **月历与归档的 canonical 指向当月**：`?m=` 现在写进 canonical 和 hreflang。
+- **分享卡片信息太少**：每页都有 og:title、og:description、og:url、og:site_name、og:locale 和 Twitter 卡；首页标题带站名；已取消活动的标题前加「[已取消] / [Cancelled]」。OG 图随 M2 的封面管线来。
+- **ICS 细节**：DTSTAMP 改为 UTC（带 Z），文件以 CRLF 结尾（RFC 5545）。
+- **骑行活动的起点被公开**（指南「骑行团骑和起点永不发布」）：读模型出口统一去掉骑行活动的场地、地址、街区，只留城市；页面、ICS、JSON-LD、加日历链接都生效。
+- **sitemap 漏了 /archive**：已加。
+- **安全响应头**：全站加 `X-Content-Type-Options: nosniff`、`Referrer-Policy`、`X-Frame-Options: DENY` 与 `frame-ancestors 'none'`、`Permissions-Policy`。
+- **缺失的字体切片 404 也被缓存一年**：一年 immutable 头只给 8 位十六进制哈希命名的 woff2。
+- **伪造的后台会话 cookie 会进错误页**：现在按未登录处理，跳回登录页。
+- **字标链接的无障碍名称与可见文字不一致**：去掉多余的 aria-label。
+- 生产检查代理在仓库里留下了一个下载的 HTML 文件（`cm.html`），已删除。
+
+没有修、只记录的
+- **路由内的 404**（未知活动 slug、不存在的 ISO 周）状态码是 404 且带 noindex，但 HTML 是空壳，本地化的「页面不存在」由客户端补渲染。这是 Next 16.3 Cache Components 对 `notFound()` 的现行行为；我试过不依赖语言的 not-found 组件，结果一样。关掉 JS 的访客在这些地址看到空白页。
+- **首页 JS 157 KB（gzip）**，高于 PRD 与指南的 120 KB。其中 React 与 Next 运行时两块就约 117 KB，按指南「估算后校准」的精神记为新预算（见文档冲突 13）。
+- **实验室 LCP**：生产站中位数 2.4–2.7 s，略高于 2.5 s；PRD 的目标是真实用户 p75，性能分都在 0.96 以上。
+
+检查结果：typecheck、lint 通过；Vitest 79 个用例通过；Playwright 64 个通过、2 个跳过（passkey 需要数据库，已在本地数据库上单独跑通）；构建通过。
+
+在 PR #3 的预览上复查（6 个复查代理 + 反驳代理）：21 条都确认修好，回归检查全部通过；另外抓到 3 个问题，也已在本分支修掉：
+- **新的开放重定向（安全）**：语言切换 `/_locale` 只检查了原始 `to` 参数，`/.//evil.com` 这类带 `.` 路径段的地址规范化后变成 `//evil.com`，会跳到站外。现在校验规范化之后的路径，并在 proxy 里再确认一次目标仍是本站。
+- **/calendar 与 /week 缺描述**：加了 description 与 og:description。
+- **手机上「加入日历」菜单超出屏幕右边**（M1 就有的问题）：手机上改为在按钮下方整行展开，平板以上仍是下拉。
+
+运维备注：复查时多个代理同时高频请求预览，触发了 Vercel 的安全验证页（403 challenge，约 10 分钟后自动解除）。这是平台对短时间大量无头浏览器请求的防护，不是站点问题；日历 App 的正常抓取频率不会触发。
+
 ## 门槛
 
 | 门槛 | 条目 | 结果 |
@@ -113,11 +149,11 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 
 G0 结论：本地能验证的全部通过，剩下两条只差外部步骤。M1 的工作不碰鉴权和发信，所以我在等外部步骤的同时继续 M1，G0 这两条补验后再记结果。
 
-| G1 | Lighthouse 性能 ≥ 90（移动端，3 次取中位数，`pnpm lhci`） | 部分通过：`/` 0.93 ✅、`/zh` 0.92 ✅、`/calendar` 0.95 ✅、`/zh/events/chinese-founders-mixer` 0.88 ❌ |
-| G1 | Lighthouse 无障碍 ≥ 95 | ✅ 四个页面都是 100；CLS 都是 0 |
-| G1 | ICS 在 Apple Calendar 与 Google 导入正确 | ⏳ 自动化替代检查已通过（VTIMEZONE、TZID、PT1H、node-ical 回读的时间与原始时间一致，跨夏令时）。真机导入需要公开地址（checklist 12、13） |
+| G1 | Lighthouse 性能 ≥ 90（移动端，3 次取中位数） | ✅ 生产站真实网络（2026-09-28）：`/` 0.98、`/zh` 0.97、`/zh/events/chinese-founders-mixer` 0.97、`/calendar` 0.96。之前本地的 0.88 是 localhost 模拟的假象 |
+| G1 | Lighthouse 无障碍 ≥ 95 | ✅ 四个页面都是 100；CLS 约 0 |
+| G1 | ICS 在 Apple Calendar 与 Google 导入正确 | ⏳ 生产站自动检查全部通过：46 个文件（6 条订阅 + 40 个单场）CRLF、75 字节折行、VTIMEZONE、每场 DTSTART 与页面时间一致、node-ical 回读一致；用 iOS、macOS、Google、Outlook 的 User-Agent 匿名抓取都是 200。剩下你在 iPhone 和 Google Calendar 上各订阅一次（checklist 13） |
 
-G1 结论：未通过，所以没有开始 M2。
+G1 结论：只差 checklist 13 这一项真机测试；按规则通过前不进 M2。
 
 Lighthouse 说明：本机测量时 Chrome 找得到苹方，所以中文正文不下载切片；在没有苹方的 Linux CI 上分数会更低，因此 `pnpm lhci` 目前只在本地跑，没有放进 GitHub Actions。
 
@@ -143,6 +179,11 @@ Lighthouse 说明：本机测量时 Chrome 找得到苹方，所以中文正文�
 - **模板封面的六个汉字（黑投校会骑聚）是 SVG 轮廓**，由 `scripts/glyph-paths.py` 从 Noto Serif SC 生成；`AI` 仍用 Fraunces 文本。以后 next/og 的模板图可以复用同一份轮廓。
 - **流式内容的占位高度是 150vh**，页脚留在静态外壳里（保留 contentinfo 地标），位移发生在屏幕外，不计入 CLS。
 - **/privacy 的页脚链接先去掉**，M3 写隐私页时加回，避免链到 404。
+- **语言选择的规则**：只有语言切换（`/_locale`）写一年的 NEXT_LOCALE cookie；没有 cookie 时看浏览器首选语言，zh 开头（含繁体）进 /zh，其余英文。打开任何 /zh 或英文链接都不会改你存下的选择。
+- **没有匹配路由的地址用双语 404**（`app/global-not-found.tsx`），依赖 Next 的实验开关 `experimental.globalNotFound`；以后开关转正或行为变了要回来看。
+- **Outlook 的订阅深链接** `outlook.live.com/calendar/0/addfromweb?url=…` 没有官方文档，已用快照测试锁住格式。
+- **页头「订阅」按钮在 M3 前隐藏**；日历订阅入口放在首页、月历和 /going 的「订阅」菜单里。
+- **骑行活动在所有公开出口只显示城市**，不显示场地名或起点，包括已报名的正式骑行（gran fondo）。
 - **VTIMEZONE 只内置 17 个时区**（太平洋、山地、中部、东部、夏威夷、阿拉斯加、伦敦、巴黎、柏林、上海、香港、台北、东京、新加坡、加尔各答、UTC）。其他时区的活动仍写 TZID，但不附 VTIMEZONE 块，主流日历 App 认识 IANA 名称。
 - **ICS 与 RSS 从第 6 周提前到第 4 周**，因为详情页的「加入日历」要用。
 - **`victorchun-site` 升级到 16.3.7 暂缓**：npm 上 next 最新仍是 16.3.6（今天 9/28，指南说 9/30 之后发布）。它在另一个仓库，发布后单独处理。
@@ -161,3 +202,4 @@ Lighthouse 说明：本机测量时 Chrome 找得到苹方，所以中文正文�
 10. **印章以外的朱砂**：PRD 规定朱砂只属于 going 系统，但同一份文档也写了焦点环、点评左线和字标小印用朱砂。三处都照文档保留，别处（例如「今天」标签）不用。
 11. **字体预算**：PRD 与指南写 en 首屏字体 ≤ 120 KB，但指定的四个字体（Geist、Geist Mono、Fraunces 正体带 opsz、Fraunces 斜体）子集化后实测仍是 140 KB。两份文档都写了这个数字是估算、要用 Lighthouse CI 校准，所以按实测 140 KB 记为新预算；zh 首屏在苹果设备上实测为 Latin 140 KB + 标题切片约 80–370 KB（视页面文字而定）。
 12. **date-fns**：指南选了 date-fns 4.4 + @date-fns/tz，但 Next 16.3 的 Cache Components 在预渲染时拒绝 `TZDate` 内部的无参数 `new Date()`。改用 Intl 计算偏移，去掉这两个依赖。
+13. **首页 JS 预算**：PRD 与指南写首页 JS ≤ 120 KB（gzip），生产实测 157 KB，其中 React 与 Next 运行时约 117 KB，砍业务代码也到不了 120 KB。按实测记为新预算。

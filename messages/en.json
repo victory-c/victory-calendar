@@ -90,7 +90,8 @@
     "today": "Today",
     "agenda": "Events this month",
     "empty": "No picks this month yet.",
-    "events": "{count, plural, one {# event} other {# events}}"
+    "events": "{count, plural, one {# event} other {# events}}",
+    "description": "Every pick by month, with a day-by-day agenda. Subscribe to the categories you care about."
   },
   "Going": {
     "title": "Where Victor is going",
@@ -107,7 +108,8 @@
   "Week": {
     "title": "Week of {date}",
     "prev": "Previous week",
-    "next": "Next week"
+    "next": "Next week",
+    "description": "Victor's picks for the week of {date}: Bay Area tech events, with a note on why each one is worth going to."
   },
   "About": {
     "title": "About",
@@ -119,5 +121,16 @@
       "going": "Where I'm going",
       "archive": "Archive"
     }
+  },
+  "Subscribe": {
+    "all": "Subscribe to the calendar",
+    "these": "Subscribe to these categories",
+    "going": "Subscribe to where Victor is going",
+    "apple": "Apple Calendar",
+    "google": "Google Calendar",
+    "outlook": "Outlook",
+    "url": "Feed URL",
+    "urlHint": "Paste into any calendar app that accepts a URL.",
+    "refresh": "Calendar apps refresh on their own schedule: Apple in 15 minutes to a few hours, Outlook in 3–12 hours, Google in 12–24 hours or longer. Cancellations also go out by email."
   }
 }

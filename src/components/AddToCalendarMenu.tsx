@@ -21,12 +21,13 @@ export async function AddToCalendarMenu({ event: e, locale }: { event: PublicEve
   } as const;
   const order = targetOrder(locale).filter((k): k is keyof typeof links => k in links);
   return (
-    <details className="group relative">
+    // Phones: the menu opens in-flow under the button (a dropdown overflowed the 390 px viewport).
+    <details className="group relative w-full sm:w-auto">
       <summary className="inline-flex h-11 cursor-pointer list-none items-center gap-2 rounded-full border border-rule px-5 text-sm [&::-webkit-details-marker]:hidden">
         {t('addToCalendar')}
         <span aria-hidden className="text-muted transition-transform group-open:rotate-180">▾</span>
       </summary>
-      <ul className="absolute left-0 z-20 mt-2 min-w-56 rounded-card border border-rule bg-paper p-1.5 shadow-lg">
+      <ul className="z-20 mt-2 w-full rounded-card border border-rule bg-paper p-1.5 shadow-lg sm:absolute sm:left-0 sm:w-auto sm:min-w-56">
         {order.map((k) => (
           <li key={k}>
             <a

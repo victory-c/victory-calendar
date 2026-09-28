@@ -10,19 +10,21 @@ import { GoingStrip } from '@/components/GoingStrip';
 import { SampleBanner } from '@/components/SampleBanner';
 import { SiteFooter } from '@/components/SiteFooter';
 import { SiteHeader } from '@/components/SiteHeader';
+import { SubscribeMenu } from '@/components/SubscribeMenu';
 import { WeekStrip } from '@/components/WeekStrip';
 import { applyFilters, parseFilters } from '@/lib/events/filters';
 import { publicGoing, type SealKind } from '@/lib/events/going';
 import { getUpcoming } from '@/lib/events/queries';
 import { hasDatabase } from '@/lib/db';
 import type { PublicEvent } from '@/lib/events/types';
-import { alternates } from '@/lib/seo';
+import { pageMeta } from '@/lib/seo';
 import type { Locale } from '@/lib/taxonomy';
 
 export async function generateMetadata(): Promise<Metadata> {
   const locale = (await getLocale()) as Locale;
   const t = await getTranslations({ locale, namespace: 'Home' });
-  return { title: t('title'), alternates: alternates('/', locale) };
+  const ts = await getTranslations({ locale, namespace: 'Site' });
+  return pageMeta({ path: '/', locale, title: t('title'), description: ts('tagline'), absolute: true });
 }
 
 export default async function Home({ searchParams }: PageProps<'/[locale]'>) {
@@ -69,6 +71,7 @@ async function Week({ locale, searchParams }: { locale: Locale; searchParams: Pa
   return (
     <>
       <FacetPanel locale={locale} filters={filters} action={locale === 'zh' ? '/zh' : '/'} />
+      <SubscribeMenu locale={locale} cats={filters.cats} />
       <WeekStrip events={visible} todayKey={data.todayKey} locale={locale} />
       <GoingStrip items={goingItems} locale={locale} />
       <FeaturedRail items={featured.map((e) => ({ event: e, going: going(e) }))} locale={locale} />

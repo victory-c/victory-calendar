@@ -32,13 +32,23 @@ export function normalizeSpaces(s: string, locale: Locale = 'en') {
   return s.replace(/\s*[–-]\s*(?=\d)/g, '\u2009–\u2009').replace(/[\s\u202f\u00a0]+(AM|PM)/g, '\u00a0$1');
 }
 
-/** zh → 10月7日周三 18:30–20:00 北美太平洋时间 · en → Wed, Oct 7 · 6:30 – 8:00 PM PT */
+/**
+ * zh → 10月7日周三 18:30–20:00 北美太平洋时间 · en → Wed, Oct 7 · 6:30 – 8:00 PM PT
+ * Multi-day: zh → 10月2日周五 9:00 – 10月3日周六 19:00 北美太平洋时间
+ *            en → Fri, Oct 2 · 9:00 AM – Sat, Oct 3 · 7:00 PM PT
+ */
 export function fmtRange(start: Date, end: Date | null, locale: Locale, tz = PT) {
-  const day = dayFmt(locale, tz).format(start);
+  const day = dayFmt(locale, tz);
   const time = timeFmt(locale, tz);
-  const sameDay = end && dayKey(start, tz) === dayKey(end, tz);
-  const range = normalizeSpaces(end && sameDay ? time.formatRange(start, end) : time.format(start), locale);
-  return locale === 'zh' ? `${day} ${range} ${zoneLabel(locale)}` : `${day} · ${range} ${zoneLabel(locale)}`;
+  const sep = locale === 'zh' ? ' ' : ' · ';
+  const zone = zoneLabel(locale);
+  if (end && dayKey(start, tz) !== dayKey(end, tz) && end > start) {
+    const a = `${day.format(start)}${sep}${normalizeSpaces(time.format(start), locale)}`;
+    const b = `${day.format(end)}${sep}${normalizeSpaces(time.format(end), locale)}`;
+    return `${a}\u2009–\u2009${b} ${zone}`;
+  }
+  const range = normalizeSpaces(end ? time.formatRange(start, end) : time.format(start), locale);
+  return `${day.format(start)}${sep}${range} ${zone}`;
 }
 
 /** Full date for headings: 2026年10月7日星期三 / Wednesday, October 7, 2026 */

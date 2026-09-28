@@ -4,7 +4,9 @@ export const routing = defineRouting({
   locales: ['en', 'zh'],
   defaultLocale: 'en',
   localePrefix: 'as-needed',
-  localeCookie: { maxAge: 60 * 60 * 24 * 365 }, // manual switch remembered for a year
+  // The NEXT_LOCALE cookie is written only by the language switch (/_locale in src/proxy.ts),
+  // which then feeds it back through Accept-Language; see src/lib/locale-detect.ts.
+  localeCookie: false,
   // hreflang must be en / zh-Hans / x-default (PRD §9); pages emit them via metadata instead.
   alternateLinks: false,
 });
