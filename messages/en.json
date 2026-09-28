@@ -45,6 +45,17 @@
     "allDay": "All day",
     "signature": "— Victor",
     "rsvp": "RSVP",
-    "sealLabel": "Victor: {label}"
+    "sealLabel": "Victor: {label}",
+    "back": "This week",
+    "addToCalendar": "Add to calendar",
+    "apple": "Apple Calendar · .ics",
+    "google": "Google Calendar",
+    "outlook": "Outlook",
+    "hostedBy": "Hosted by {host}",
+    "coverCredit": "Cover: {host} via {platform}",
+    "yourTime": "Your time",
+    "rsvpAt": "RSVP on {platform}",
+    "refreshNote": "Calendar apps refresh subscriptions on their own schedule; cancellations also go out by email.",
+    "onlineAt": "Online"
   }
 }

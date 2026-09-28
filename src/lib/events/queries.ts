@@ -24,17 +24,17 @@ function startOfDayPT(now: Date, addDays = 0) {
   return new Date(new TZDate(y, m - 1, d + addDays, 0, 0, 0, PT).getTime());
 }
 
-async function fromDb(from: Date, to: Date): Promise<PublicEvent[]> {
+const PUBLIC_STATUSES = ['published', 'cancelled'] as const;
+
+async function fromDb(from: Date, to: Date, slug?: string): Promise<PublicEvent[]> {
   const rows = await db
     .select()
     .from(eventsPublic)
     .leftJoin(covers, eq(covers.id, eventsPublic.coverId))
     .where(
-      and(
-        inArray(eventsPublic.status, ['published', 'cancelled']),
-        gte(eventsPublic.startAt, from),
-        lt(eventsPublic.startAt, to),
-      ),
+      slug
+        ? and(inArray(eventsPublic.status, [...PUBLIC_STATUSES]), eq(eventsPublic.slug, slug))
+        : and(inArray(eventsPublic.status, [...PUBLIC_STATUSES]), gte(eventsPublic.startAt, from), lt(eventsPublic.startAt, to)),
     )
     .orderBy(asc(eventsPublic.startAt));
   return rows.flatMap(({ events_public: e, covers: c }) => {
@@ -74,4 +74,41 @@ export async function getUpcoming(days = 7): Promise<Upcoming> {
     ? seedEvents(now).filter((e) => e.startAt >= from && e.startAt < to).sort((a, b) => +a.startAt - +b.startAt)
     : await fromDb(from, to);
   return { now: now.toISOString(), todayKey: dayKey(now, PT), events, showAttendance: await showAttendance(), sample };
+}
+
+export type Window = { now: string; events: PublicEvent[]; showAttendance: boolean; sample: boolean };
+
+/**
+ * Feeds and calendars: published + cancelled events whose start falls in [today + fromDays,
+ * today + toDays). Cancelled rows stay visible for 14 days after cancellation via their start
+ * date window (guide: STATUS:CANCELLED kept 14 days).
+ */
+export async function getWindow(fromDays: number, toDays: number): Promise<Window> {
+  'use cache';
+  cacheTag('events');
+  cacheLife({ stale: 300, revalidate: 900, expire: 86_400 });
+  const now = new Date();
+  const from = startOfDayPT(now, fromDays);
+  const to = startOfDayPT(now, toDays);
+  const sample = !hasDatabase();
+  const events = sample
+    ? seedEvents(now).filter((e) => e.startAt >= from && e.startAt < to).sort((a, b) => +a.startAt - +b.startAt)
+    : await fromDb(from, to);
+  return { now: now.toISOString(), events, showAttendance: await showAttendance(), sample };
+}
+
+export async function getEventBySlug(slug: string): Promise<(Window & { event: PublicEvent | null })> {
+  'use cache';
+  cacheTag('events');
+  cacheLife({ stale: 300, revalidate: 900, expire: 86_400 });
+  const now = new Date();
+  const sample = !hasDatabase();
+  const events = sample ? seedEvents(now).filter((e) => e.slug === slug) : await fromDb(now, now, slug);
+  return { now: now.toISOString(), events, event: events[0] ?? null, showAttendance: await showAttendance(), sample };
+}
+
+/** Slugs to prerender at build time (upcoming window). */
+export async function upcomingSlugs() {
+  const { events } = await getWindow(-1, 30);
+  return events.map((e) => e.slug);
 }

@@ -7,6 +7,13 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   typedRoutes: false,
   poweredByHeader: false,
+  // ical-timezones reads its VTIMEZONE files relative to __dirname, which bundling breaks.
+  serverExternalPackages: ['@touch4it/ical-timezones'],
+  outputFileTracingIncludes: {
+    '/calendar.ics': ['./node_modules/@touch4it/ical-timezones/zones/**/*'],
+    '/calendar/going.ics': ['./node_modules/@touch4it/ical-timezones/zones/**/*'],
+    '/ics/[slug]': ['./node_modules/@touch4it/ical-timezones/zones/**/*'],
+  },
   async headers() {
     return [
       // Font slices are content-hashed; the index stylesheets are not.

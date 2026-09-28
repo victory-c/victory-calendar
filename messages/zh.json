@@ -45,6 +45,17 @@
     "allDay": "全天",
     "signature": "— Victor",
     "rsvp": "报名",
-    "sealLabel": "Victor：{label}"
+    "sealLabel": "Victor：{label}",
+    "back": "本周",
+    "addToCalendar": "加入日历",
+    "apple": "Apple 日历 · .ics",
+    "google": "Google 日历",
+    "outlook": "Outlook",
+    "hostedBy": "主办：{host}",
+    "coverCredit": "封面：{host} via {platform}",
+    "yourTime": "你的时间",
+    "rsvpAt": "去 {platform} 报名",
+    "refreshNote": "日历 App 按自己的节奏刷新订阅；取消和改期也会发邮件通知。",
+    "onlineAt": "线上"
   }
 }
