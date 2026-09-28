@@ -1,10 +1,12 @@
 'use client';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { authClient } from '@/lib/auth-client';
 
 type State = { kind: 'idle' } | { kind: 'busy' } | { kind: 'sent' } | { kind: 'error'; message: string };
 
 export function SignInForm() {
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [state, setState] = useState<State>({ kind: 'idle' });
 
@@ -12,7 +14,8 @@ export function SignInForm() {
     setState({ kind: 'busy' });
     const res = await authClient.signIn.passkey();
     if (res?.error) return setState({ kind: 'error', message: res.error.message ?? 'Passkey failed · 通行密钥失败' });
-    window.location.assign('/admin');
+    router.replace('/admin');
+    router.refresh();
   }
 
   async function magicLink(e: React.FormEvent) {

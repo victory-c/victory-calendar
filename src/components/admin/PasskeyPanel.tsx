@@ -1,8 +1,10 @@
 'use client';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { authClient } from '@/lib/auth-client';
 
 export function PasskeyPanel() {
+  const router = useRouter();
   const [msg, setMsg] = useState('');
   async function add() {
     const res = await authClient.passkey.addPasskey({ name: navigator.userAgent.includes('iPhone') ? 'iPhone' : 'Mac' });
@@ -10,7 +12,8 @@ export function PasskeyPanel() {
   }
   async function signOut() {
     await authClient.signOut();
-    window.location.assign('/admin/sign-in');
+    router.replace('/admin/sign-in');
+    router.refresh();
   }
   return (
     <div className="mt-6 flex flex-wrap gap-3">
