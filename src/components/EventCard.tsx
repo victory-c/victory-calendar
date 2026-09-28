@@ -27,9 +27,10 @@ export async function EventCard({ event: e, locale, going, priority }: Props) {
       <div className="pt-0.5 font-mono">
         <time dateTime={isoWithOffset(e.startAt, e.tz)} className="tnum block text-[1.125rem] leading-none md:text-h3">
           {e.allDay ? '—' : time}
-          {period && <span className="ml-0.5 text-xs text-muted">{period}</span>}
         </time>
-        {duration && <span className="mt-1.5 block text-xs text-muted">{duration}</span>}
+        {/* en: AM/PM rides on the second line so "12:00" fits the 56 px column. */}
+        {period && !e.allDay && <span className="mt-1 block text-xs text-muted">{period}</span>}
+        {duration && <span className="mt-1 block text-xs text-muted">{duration}</span>}
       </div>
 
       <Link href={`/events/${e.slug}`} className="block self-start" tabIndex={-1} aria-hidden>

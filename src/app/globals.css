@@ -181,7 +181,7 @@ h3 {
 }
 .cover-tile-glyph {
   position: absolute;
-  inset: 18% 0 0 18%;
+  inset: 18% 0 8% 18%;
   display: grid;
   place-items: center;
   color: var(--color-paper);
@@ -198,12 +198,13 @@ h3 {
 .cover-tile-host {
   display: none;
   position: absolute;
-  left: 8cqw;
+  left: 24cqw;
   right: 6cqw;
-  top: 5cqw;
+  bottom: 4.5cqw;
   font-size: 4.5cqw;
   line-height: 1.2;
-  color: color-mix(in oklch, var(--c) 70%, var(--color-ink));
+  color: var(--color-paper);
+  opacity: 0.85;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
