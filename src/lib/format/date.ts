@@ -123,3 +123,14 @@ export function isoWithOffset(d: Date, tz = PT) {
   const off = parts.timeZoneName === 'GMT' ? '+00:00' : parts.timeZoneName.replace('GMT', '');
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}${off}`;
 }
+
+/** TimeBadge parts: zh { time: "18:30" }, en { time: "6:30", period: "PM" } */
+export function fmtTimeParts(d: Date, locale: Locale, tz = PT) {
+  const parts = timeFmt(locale, tz).formatToParts(d);
+  const period = parts.find((p) => p.type === 'dayPeriod')?.value ?? null;
+  const time = parts
+    .filter((p) => p.type === 'hour' || p.type === 'minute' || (p.type === 'literal' && p.value.includes(':')))
+    .map((p) => p.value)
+    .join('');
+  return { time, period };
+}
