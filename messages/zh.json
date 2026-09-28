@@ -7,14 +7,44 @@
     "langSwitch": "语言",
     "about": "关于",
     "privacy": "隐私",
-    "noPaid": "无付费植入。"
+    "noPaid": "无付费植入。",
+    "rss": "RSS",
+    "ical": "日历订阅",
+    "sample": "示例数据：这 20 场活动只是设计评审用的占位，不是真实活动。",
+    "nav": "主导航"
   },
   "Home": {
     "thisWeek": "本周",
+    "title": "本周精选",
+    "featured": "本周推荐",
+    "going": "Victor 会去",
+    "filter": "按类别筛选",
+    "all": "全部",
+    "today": "今天",
+    "tomorrow": "明天",
+    "empty": "这周这些分类没有我想推荐的活动，试试放宽筛选。",
+    "emptyFilter": "显示全部类别",
+    "eventCount": "{count} 场精选",
     "comingSoon": "精选正在路上。"
   },
   "NotFound": {
     "title": "页面不存在",
     "back": "回到本周"
+  },
+  "Event": {
+    "interested": "想去",
+    "free": "免费",
+    "apply": "需申请",
+    "waitlist": "候补",
+    "sold_out": "已售罄",
+    "langZh": "中文",
+    "langBilingual": "双语",
+    "online": "线上",
+    "hybrid": "线上线下",
+    "cancelled": "已取消",
+    "allDay": "全天",
+    "signature": "— Victor",
+    "rsvp": "报名",
+    "sealLabel": "Victor：{label}"
   }
 }

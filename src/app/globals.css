@@ -167,3 +167,86 @@ h3 {
     scroll-behavior: auto !important;
   }
 }
+
+/* ---------- Template cover tile (PRD §5b step 3; also the image error state) ---------- */
+.cover-tile {
+  container-type: inline-size;
+  background: color-mix(in oklch, var(--c) 14%, var(--color-paper));
+}
+.cover-tile-block {
+  position: absolute;
+  inset: 18% 0 0 18%;
+  background: var(--c);
+  border-top-left-radius: 10cqw;
+}
+.cover-tile-glyph {
+  position: absolute;
+  inset: 18% 0 0 18%;
+  display: grid;
+  place-items: center;
+  color: var(--color-paper);
+  font-size: 46cqw;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variation-settings: "opsz" 144;
+}
+.cover-tile-glyph.cjk {
+  font-size: 50cqw;
+  letter-spacing: 0;
+}
+.cover-tile-host {
+  display: none;
+  position: absolute;
+  left: 8cqw;
+  right: 6cqw;
+  top: 5cqw;
+  font-size: 4.5cqw;
+  line-height: 1.2;
+  color: color-mix(in oklch, var(--c) 70%, var(--color-ink));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@container (min-width: 200px) {
+  .cover-tile-host {
+    display: block;
+  }
+}
+
+/* ---------- Seal ---------- */
+.seal {
+  transform: rotate(-3deg);
+  animation: seal-stamp 120ms ease-out both;
+  box-shadow: 0 0 0 1.5px var(--color-paper);
+}
+@keyframes seal-stamp {
+  from {
+    transform: rotate(-3deg) scale(1.15);
+  }
+  to {
+    transform: rotate(-3deg) scale(1);
+  }
+}
+
+/* Horizontal rails scroll inside themselves, never the page. */
+.rail {
+  scroll-padding-inline: 1rem;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+.rail::-webkit-scrollbar {
+  display: none;
+}
+
+.title-link {
+  text-decoration-line: none;
+}
+.title-link:hover {
+  text-decoration-line: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+.wordmark {
+  font-variation-settings: "opsz" 72;
+}
