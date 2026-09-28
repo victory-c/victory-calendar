@@ -1,0 +1,166 @@
+@import "tailwindcss";
+/* CJK slices (cn-font-split output, each @font-face has a unicode-range). */
+@import "./fonts-cjk.css";
+
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+/* Local metric-matched fallbacks so slice swaps don't reflow (values calibrated in week 2). */
+@font-face {
+  font-family: "Noto Serif SC Fallback";
+  src: local("PingFang SC"), local("Songti SC");
+  size-adjust: 100%;
+  ascent-override: 90%;
+  descent-override: 25%;
+}
+@font-face {
+  font-family: "Noto Sans SC Fallback";
+  src: local("PingFang SC"), local("Microsoft YaHei");
+  size-adjust: 100%;
+  ascent-override: 90%;
+  descent-override: 25%;
+}
+
+@theme {
+  --color-paper: oklch(0.985 0.004 250);
+  --color-ink: oklch(0.21 0.02 260);
+  --color-muted: oklch(0.55 0.01 260);
+  --color-rule: oklch(0.9 0.01 250);
+  --color-seal: oklch(0.63 0.19 32);
+  --color-seal-text: oklch(0.48 0.19 32);
+
+  --color-cat-ai: oklch(0.55 0.15 275);
+  --color-cat-hackathon: oklch(0.62 0.13 95);
+  --color-cat-vc: oklch(0.58 0.13 145);
+  --color-cat-campus: oklch(0.62 0.14 65);
+  --color-cat-conference: oklch(0.55 0.12 235);
+  --color-cat-cycling: oklch(0.58 0.12 190);
+  --color-cat-social: oklch(0.58 0.14 330);
+
+  /* Latin always before CJK in every stack (PRD §9). */
+  --font-display: var(--font-fraunces), "Noto Serif SC", "Noto Serif SC Fallback", "Noto Serif CJK SC", serif;
+  --font-sans: var(--font-geist-sans), "Noto Sans SC", "Noto Sans SC Fallback", "Hiragino Sans GB", sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-note: var(--font-fraunces), "LXGW WenKai", "Noto Serif SC Fallback", serif;
+
+  --text-display: 3.5rem;
+  --text-h1: 2.5rem;
+  --text-h2: 1.75rem;
+  --text-h3: 1.25rem;
+
+  --leading-zh: 1.7;
+  --leading-en: 1.5;
+  --leading-heading: 1.3;
+
+  --seal-sm: 40px;
+  --seal-md: 56px;
+  --seal-lg: 80px;
+
+  --radius-card: 12px;
+  --radius-cover: 8px;
+  --radius-sheet: 20px;
+
+  --breakpoint-phone: 390px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-paper: oklch(0.16 0.01 260);
+    --color-ink: oklch(0.92 0.008 90);
+    --color-muted: oklch(0.68 0.01 260);
+    --color-rule: oklch(0.28 0.01 260);
+    --color-seal: oklch(0.72 0.17 32);
+    --color-seal-text: oklch(0.8 0.14 32);
+    --color-cat-ai: oklch(0.72 0.13 275);
+    --color-cat-hackathon: oklch(0.78 0.12 95);
+    --color-cat-vc: oklch(0.74 0.12 145);
+    --color-cat-campus: oklch(0.76 0.12 65);
+    --color-cat-conference: oklch(0.72 0.1 235);
+    --color-cat-cycling: oklch(0.74 0.1 190);
+    --color-cat-social: oklch(0.74 0.12 330);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --color-paper: oklch(0.16 0.01 260);
+  --color-ink: oklch(0.92 0.008 90);
+  --color-muted: oklch(0.68 0.01 260);
+  --color-rule: oklch(0.28 0.01 260);
+  --color-seal: oklch(0.72 0.17 32);
+  --color-seal-text: oklch(0.8 0.14 32);
+  --color-cat-ai: oklch(0.72 0.13 275);
+  --color-cat-hackathon: oklch(0.78 0.12 95);
+  --color-cat-vc: oklch(0.74 0.12 145);
+  --color-cat-campus: oklch(0.76 0.12 65);
+  --color-cat-conference: oklch(0.72 0.1 235);
+  --color-cat-cycling: oklch(0.74 0.1 190);
+  --color-cat-social: oklch(0.74 0.12 330);
+  color-scheme: dark;
+}
+
+html:lang(zh-Hans) {
+  --leading-body: var(--leading-zh);
+}
+html:lang(en) {
+  --leading-body: var(--leading-en);
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  line-height: var(--leading-body);
+  text-autospace: normal;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  line-height: var(--leading-heading);
+  font-weight: 600;
+  font-synthesis-weight: none;
+  overflow-wrap: anywhere;
+}
+:lang(zh-Hans) :is(h1, h2, h3) {
+  letter-spacing: 0.02em;
+}
+
+/* 2 px seal focus ring — the one non-going use of the seal hue the PRD allows. */
+:focus-visible {
+  outline: 2px solid var(--color-seal);
+  outline-offset: 2px;
+}
+
+@layer components {
+  .note {
+    font-family: var(--font-note);
+    font-synthesis: none;
+  }
+  .note:lang(en) {
+    font-style: italic;
+  }
+  .note:lang(zh-Hans) {
+    font-size: max(1rem, 1em);
+  }
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+  .chip-bg-ai { background: color-mix(in oklch, var(--color-cat-ai) 12%, var(--color-paper)); }
+  .chip-bg-hackathon { background: color-mix(in oklch, var(--color-cat-hackathon) 12%, var(--color-paper)); }
+  .chip-bg-vc { background: color-mix(in oklch, var(--color-cat-vc) 12%, var(--color-paper)); }
+  .chip-bg-campus { background: color-mix(in oklch, var(--color-cat-campus) 12%, var(--color-paper)); }
+  .chip-bg-conference { background: color-mix(in oklch, var(--color-cat-conference) 12%, var(--color-paper)); }
+  .chip-bg-cycling { background: color-mix(in oklch, var(--color-cat-cycling) 12%, var(--color-paper)); }
+  .chip-bg-social { background: color-mix(in oklch, var(--color-cat-social) 12%, var(--color-paper)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0s !important;
+    transition-duration: 0s !important;
+    scroll-behavior: auto !important;
+  }
+}
