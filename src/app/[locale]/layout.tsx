@@ -1,8 +1,11 @@
 import type { Metadata } from 'next';
-import { NextIntlClientProvider } from 'next-intl';
+import { hasLocale, NextIntlClientProvider } from 'next-intl';
 import { getLocale, getTranslations } from 'next-intl/server';
+import { notFound } from 'next/navigation';
+import { locale as localeParam } from 'next/root-params';
 import { htmlLang, routing, type AppLocale } from '@/i18n/routing';
 import { NoteFontLoader } from '@/components/NoteFontLoader';
+import { publicOrigin } from '@/lib/host';
 import { fontVars } from '../fonts';
 import '../globals.css';
 
@@ -13,12 +16,16 @@ export function generateStaticParams() {
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations('Site');
   return {
+    metadataBase: new URL(publicOrigin()),
     title: { default: t('name'), template: `%s · ${t('name')}` },
     description: t('tagline'),
   };
 }
 
 export default async function LocaleLayout({ children }: LayoutProps<'/[locale]'>) {
+  // Only en and zh exist. Anything else in the first segment (/api, /.env, /fr) is a 404, never
+  // a silent English fallback. (dynamicParams isn't available with Cache Components.)
+  if (!hasLocale(routing.locales, await localeParam())) notFound();
   const locale = (await getLocale()) as AppLocale;
   const skip = (await getTranslations({ locale, namespace: 'Site' }))('skip');
   return (
