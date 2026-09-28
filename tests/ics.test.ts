@@ -41,3 +41,13 @@ describe('buildIcs', () => {
     expect(out).toContain('https://picks.example.com/zh/events/agents-evals-night');
   });
 });
+
+describe('DTSTART is Pacific wall-clock time regardless of the server TZ', () => {
+  it('writes 18:30 for an 18:30 PT event on a UTC machine', () => {
+    expect(process.env.TZ).toBe('UTC');
+    const one = events.filter((e) => e.slug === 'agents-evals-night');
+    const text = buildIcs({ events: one, locale: 'en', name: 'x', now, showAttendance: true });
+    expect(text).toContain('DTSTART;TZID=America/Los_Angeles:20260928T183000');
+    expect(text).toContain('DTEND;TZID=America/Los_Angeles:20260928T210000');
+  });
+});

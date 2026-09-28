@@ -24,6 +24,7 @@ export default defineConfig({
         reuseExistingServer: !process.env.CI,
         timeout: 60_000,
         // Passkeys bind to the origin, so the server must know the port it runs on.
-        env: { PUBLIC_HOST: `localhost:${PORT}`, BETTER_AUTH_URL: baseURL },
+        // TZ=UTC like Vercel, so server-local-time bugs can't hide behind a Pacific laptop.
+        env: { PUBLIC_HOST: `localhost:${PORT}`, BETTER_AUTH_URL: baseURL, TZ: 'UTC' },
       },
 });

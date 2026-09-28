@@ -1,5 +1,6 @@
 // iCalendar output shared by /calendar.ics, /calendar/going.ics and /ics/[slug]
 // (guide「日历订阅」). VTIMEZONE injected via @touch4it/ical-timezones.
+import { TZDate } from '@date-fns/tz';
 import { getVtimezoneComponent } from '@touch4it/ical-timezones';
 import ical, { ICalCalendarMethod, ICalEventStatus } from 'ical-generator';
 import { note, titles } from './events/display';
@@ -49,11 +50,14 @@ export function buildIcs({ events, locale, name, now, showAttendance, single }: 
     const goingPublic = g.kind === 'seal' && g.seal !== 'went';
     const n = note(e, locale);
     const loc = [e.venueName, e.address, e.format === 'online' ? null : e.city].filter(Boolean).join(', ');
+    // ical-generator formats plain Dates with the *server's* local clock when a TZID is set;
+    // TZDate (withTimeZone) makes DTSTART/DTEND wall-clock correct on UTC servers.
+    const end = e.endAt ?? new Date(e.startAt.getTime() + 2 * 3600_000);
     cal.createEvent({
       id: `${e.id}@${host}`,
       sequence: e.sequence,
-      start: e.startAt,
-      end: e.endAt ?? new Date(e.startAt.getTime() + 2 * 3600_000),
+      start: new TZDate(e.startAt.getTime(), e.tz),
+      end: new TZDate(end.getTime(), e.tz),
       allDay: e.allDay,
       timezone: e.tz,
       stamp: now,
