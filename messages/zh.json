@@ -1,0 +1,20 @@
+{
+  "Site": {
+    "name": "Victor 精选",
+    "tagline": "一个双语湾区 tech 活动日历，看得到我要去哪，只订阅你关心的。",
+    "skip": "跳到正文",
+    "subscribe": "订阅",
+    "langSwitch": "语言",
+    "about": "关于",
+    "privacy": "隐私",
+    "noPaid": "无付费植入。"
+  },
+  "Home": {
+    "thisWeek": "本周",
+    "comingSoon": "精选正在路上。"
+  },
+  "NotFound": {
+    "title": "页面不存在",
+    "back": "回到本周"
+  }
+}

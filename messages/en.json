@@ -1,0 +1,20 @@
+{
+  "Site": {
+    "name": "Victor's Picks",
+    "tagline": "A bilingual Bay Area tech events calendar. See where I'm going, subscribe only to what you care about.",
+    "skip": "Skip to content",
+    "subscribe": "Subscribe",
+    "langSwitch": "Language",
+    "about": "About",
+    "privacy": "Privacy",
+    "noPaid": "No paid placements."
+  },
+  "Home": {
+    "thisWeek": "This week",
+    "comingSoon": "Picks are on the way."
+  },
+  "NotFound": {
+    "title": "Page not found",
+    "back": "Back to this week"
+  }
+}
