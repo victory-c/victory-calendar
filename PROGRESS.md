@@ -19,13 +19,13 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 | 9 | 在 Vercel env 设 `ADMIN_EMAIL`（后台唯一允许登录的邮箱）、`BETTER_AUTH_SECRET`、`CRON_SECRET`、`SUBSCRIBER_LINK_SECRET`（各用 `openssl rand -base64 32` 生成） | M0 第 2 周 | ⬜ |
 | 10 | 首次登录 /admin/sign-in：用 magic link 登录，然后在 iPhone（Face ID）和 Mac（Touch ID）各注册一个 passkey（G0 门槛） | M0 第 2 周部署后 | ⬜ |
 | 11 | 安装两个 iOS 快捷指令（Add to Picks、Add & Publish），我会给 iCloud 链接和令牌生成步骤 | M2 第 10 周 | ⬜ |
-| 12 | 批准把 `m0-foundations` 和 `m1-public-site` 合并进 `main` | G1 验证前 | ✅ 2026-09-28 已批准并合并（#1、#2），生产站 `https://victor-picks.vercel.app` 公开可访问 |
+| 12 | 批准把 `m0-foundations` 和 `m1-public-site` 合并进 `main` | G1 验证前 | ✅ 2026-09-28 已合并（#1、#2，以及修正 #3），生产站 `https://victor-picks.vercel.app` 公开可访问 |
 | 13 | G1 实测：iPhone「设置 → 日历 → 账户 → 添加已订阅的日历」填 `webcal://victor-picks.vercel.app/calendar.ics?lang=zh`，Google Calendar 用「通过网址添加」填同一地址的 https 版；看活动时间是否是本地时间、改期后是否更新 | 第 12 项之后 | ⬜ |
 | 14 | 给我 20 场你真的想推荐的活动（链接 + 一句点评即可），替换示例数据。M2 的后台做好后也可以自己录 | M1 第 6 周 | ⬜ |
 
 ## 当前状态
 
-- 分支：M0（#1）与 M1（#2）已于 2026-09-28 合并进 `main`；后续修正在 `m1-g1-followup`
+- 分支：M0（#1）、M1（#2）和生产验证后的修正（#3）都已于 2026-09-28 合并进 `main`，生产站已部署并抽查通过
 - 生产站：`https://victor-picks.vercel.app`（公开，种子模式，顶部有「示例数据」横幅）
 - 里程碑：M0 代码完成，G0 差 2 条外部步骤；M1 代码完成，G1 只差你用真机订阅日历（checklist 13）。按规则 G1 全部通过前不进 M2
 
@@ -104,7 +104,7 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 阻塞
 - checklist 12（合并进 main）与 13（真机订阅），G1 才能验完。
 
-### M1 合并后（2026-09-28）：生产站验证与修正（分支 `m1-g1-followup`）
+### M1 合并后（2026-09-28）：生产站验证与修正（#3，已合并）
 
 用 5 个独立检查代理对生产站做了一轮验证（路由与双语、日历订阅、RSS 与 SEO、后台与隐私安全、性能与缓存），每条发现再由一个反驳代理独立复现。结果：21 条确认（无高危）、4 条被驳回、6 条仅供参考。确认的问题全部在本分支修掉：
 
