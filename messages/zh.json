@@ -119,5 +119,16 @@
       "going": "我会去哪",
       "archive": "归档"
     }
+  },
+  "Subscribe": {
+    "all": "订阅日历",
+    "these": "订阅这几类",
+    "going": "订阅 Victor 会去",
+    "apple": "Apple 日历",
+    "google": "Google 日历",
+    "outlook": "Outlook",
+    "url": "订阅地址",
+    "urlHint": "复制到任何支持网址订阅的日历 App。",
+    "refresh": "日历 App 按自己的节奏刷新：Apple 15 分钟到几小时，Outlook 3–12 小时，Google 12–24 小时甚至更久。取消和改期也会发邮件通知。"
   }
 }

@@ -17,7 +17,7 @@ import { eventJsonLd, serializeJsonLd } from '@/lib/events/jsonld';
 import { platformName } from '@/lib/events/platform';
 import { getEventBySlug, upcomingSlugs } from '@/lib/events/queries';
 import { fmtBeijing } from '@/lib/format/date';
-import { alternates } from '@/lib/seo';
+import { pageMeta } from '@/lib/seo';
 import type { Locale } from '@/lib/taxonomy';
 
 export async function generateStaticParams() {
@@ -32,15 +32,11 @@ export async function generateMetadata({ params }: PageProps<'/[locale]/events/[
   if (!event) return {};
   const { primary } = titles(event, locale);
   const n = note(event, locale);
+  const t = await getTranslations({ locale, namespace: 'Event' });
+  const title = event.status === 'cancelled' ? `[${t('cancelled')}] ${primary}` : primary;
   // OG art (1200×630 per language) arrives with the cover pipeline in M2; until then only real covers.
-  const og = event.cover && event.cover.kind !== 'template' ? event.cover.url1600 : undefined;
-  return {
-    title: primary,
-    description: n?.text ?? undefined,
-    alternates: alternates(`/events/${slug}`, locale),
-    openGraph: { title: primary, description: n?.text ?? undefined, type: 'website', ...(og ? { images: [og] } : {}) },
-    twitter: { card: og ? 'summary_large_image' : 'summary' },
-  };
+  const images = event.cover && event.cover.kind !== 'template' ? [event.cover.url1600] : undefined;
+  return pageMeta({ path: `/events/${slug}`, locale, title, description: n?.text ?? undefined, images });
 }
 
 // Lookup happens outside any Suspense boundary so an unknown slug can still answer 404.
@@ -74,7 +70,7 @@ async function Detail({ locale, data }: { locale: Locale; data: Found }) {
   return (
     <>
       {sample && <SampleBanner text={ts('sample')} />}
-      <SiteHeader locale={locale} />
+      <SiteHeader locale={locale} path={`/events/${e.slug}`} />
       <main id="main" className="mx-auto max-w-2xl px-4 pb-8">
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(eventJsonLd(e, primary)) }} />
         <Link href="/" className="mt-4 inline-flex h-11 items-center text-sm text-muted">

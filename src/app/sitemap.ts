@@ -3,7 +3,7 @@ import { getWindow } from '@/lib/events/queries';
 import { publicOrigin } from '@/lib/host';
 
 // /privacy joins in M3 with the newsletter.
-const PAGES = ['/', '/calendar', '/going', '/about'];
+const PAGES = ['/', '/calendar', '/going', '/archive', '/about'];
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const origin = publicOrigin();

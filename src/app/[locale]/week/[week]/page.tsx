@@ -8,7 +8,7 @@ import { Link } from '@/i18n/navigation';
 import { getRange, getToday } from '@/lib/events/queries';
 import { addDaysKey, isoWeekBounds, isoWeekOf, startOfKey } from '@/lib/format/calendar';
 import { fmtDayHeader } from '@/lib/format/date';
-import { alternates } from '@/lib/seo';
+import { pageMeta } from '@/lib/seo';
 import type { Locale } from '@/lib/taxonomy';
 
 // Permanent link for any ISO week (digest and WeChat text point here): /week/2026-W41
@@ -23,7 +23,8 @@ export async function generateMetadata({ params }: PageProps<'/[locale]/week/[we
   const b = isoWeekBounds(week);
   if (!b) return {};
   const t = await getTranslations({ locale, namespace: 'Week' });
-  return { title: t('title', { date: fmtDayHeader(startOfKey(b.from, 0), locale).date }), alternates: alternates(`/week/${week}`, locale) };
+  const date = fmtDayHeader(new Date(startOfKey(b.from).getTime() + 12 * 3600_000), locale).date;
+  return pageMeta({ path: `/week/${week}`, locale, title: t('title', { date }) });
 }
 
 export default async function WeekPage({ params }: PageProps<'/[locale]/week/[week]'>) {
@@ -36,7 +37,7 @@ export default async function WeekPage({ params }: PageProps<'/[locale]/week/[we
   const th = await getTranslations({ locale, namespace: 'Home' });
   const noon = (k: string) => new Date(startOfKey(k).getTime() + 12 * 3600_000);
   return (
-    <PageShell locale={locale}>
+    <PageShell locale={locale} path={`/week/${week}`}>
       <div className="flex items-center justify-between gap-3 pt-6 md:pt-10">
         <h1 className="text-h2 md:text-h1">{t('title', { date: fmtDayHeader(noon(b.from), locale).date })}</h1>
         <nav className="flex gap-1" aria-label={t('title', { date: '' })}>

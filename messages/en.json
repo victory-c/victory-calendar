@@ -119,5 +119,16 @@
       "going": "Where I'm going",
       "archive": "Archive"
     }
+  },
+  "Subscribe": {
+    "all": "Subscribe to the calendar",
+    "these": "Subscribe to these categories",
+    "going": "Subscribe to where Victor is going",
+    "apple": "Apple Calendar",
+    "google": "Google Calendar",
+    "outlook": "Outlook",
+    "url": "Feed URL",
+    "urlHint": "Paste into any calendar app that accepts a URL.",
+    "refresh": "Calendar apps refresh on their own schedule: Apple in 15 minutes to a few hours, Outlook in 3–12 hours, Google in 12–24 hours or longer. Cancellations also go out by email."
   }
 }

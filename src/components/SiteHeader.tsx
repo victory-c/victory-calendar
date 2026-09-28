@@ -5,11 +5,12 @@ import type { Locale } from '@/lib/taxonomy';
 import { LangSwitch, LangSwitchFallback } from './LangSwitch';
 import { Wordmark } from './Wordmark';
 
-export async function SiteHeader({ locale }: { locale: Locale }) {
+/** `path` is the locale-less path of this page, so the prerendered language pill links to the same page. */
+export async function SiteHeader({ locale, path = '/' }: { locale: Locale; path?: string }) {
   const t = await getTranslations({ locale, namespace: 'Site' });
   return (
     <header className="mx-auto flex h-14 max-w-4xl items-center justify-between gap-3 px-4">
-      <Link href="/" aria-label={t('name')} className="rounded-sm">
+      <Link href="/" className="rounded-sm">
         <Wordmark locale={locale} name={t('name')} />
       </Link>
       <div className="flex items-center gap-2">
@@ -17,12 +18,10 @@ export async function SiteHeader({ locale }: { locale: Locale }) {
           <Link href="/calendar">{t('calendar')}</Link>
           <Link href="/going">{t('going')}</Link>
         </nav>
-        <Suspense fallback={<LangSwitchFallback label={t('langSwitch')} />}>
+        <Suspense fallback={<LangSwitchFallback label={t('langSwitch')} pathname={path} />}>
           <LangSwitch label={t('langSwitch')} />
         </Suspense>
-        <Link href="/subscribe" className="hidden h-9 items-center rounded-full border border-rule px-3.5 text-sm sm:inline-flex">
-          {t('subscribe')}
-        </Link>
+        {/* Newsletter "Subscribe" returns in M3 with /subscribe; calendar subscriptions live on each list page. */}
       </div>
     </header>
   );

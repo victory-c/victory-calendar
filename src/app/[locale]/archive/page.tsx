@@ -7,20 +7,22 @@ import { PageShell } from '@/components/PageShell';
 import { Link } from '@/i18n/navigation';
 import { getRange, getToday } from '@/lib/events/queries';
 import { monthBounds, monthTitle, parseMonth, shiftMonth } from '@/lib/format/calendar';
-import { alternates } from '@/lib/seo';
+import { pageMeta, validMonth } from '@/lib/seo';
 import type { Locale } from '@/lib/taxonomy';
 
-export async function generateMetadata(): Promise<Metadata> {
+export async function generateMetadata({ searchParams }: PageProps<'/[locale]/archive'>): Promise<Metadata> {
   const locale = (await getLocale()) as Locale;
   const t = await getTranslations({ locale, namespace: 'Archive' });
-  return { title: t('title'), alternates: alternates('/archive', locale) };
+  const m = validMonth((await searchParams).m);
+  const title = m ? `${t('title')} · ${monthTitle(m, locale)}` : t('title');
+  return pageMeta({ path: '/archive', locale, title, description: t('intro'), query: { m } });
 }
 
 export default async function ArchivePage({ searchParams }: PageProps<'/[locale]/archive'>) {
   const locale = (await getLocale()) as Locale;
   const t = await getTranslations({ locale, namespace: 'Archive' });
   return (
-    <PageShell locale={locale}>
+    <PageShell locale={locale} path="/archive">
       <h1 className="pt-6 text-h1 md:pt-10">{t('title')}</h1>
       <p className="mt-2 text-muted">{t('intro')}</p>
       <Suspense fallback={<div className="min-h-[150vh]" aria-busy="true" />}>

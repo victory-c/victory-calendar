@@ -20,6 +20,22 @@ export function googleSubscribe(httpsUrl: string) {
   return `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(webcal(httpsUrl))}`;
 }
 
+/** Outlook.com "subscribe from web" (undocumented deep link, pinned by tests). */
+export function outlookSubscribe(httpsUrl: string, name: string) {
+  const q = new URLSearchParams({ url: httpsUrl, name });
+  return `https://outlook.live.com/calendar/0/addfromweb?${q}`;
+}
+
+/** Feed URL for a category/language selection: /calendar.ics?c=ai,hackathon&lang=zh */
+export function feedUrl(origin: string, opts: { cats?: readonly string[]; locale: Locale; going?: boolean }) {
+  const q = new URLSearchParams();
+  if (!opts.going && opts.cats?.length) q.set('c', opts.cats.join(','));
+  if (opts.locale === 'zh') q.set('lang', 'zh');
+  const path = opts.going ? '/calendar/going.ics' : '/calendar.ics';
+  const qs = q.toString().replace(/%2C/g, ',');
+  return `${origin}${path}${qs ? `?${qs}` : ''}`;
+}
+
 type Single = { title: string; start: Date; end: Date; details: string; location: string; tz: string };
 
 export function googleEvent(e: Single) {

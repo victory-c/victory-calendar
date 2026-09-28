@@ -2,20 +2,20 @@ import type { Metadata } from 'next';
 import { getLocale, getTranslations } from 'next-intl/server';
 import { PageShell } from '@/components/PageShell';
 import { Link } from '@/i18n/navigation';
-import { alternates } from '@/lib/seo';
+import { pageMeta } from '@/lib/seo';
 import type { Locale } from '@/lib/taxonomy';
 
 export async function generateMetadata(): Promise<Metadata> {
   const locale = (await getLocale()) as Locale;
   const t = await getTranslations({ locale, namespace: 'About' });
-  return { title: t('title'), alternates: alternates('/about', locale) };
+  return pageMeta({ path: '/about', locale, title: t('title'), description: t('body1') });
 }
 
 export default async function AboutPage() {
   const locale = (await getLocale()) as Locale;
   const t = await getTranslations({ locale, namespace: 'About' });
   return (
-    <PageShell locale={locale}>
+    <PageShell locale={locale} path="/about">
       <article className="max-w-prose pt-6 md:pt-10">
         <h1 className="text-h1">{t('title')}</h1>
         <p className="mt-6">{t('body1')}</p>
