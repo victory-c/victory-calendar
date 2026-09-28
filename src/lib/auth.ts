@@ -9,14 +9,13 @@ import * as authSchema from './db/auth-schema';
 import { sendMagicLink } from './email/magic-link';
 import { publicHost, publicOrigin } from './host';
 
-const host = publicHost();
-
 export function isAdminEmail(email: string | undefined | null) {
   const admin = process.env.ADMIN_EMAIL?.trim().toLowerCase();
   return Boolean(admin && email && email.trim().toLowerCase() === admin);
 }
 
-export const auth = betterAuth({
+function createAuth() {
+  return betterAuth({
   baseURL: publicOrigin(),
   trustedOrigins: [publicOrigin()],
   database: drizzleAdapter(db, { provider: 'pg', schema: authSchema, transaction: false }),
@@ -33,9 +32,23 @@ export const auth = betterAuth({
   plugins: [
     // disableSignUp must stay false: the first magic-link login *is* the sign-up.
     magicLink({ disableSignUp: false, expiresIn: 300, sendMagicLink: ({ email, url }) => sendMagicLink(email, url) }),
-    passkey({ rpID: host.split(':')[0], rpName: "Victor's Picks", origin: publicOrigin() }),
+    passkey({ rpID: publicHost().split(':')[0], rpName: "Victor's Picks", origin: publicOrigin() }),
     nextCookies(), // must stay last
   ],
+  });
+}
+
+type Auth = ReturnType<typeof createAuth>;
+let instance: Auth | undefined;
+export const getAuth = (): Auth => (instance ??= createAuth());
+
+/**
+ * Lazy handle: Better Auth refuses to start in production without BETTER_AUTH_SECRET, and a
+ * build must not need runtime secrets. Constructed on first use, at request time.
+ */
+export const auth = new Proxy({} as Auth, {
+  get: (_t, prop) => Reflect.get(getAuth(), prop),
+  has: (_t, prop) => Reflect.has(getAuth(), prop),
 });
 
-export type Session = typeof auth.$Infer.Session;
+export type Session = Auth['$Infer']['Session'];
