@@ -14,7 +14,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+    "fonts:cjk": "tsx scripts/fonts-cjk.ts"
   },
   "dependencies": {
     "@better-auth/passkey": "^1.7.6",
@@ -46,6 +47,7 @@
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "cn-font-split": "^7.4.3",
     "dotenv": "^18.0.4",
     "drizzle-kit": "^0.31.11",
     "eslint": "^9",

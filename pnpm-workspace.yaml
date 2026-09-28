@@ -5,3 +5,6 @@ allowBuilds:
   unrs-resolver: false
   '@parcel/watcher': false
   '@swc/core': false
+  cn-font-split: true # postinstall fetches its native binary (devDependency, font pipeline only)
+  koffi: false # ships prebuilt binaries in the package
+  protobufjs: false # postinstall is only a version notice

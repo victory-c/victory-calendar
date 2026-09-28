@@ -22,7 +22,11 @@ export default async function LocaleLayout({ children }: LayoutProps<'/[locale]'
   return (
     <html lang={htmlLang(locale)} className={fontVars}>
       <body className="min-h-dvh">
+        {/* CJK slices only where Chinese is the page language; en pages fall back to system CJK. */}
+        {locale === 'zh' && <link rel="stylesheet" href="/fonts/cjk.css" precedence="default" />}
         <NextIntlClientProvider>{children}</NextIntlClientProvider>
+        {/* Note font (LXGW WenKai): its 20 KB index CSS is hoisted after cjk.css; the woff2 slices use font-display: swap. */}
+        {locale === 'zh' && <link rel="stylesheet" href="/fonts/cjk-note.css" precedence="low" />}
       </body>
     </html>
   );

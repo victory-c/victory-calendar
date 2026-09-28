@@ -13,7 +13,10 @@ export const viewport: Viewport = { width: 'device-width', initialScale: 1, view
 export default function AdminLayout({ children }: LayoutProps<'/admin'>) {
   return (
     <html lang="en" className={fontVars}>
-      <body className="min-h-dvh">{children}</body>
+      <body className="min-h-dvh">
+        <link rel="stylesheet" href="/fonts/cjk.css" precedence="default" />
+        {children}
+      </body>
     </html>
   );
 }

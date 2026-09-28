@@ -1,23 +1,26 @@
 @import "tailwindcss";
-/* CJK slices (cn-font-split output, each @font-face has a unicode-range). */
-@import "./fonts-cjk.css";
+/* CJK slices (public/fonts/cjk.css, cn-font-split output) are linked only on zh pages and /admin. */
 
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
-/* Local metric-matched fallbacks so slice swaps don't reflow (values calibrated in week 2). */
+/* Local fallbacks carry the Noto fonts' own vertical metrics (hhea, measured from the
+   subset sources) so a slice swap doesn't move lines. Ideographs are 1em wide in both, so
+   size-adjust stays 100%. */
 @font-face {
   font-family: "Noto Serif SC Fallback";
-  src: local("PingFang SC"), local("Songti SC");
+  src: local("PingFang SC"), local("Songti SC"), local("SimSun");
   size-adjust: 100%;
-  ascent-override: 90%;
-  descent-override: 25%;
+  ascent-override: 115.1%;
+  descent-override: 28.6%;
+  line-gap-override: 0%;
 }
 @font-face {
   font-family: "Noto Sans SC Fallback";
   src: local("PingFang SC"), local("Microsoft YaHei");
   size-adjust: 100%;
-  ascent-override: 90%;
-  descent-override: 25%;
+  ascent-override: 116%;
+  descent-override: 28.8%;
+  line-gap-override: 0%;
 }
 
 @theme {

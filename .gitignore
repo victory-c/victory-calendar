@@ -45,3 +45,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# CJK font sources (downloaded by scripts/fonts-cjk.ts; only the sliced output is committed)
+/fonts-src/
