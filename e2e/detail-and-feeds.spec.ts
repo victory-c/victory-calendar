@@ -44,3 +44,22 @@ test('going.ics never includes cycling', async ({ request }) => {
   expect(body).toContain('BEGIN:VCALENDAR');
   expect(body).not.toContain('Gran Fondo');
 });
+
+test('RSS in both languages, robots and sitemap', async ({ request }) => {
+  const zh = await (await request.get('/zh/feed.xml')).text();
+  expect(zh).toContain('<language>zh-Hans</language>');
+  expect(zh).toContain('湾区华人创业者交流夜');
+  const en = await (await request.get('/feed.xml')).text();
+  expect(en).toContain('<language>en</language>');
+  const robots = await (await request.get('/robots.txt')).text();
+  expect(robots).toContain('Disallow: /admin');
+  expect(robots).toContain('Disallow: /api');
+  const sitemap = await (await request.get('/sitemap.xml')).text();
+  expect(sitemap).toContain('hreflang="zh-Hans"');
+  expect(sitemap).toContain('/events/agents-evals-night');
+});
+
+test('zh per-event .ics carries the Chinese title', async ({ request }) => {
+  const body = await (await request.get('/zh/events/chinese-founders-mixer.ics')).text();
+  expect(body).toContain('湾区华人创业者交流夜');
+});

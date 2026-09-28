@@ -12,7 +12,7 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     '/calendar.ics': ['./node_modules/@touch4it/ical-timezones/zones/**/*'],
     '/calendar/going.ics': ['./node_modules/@touch4it/ical-timezones/zones/**/*'],
-    '/ics/[slug]': ['./node_modules/@touch4it/ical-timezones/zones/**/*'],
+    '/ics/[lang]/[slug]': ['./node_modules/@touch4it/ical-timezones/zones/**/*'],
   },
   async headers() {
     return [
@@ -22,8 +22,14 @@ const nextConfig: NextConfig = {
     ];
   },
   async rewrites() {
-    // App Router can't have a dynamic segment with a suffix; /events/x.ics → /ics/x.
-    return [{ source: '/events/:slug.ics', destination: '/ics/:slug' }];
+    // App Router can't have a dynamic segment with a suffix; /events/x.ics → /ics/en/x.
+    return [
+      // Route Handlers see the original URL, so the language travels as a path segment.
+      { source: '/events/:slug.ics', destination: '/ics/en/:slug' },
+      { source: '/zh/events/:slug.ics', destination: '/ics/zh/:slug' },
+      { source: '/feed.xml', destination: '/rss/en' },
+      { source: '/zh/feed.xml', destination: '/rss/zh' },
+    ];
   },
 };
 

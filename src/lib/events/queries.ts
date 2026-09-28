@@ -55,7 +55,8 @@ async function fromDb(from: Date, to: Date, slug?: string): Promise<PublicEvent[
         tz: e.tz, allDay: e.allDay, format: e.format, venueName: e.venueName, city: e.city,
         neighborhood: e.neighborhood, region: e.region, address: e.address, privateVenue: e.privateVenue,
         priceText: e.priceText, access: e.access, hostName: e.hostName, hostUrl: e.hostUrl, sourceUrl: e.sourceUrl,
-        going: e.going, goingVisibility: e.goingVisibility, featured: e.featured, sequence: e.sequence, cover,
+        going: e.going, goingVisibility: e.goingVisibility, featured: e.featured, sequence: e.sequence,
+        publishedAt: e.publishedAt, cover,
       } satisfies PublicEvent,
     ];
   });

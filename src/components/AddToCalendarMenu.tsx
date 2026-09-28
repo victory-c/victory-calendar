@@ -13,7 +13,7 @@ export async function AddToCalendarMenu({ event: e, locale }: { event: PublicEve
   const details = [note(e, locale)?.text, `RSVP: ${e.sourceUrl}`, eventUrl(e, locale)].filter(Boolean).join('\n\n');
   const location = [e.venueName, e.format === 'online' ? null : e.city].filter(Boolean).join(', ');
   const single = { title: primary, start: e.startAt, end, details, location, tz: e.tz };
-  const ics = `/events/${e.slug}.ics${locale === 'zh' ? '?lang=zh' : ''}`;
+  const ics = `${locale === 'zh' ? '/zh' : ''}/events/${e.slug}.ics`;
   const links = {
     apple: { href: ics, label: t('apple') },
     google: { href: googleEvent(single), label: t('google') },

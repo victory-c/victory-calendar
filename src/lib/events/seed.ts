@@ -240,6 +240,7 @@ export function seedEvents(now = new Date()): PublicEvent[] {
       goingVisibility: s.goingVisibility ?? 'public',
       featured: s.featured ?? false,
       sequence: 0,
+      publishedAt: new Date(now.getTime() - (20 - i) * 3600_000),
       cover: null, // template tile
       sample: true,
     };

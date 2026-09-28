@@ -10,7 +10,6 @@ export async function SiteFooter({ locale }: { locale: Locale }) {
     <footer className="mx-auto mt-16 max-w-4xl border-t border-rule px-4 py-8 text-sm text-muted">
       <nav aria-label={t('nav')} className="flex flex-wrap gap-x-5 gap-y-2">
         <Link href="/about">{t('about')}</Link>
-        <Link href="/privacy">{t('privacy')}</Link>
         <a href={feed}>{t('rss')}</a>
         <a href={ics}>{t('ical')}</a>
       </nav>
