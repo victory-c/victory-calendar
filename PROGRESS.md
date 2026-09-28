@@ -88,7 +88,12 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 - 性能（见 G1）：Latin 字体改用 next/font 的 latin 子集，只预加载首屏需要的；CJK 正文字体先找系统字体（苹方、安卓 Noto Sans CJK），`font-display: optional`；霞鹜文楷空闲时再加载；切片改 16 KB；模板封面的六个汉字改成 SVG 轮廓（不再等字体）；流式占位高于一屏，页脚不再跳动（CLS 0）。
 - 去掉 date-fns 与 @date-fns/tz：Cache Components 在预渲染时拒绝无参数的 `new Date()`，而 `TZDate` 内部会调用它；改用 Intl 算时区偏移（有夏令时切换的测试）。
 
-检查结果：typecheck、lint 通过；Vitest 66 个用例通过（含 ICS 经 node-ical 回读、跨 11 月夏令时切换）；Playwright 40 个通过、2 个跳过（passkey 流程需要数据库，CI 里跳过）；构建通过。
+部署中发现并修掉的三个问题
+- **ICS 时间在 Vercel 上会错 7–8 小时**：ical-generator 遇到普通 `Date` 加 TZID 时，用的是服务器本地时钟；我的 Mac 是太平洋时间所以本地看不出，CI（UTC）抓到了。改用 `TZDate` 传入时区，并让 Vitest 与 Playwright 的服务器都以 `TZ=UTC` 运行，防止再被本地时区掩盖。
+- **Vercel 构建因缺 `BETTER_AUTH_SECRET` 失败**：Better Auth 在生产模式下没有密钥会直接报错。改成首次使用时才构建（请求时），构建不再需要运行时密钥；后台真正使用前仍需你设置（checklist 9）。
+- **Vercel 拒收函数包**：之前为了读时区文件，把 pnpm 符号链接目录里的文件打进了函数。改为 `pnpm tz:vendor` 生成 `src/lib/vtimezones.ts`（17 个常用时区的 VTIMEZONE），运行时不读文件。
+
+检查结果：typecheck、lint 通过；Vitest 67 个用例通过（含 ICS 经 node-ical 回读、跨 11 月夏令时切换）；Playwright 40 个通过、2 个跳过（passkey 流程需要数据库，CI 里跳过）；构建通过。
 
 下一步
 - G1 还差：中文详情页 Lighthouse 0.88（目标 0.90），以及真机订阅 ICS（需要 checklist 12、13）。
@@ -138,6 +143,7 @@ Lighthouse 说明：本机测量时 Chrome 找得到苹方，所以中文正文�
 - **模板封面的六个汉字（黑投校会骑聚）是 SVG 轮廓**，由 `scripts/glyph-paths.py` 从 Noto Serif SC 生成；`AI` 仍用 Fraunces 文本。以后 next/og 的模板图可以复用同一份轮廓。
 - **流式内容的占位高度是 150vh**，页脚留在静态外壳里（保留 contentinfo 地标），位移发生在屏幕外，不计入 CLS。
 - **/privacy 的页脚链接先去掉**，M3 写隐私页时加回，避免链到 404。
+- **VTIMEZONE 只内置 17 个时区**（太平洋、山地、中部、东部、夏威夷、阿拉斯加、伦敦、巴黎、柏林、上海、香港、台北、东京、新加坡、加尔各答、UTC）。其他时区的活动仍写 TZID，但不附 VTIMEZONE 块，主流日历 App 认识 IANA 名称。
 - **ICS 与 RSS 从第 6 周提前到第 4 周**，因为详情页的「加入日历」要用。
 - **`victorchun-site` 升级到 16.3.7 暂缓**：npm 上 next 最新仍是 16.3.6（今天 9/28，指南说 9/30 之后发布）。它在另一个仓库，发布后单独处理。
 
