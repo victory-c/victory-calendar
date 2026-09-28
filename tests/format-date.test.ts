@@ -27,9 +27,11 @@ describe('fmtRange', () => {
   it('shows only the start time when there is no end', () => {
     expect(fmtRange(start, null, 'zh')).toBe('10月7日周三 18:30 北美太平洋时间');
   });
-  it('does not render a cross-day range as a same-day time range', () => {
-    const multi = new Date('2026-10-10T03:00:00Z');
-    expect(fmtRange(start, multi, 'en')).toBe('Wed, Oct 7 · 6:30\u00a0PM PT');
+  it('shows both ends of a multi-day event', () => {
+    const hackStart = new Date('2026-10-02T16:00:00Z'); // Fri 9:00 PDT
+    const hackEnd = new Date('2026-10-04T02:00:00Z'); // Sat 19:00 PDT
+    expect(fmtRange(hackStart, hackEnd, 'en')).toBe('Fri, Oct 2 · 9:00\u00a0AM\u2009–\u2009Sat, Oct 3 · 7:00\u00a0PM PT');
+    expect(fmtRange(hackStart, hackEnd, 'zh')).toBe('10月2日周五 9:00\u2009–\u200910月3日周六 19:00 北美太平洋时间');
   });
   it('handles PST after 2026-11-01', () => {
     expect(fmtRange(new Date('2026-11-05T02:30:00Z'), null, 'zh')).toBe('11月4日周三 18:30 北美太平洋时间');

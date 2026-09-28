@@ -51,3 +51,13 @@ describe('DTSTART is Pacific wall-clock time regardless of the server TZ', () =>
     expect(text).toContain('DTEND;TZID=America/Los_Angeles:20260928T210000');
   });
 });
+
+describe('RFC 5545 details', () => {
+  it('writes DTSTAMP in UTC and ends with CRLF', () => {
+    const text = buildIcs({ events, locale: 'en', name: 'x', now, showAttendance: true });
+    const stamps = text.split('\r\n').filter((l) => l.startsWith('DTSTAMP:'));
+    expect(stamps.length).toBe(events.length);
+    for (const s of stamps) expect(s).toBe('DTSTAMP:20260928T120000Z');
+    expect(text.endsWith('END:VCALENDAR\r\n')).toBe(true);
+  });
+});

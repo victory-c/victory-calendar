@@ -69,5 +69,14 @@ export function buildIcs({ events, locale, name, now, showAttendance, single }: 
       status: e.status === 'cancelled' ? ICalEventStatus.CANCELLED : ICalEventStatus.CONFIRMED,
     });
   }
-  return cal.toString();
+  // RFC 5545: DTSTAMP must be UTC ("…Z"), but ical-generator writes it as floating local time
+  // whenever a calendar timezone is set; and the object must end with CRLF.
+  const stamp = utcStamp(now);
+  const out = cal.toString().replace(/^DTSTAMP:[^\r\n]*/gm, `DTSTAMP:${stamp}`);
+  return out.endsWith('\r\n') ? out : `${out}\r\n`;
+}
+
+/** 2026-09-28T10:21:20.123Z → 20260928T102120Z */
+export function utcStamp(d: Date) {
+  return d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 }

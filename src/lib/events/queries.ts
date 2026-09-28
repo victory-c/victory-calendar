@@ -7,6 +7,7 @@ import { startOfKey } from '../format/calendar';
 import { dayKey, PT } from '../format/date';
 import { showAttendance } from '../settings';
 import { isCategory } from '../taxonomy';
+import { redactForPublic } from './redact';
 import { seedEvents } from './seed';
 import type { PublicCover, PublicEvent } from './types';
 
@@ -34,7 +35,7 @@ async function fromDb(from: Date, to: Date, slug?: string): Promise<PublicEvent[
         : and(inArray(eventsPublic.status, [...PUBLIC_STATUSES]), gte(eventsPublic.startAt, from), lt(eventsPublic.startAt, to)),
     )
     .orderBy(asc(eventsPublic.startAt));
-  return rows.flatMap(({ events_public: e, covers: c }) => {
+  return rows.flatMap(({ events_public: e, covers: c }): PublicEvent[] => {
     if (!e.startAt || !isCategory(e.category)) return [];
     const cover: PublicCover | null = c
       ? {
@@ -55,7 +56,7 @@ async function fromDb(from: Date, to: Date, slug?: string): Promise<PublicEvent[
         going: e.going, goingVisibility: e.goingVisibility, featured: e.featured, sequence: e.sequence,
         publishedAt: e.publishedAt, cover,
       } satisfies PublicEvent,
-    ];
+    ].map(redactForPublic);
   });
 }
 
@@ -69,7 +70,7 @@ export async function getUpcoming(days = 7): Promise<Upcoming> {
   const to = startOfDayPT(now, days);
   const sample = !hasDatabase();
   const events = sample
-    ? seedEvents(now).filter((e) => e.startAt >= from && e.startAt < to).sort((a, b) => +a.startAt - +b.startAt)
+    ? seedEvents(now).map(redactForPublic).filter((e) => e.startAt >= from && e.startAt < to).sort((a, b) => +a.startAt - +b.startAt)
     : await fromDb(from, to);
   return { now: now.toISOString(), todayKey: dayKey(now, PT), events, showAttendance: await showAttendance(), sample };
 }
@@ -90,7 +91,7 @@ export async function getWindow(fromDays: number, toDays: number): Promise<Windo
   const to = startOfDayPT(now, toDays);
   const sample = !hasDatabase();
   const events = sample
-    ? seedEvents(now).filter((e) => e.startAt >= from && e.startAt < to).sort((a, b) => +a.startAt - +b.startAt)
+    ? seedEvents(now).map(redactForPublic).filter((e) => e.startAt >= from && e.startAt < to).sort((a, b) => +a.startAt - +b.startAt)
     : await fromDb(from, to);
   return { now: now.toISOString(), events, showAttendance: await showAttendance(), sample };
 }
@@ -101,7 +102,7 @@ export async function getEventBySlug(slug: string): Promise<(Window & { event: P
   cacheLife({ stale: 300, revalidate: 900, expire: 86_400 });
   const now = new Date();
   const sample = !hasDatabase();
-  const events = sample ? seedEvents(now).filter((e) => e.slug === slug) : await fromDb(now, now, slug);
+  const events = sample ? seedEvents(now).map(redactForPublic).filter((e) => e.slug === slug) : await fromDb(now, now, slug);
   return { now: now.toISOString(), events, event: events[0] ?? null, showAttendance: await showAttendance(), sample };
 }
 
@@ -121,7 +122,7 @@ export async function getRange(fromKey: string, toKey: string): Promise<Window &
   const to = startOfKey(toKey);
   const sample = !hasDatabase();
   const events = sample
-    ? seedEvents(now).filter((e) => e.startAt >= from && e.startAt < to).sort((a, b) => +a.startAt - +b.startAt)
+    ? seedEvents(now).map(redactForPublic).filter((e) => e.startAt >= from && e.startAt < to).sort((a, b) => +a.startAt - +b.startAt)
     : await fromDb(from, to);
   return { now: now.toISOString(), todayKey: dayKey(now, PT), events, showAttendance: await showAttendance(), sample };
 }
