@@ -19,11 +19,15 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 | 9 | 在 Vercel env 设 `ADMIN_EMAIL`（后台唯一允许登录的邮箱）、`BETTER_AUTH_SECRET`、`CRON_SECRET`、`SUBSCRIBER_LINK_SECRET`（各用 `openssl rand -base64 32` 生成） | M0 第 2 周 | ⬜ |
 | 10 | 首次登录 /admin/sign-in：用 magic link 登录，然后在 iPhone（Face ID）和 Mac（Touch ID）各注册一个 passkey（G0 门槛） | M0 第 2 周部署后 | ⬜ |
 | 11 | 安装两个 iOS 快捷指令（Add to Picks、Add & Publish），我会给 iCloud 链接和令牌生成步骤 | M2 第 10 周 | ⬜ |
+| 12 | 批准把 `m0-foundations` 和 `m1-public-site` 合并进 `main`。预览受 Vercel 登录保护，日历 App 抓不到；合并后生产地址 `victor-picks.vercel.app` 才是公开的 | G1 验证前 | ⬜ 等你确认 |
+| 13 | G1 实测：iPhone「设置 → 日历 → 账户 → 添加已订阅的日历」填 `webcal://victor-picks.vercel.app/calendar.ics?lang=zh`，Google Calendar 用「通过网址添加」填同一地址的 https 版；看活动时间是否是本地时间、改期后是否更新 | 第 12 项之后 | ⬜ |
+| 14 | 给我 20 场你真的想推荐的活动（链接 + 一句点评即可），替换示例数据。M2 的后台做好后也可以自己录 | M1 第 6 周 | ⬜ |
 
 ## 当前状态
 
-- 分支：`m0-foundations`（M0 代码全部在这里，未合并进 `main`）
-- 里程碑：M0 代码完成；G0 还差 3 条依赖外部步骤的条目（见「门槛」）
+- 分支：`m0-foundations`（M0），`m1-public-site`（M1，基于 M0）。两者都没有合并进 `main`
+- 里程碑：M0 代码完成，G0 差 2 条外部步骤；M1 代码完成，G1 未通过（见「门槛」），所以还没开始 M2
+- M1 分支固定预览地址：`https://victor-picks-git-m1-public-site-victory-c-8190s-projects.vercel.app`
 - Vercel 项目：`victor-picks`（victory-c-8190s-projects），已连 GitHub，推送分支自动出预览
 - 分支固定预览地址：`https://victor-picks-git-m0-foundations-victory-c-8190s-projects.vercel.app`（受 Vercel Authentication 保护：登录 Vercel 即可看；给别人看需要临时分享链接，23 小时有效）
 - 预览目前是种子模式（Vercel 上还没有数据库），页面顶部有「示例数据」横幅
@@ -72,6 +76,28 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 阻塞
 - G0 的真机 Face ID / Touch ID、DKIM/DMARC 需要 checklist 第 1、2、3、9、10 项。
 
+### M1 第 3–6 周（提前完成代码部分）
+
+做了什么
+- 第 3 周的组件在 M0 末已完成；本阶段补 DayList（按天分组共用）、WeekStrip、CalendarGrid、FacetPanel、PageShell、AddToCalendarMenu、LocalTime、NoteFontLoader。
+- 活动详情页 `/events/[slug]` 与 `/zh/events/[slug]`：1:1 封面加 80 px 印章、双语标题、日期（线上活动加访客本地时间与北京时间）、地点、芯片、完整点评、「去 Luma 报名」按钮、加入日历菜单（`<details>`，零 JS，zh 顺序 Apple、Outlook、Google）、封面署名、schema.org Event JSON-LD（只含事实）、hreflang 三项；未知 slug 返回 404。
+- ICS（原第 6 周，提前做）：`/calendar.ics?c=…&lang=…`、`/calendar/going.ics`、`/events/[slug].ics`（zh 为 `/zh/events/[slug].ics`）。VTIMEZONE、`REFRESH-INTERVAL`/`X-PUBLISHED-TTL` PT1H、稳定 UID、SEQUENCE、公开会去加 `V→ ` 前缀、取消写 `STATUS:CANCELLED`、s-maxage 900。
+- RSS `/feed.xml` 与 `/zh/feed.xml`；`sitemap.xml`（每条带 en、zh-Hans、x-default）；`robots.txt`（禁 /admin、/api，允许 *.ics）。
+- `/calendar?m=YYYY-MM`：桌面月格（类别圆点，点一天跳到当天列表，周首日 en 周日、zh 周一，周标签来自 Intl），1024 px 以下只显示议程；`/going`（公开会去与「去过」档案，总开关关闭时 404）；`/archive?m=`；`/week/2026-W41`（不存在的 ISO 周 404）；`/about`。
+- 类别芯片之外的 facet（活动语言、线上线下、区域、只看免费）是一个 GET 表单，禁用 JS 也能用。
+- 性能（见 G1）：Latin 字体改用 next/font 的 latin 子集，只预加载首屏需要的；CJK 正文字体先找系统字体（苹方、安卓 Noto Sans CJK），`font-display: optional`；霞鹜文楷空闲时再加载；切片改 16 KB；模板封面的六个汉字改成 SVG 轮廓（不再等字体）；流式占位高于一屏，页脚不再跳动（CLS 0）。
+- 去掉 date-fns 与 @date-fns/tz：Cache Components 在预渲染时拒绝无参数的 `new Date()`，而 `TZDate` 内部会调用它；改用 Intl 算时区偏移（有夏令时切换的测试）。
+
+检查结果：typecheck、lint 通过；Vitest 66 个用例通过（含 ICS 经 node-ical 回读、跨 11 月夏令时切换）；Playwright 40 个通过、2 个跳过（passkey 流程需要数据库，CI 里跳过）；构建通过。
+
+下一步
+- G1 还差：中文详情页 Lighthouse 0.88（目标 0.90），以及真机订阅 ICS（需要 checklist 12、13）。
+- 中文详情页的改进方向：按页面文字给标题预加载对应切片，或把 `cjk.css` 改成非阻塞加载（会让标题先显示宋体再换字）。这个取舍想先听你的意见。
+- G1 通过后进 M2：safe-fetch、Luma/Partiful 适配器、`/api/ingest`。
+
+阻塞
+- checklist 12（合并进 main）与 13（真机订阅），G1 才能验完。
+
 ## 门槛
 
 | 门槛 | 条目 | 结果 |
@@ -81,6 +107,14 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 | G0 | pnpm test 与 Playwright 冒烟在预览分支通过 | ✅ `m0-foundations` 的 GitHub Actions：typecheck、lint、Vitest、build、Playwright 全绿；该分支的 Vercel 预览构建 READY |
 
 G0 结论：本地能验证的全部通过，剩下两条只差外部步骤。M1 的工作不碰鉴权和发信，所以我在等外部步骤的同时继续 M1，G0 这两条补验后再记结果。
+
+| G1 | Lighthouse 性能 ≥ 90（移动端，3 次取中位数，`pnpm lhci`） | 部分通过：`/` 0.93 ✅、`/zh` 0.92 ✅、`/calendar` 0.95 ✅、`/zh/events/chinese-founders-mixer` 0.88 ❌ |
+| G1 | Lighthouse 无障碍 ≥ 95 | ✅ 四个页面都是 100；CLS 都是 0 |
+| G1 | ICS 在 Apple Calendar 与 Google 导入正确 | ⏳ 自动化替代检查已通过（VTIMEZONE、TZID、PT1H、node-ical 回读的时间与原始时间一致，跨夏令时）。真机导入需要公开地址（checklist 12、13） |
+
+G1 结论：未通过，所以没有开始 M2。
+
+Lighthouse 说明：本机测量时 Chrome 找得到苹方，所以中文正文不下载切片；在没有苹方的 Linux CI 上分数会更低，因此 `pnpm lhci` 目前只在本地跑，没有放进 GitHub Actions。
 
 ## 待确认（我先按最简单、可逆的方案做了）
 
@@ -98,6 +132,13 @@ G0 结论：本地能验证的全部通过，剩下两条只差外部步骤。M1
 - **手机时间列 56 px、字号 1.125rem**：PRD 的 48 px 放不下 1.25rem 等宽的「18:30」（约 60 px）。桌面仍是 1.25rem。
 - **中文字体只覆盖 GB 2312**（6,763 个常用汉字加标点），更少见的字回退到系统的苹方或微软雅黑，这样 @font-face CSS 从 180 KB 降到 40 KB（gzip）。
 - **语言切换是整页跳转**（普通链接），因为换 `[locale]` 根参数时软导航没有更新正文；换语言是低频操作。
+- **CJK 正文字体「系统优先」**：Noto Sans SC 的 @font-face 先写 `local(PingFang SC Regular)`、`local(Noto Sans CJK SC Regular)`，苹果和安卓设备直接用系统字体，不下载切片；Windows、Linux 才下载 Noto。并且用 `font-display: optional`：切片 100 毫秒内没到就整页保持系统字体。结果是苹果设备上的正文是苹方而不是 Noto Sans SC。标题（Noto Serif SC 600）照旧用网络字体。要改回全平台统一 Noto，只需删掉 `scripts/fonts-cjk.ts` 里的 local 列表并重跑 `pnpm fonts:cjk`。
+- **霞鹜文楷在页面空闲后才加载**（`NoteFontLoader`），首屏点评先用衬线回退字体显示。
+- **Geist 与 Geist Mono 改用 next/font 的 latin 子集**，不再用 geist 包的全字形文件（每个 70 KB）。**Fraunces 斜体去掉 opsz 轴**（点评是小字，静态字重即可，文件小很多），并预加载，因为列表页的最大文本经常是英文点评。
+- **模板封面的六个汉字（黑投校会骑聚）是 SVG 轮廓**，由 `scripts/glyph-paths.py` 从 Noto Serif SC 生成；`AI` 仍用 Fraunces 文本。以后 next/og 的模板图可以复用同一份轮廓。
+- **流式内容的占位高度是 150vh**，页脚留在静态外壳里（保留 contentinfo 地标），位移发生在屏幕外，不计入 CLS。
+- **/privacy 的页脚链接先去掉**，M3 写隐私页时加回，避免链到 404。
+- **ICS 与 RSS 从第 6 周提前到第 4 周**，因为详情页的「加入日历」要用。
 - **`victorchun-site` 升级到 16.3.7 暂缓**：npm 上 next 最新仍是 16.3.6（今天 9/28，指南说 9/30 之后发布）。它在另一个仓库，发布后单独处理。
 
 ## 文档冲突记录（按实现指南执行）
@@ -111,4 +152,6 @@ G0 结论：本地能验证的全部通过，剩下两条只差外部步骤。M1
 7. **hreflang**：next-intl 默认在响应头里写 `hreflang="zh"`，PRD 要求 `zh-Hans`。关掉 next-intl 的 alternateLinks，由页面 metadata 输出 en、zh-Hans、x-default。
 8. **Better Auth CLI**：指南写 `pnpm dlx @better-auth/cli generate`，该包已在 npm 上标记弃用、停在 1.4.21；与 better-auth 1.7.6 配套的 CLI 现在叫 `auth`（`pnpm dlx auth@1.7.6 generate`）。用后者。
 9. **手机标题列宽**：PRD §9b 与指南都写「390 − 32 − 48 − 112 − 24 ≈ 246 px」，实际算出来是 174 px。按实际宽度设计（见待确认）。
+11. **字体预算**：PRD 与指南写 en 首屏字体 ≤ 120 KB，但指定的四个字体（Geist、Geist Mono、Fraunces 正体带 opsz、Fraunces 斜体）子集化后实测仍是 140 KB。两份文档都写了这个数字是估算、要用 Lighthouse CI 校准，所以按实测 140 KB 记为新预算；zh 首屏在苹果设备上实测为 Latin 140 KB + 标题切片约 80–370 KB（视页面文字而定）。
+12. **date-fns**：指南选了 date-fns 4.4 + @date-fns/tz，但 Next 16.3 的 Cache Components 在预渲染时拒绝 `TZDate` 内部的无参数 `new Date()`。改用 Intl 计算偏移，去掉这两个依赖。
 10. **印章以外的朱砂**：PRD 规定朱砂只属于 going 系统，但同一份文档也写了焦点环、点评左线和字标小印用朱砂。三处都照文档保留，别处（例如「今天」标签）不用。
