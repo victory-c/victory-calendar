@@ -132,6 +132,13 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 
 检查结果：typecheck、lint 通过；Vitest 79 个用例通过；Playwright 64 个通过、2 个跳过（passkey 需要数据库，已在本地数据库上单独跑通）；构建通过。
 
+在 PR #3 的预览上复查（6 个复查代理 + 反驳代理）：21 条都确认修好，回归检查全部通过；另外抓到 3 个问题，也已在本分支修掉：
+- **新的开放重定向（安全）**：语言切换 `/_locale` 只检查了原始 `to` 参数，`/.//evil.com` 这类带 `.` 路径段的地址规范化后变成 `//evil.com`，会跳到站外。现在校验规范化之后的路径，并在 proxy 里再确认一次目标仍是本站。
+- **/calendar 与 /week 缺描述**：加了 description 与 og:description。
+- **手机上「加入日历」菜单超出屏幕右边**（M1 就有的问题）：手机上改为在按钮下方整行展开，平板以上仍是下拉。
+
+运维备注：复查时多个代理同时高频请求预览，触发了 Vercel 的安全验证页（403 challenge，约 10 分钟后自动解除）。这是平台对短时间大量无头浏览器请求的防护，不是站点问题；日历 App 的正常抓取频率不会触发。
+
 ## 门槛
 
 | 门槛 | 条目 | 结果 |

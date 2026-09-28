@@ -90,7 +90,8 @@
     "today": "Today",
     "agenda": "Events this month",
     "empty": "No picks this month yet.",
-    "events": "{count, plural, one {# event} other {# events}}"
+    "events": "{count, plural, one {# event} other {# events}}",
+    "description": "Every pick by month, with a day-by-day agenda. Subscribe to the categories you care about."
   },
   "Going": {
     "title": "Where Victor is going",
@@ -107,7 +108,8 @@
   "Week": {
     "title": "Week of {date}",
     "prev": "Previous week",
-    "next": "Next week"
+    "next": "Next week",
+    "description": "Victor's picks for the week of {date}: Bay Area tech events, with a note on why each one is worth going to."
   },
   "About": {
     "title": "About",

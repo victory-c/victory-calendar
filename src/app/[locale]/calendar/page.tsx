@@ -20,7 +20,7 @@ export async function generateMetadata({ searchParams }: PageProps<'/[locale]/ca
   const t = await getTranslations({ locale, namespace: 'Calendar' });
   const m = validMonth((await searchParams).m);
   const title = m ? `${t('title')} · ${monthTitle(m, locale)}` : t('title');
-  return pageMeta({ path: '/calendar', locale, title, query: { m } });
+  return pageMeta({ path: '/calendar', locale, title, description: t('description'), query: { m } });
 }
 
 export default async function CalendarPage({ searchParams }: PageProps<'/[locale]/calendar'>) {

@@ -24,7 +24,7 @@ export async function generateMetadata({ params }: PageProps<'/[locale]/week/[we
   if (!b) return {};
   const t = await getTranslations({ locale, namespace: 'Week' });
   const date = fmtDayHeader(new Date(startOfKey(b.from).getTime() + 12 * 3600_000), locale).date;
-  return pageMeta({ path: `/week/${week}`, locale, title: t('title', { date }) });
+  return pageMeta({ path: `/week/${week}`, locale, title: t('title', { date }), description: t('description', { date }) });
 }
 
 export default async function WeekPage({ params }: PageProps<'/[locale]/week/[week]'>) {

@@ -100,3 +100,13 @@ test('category chips are pressed buttons that filter via ?c=', async ({ page }) 
   const cats = await page.locator('article[data-cat]').evaluateAll((els) => els.map((e) => e.getAttribute('data-cat')));
   expect(new Set(cats)).toEqual(new Set(['hackathon']));
 });
+
+test('the switch endpoint cannot be bent into an off-site redirect with dot segments', async ({ request }) => {
+  for (const to of ['/.//evil.example.com', '/a/..//evil.example.com', '%2F.%2F%2Fevil.example.com', '/%2e%2e//evil.example.com']) {
+    const res = await request.get(`/_locale?l=en&to=${to}`, { maxRedirects: 0 });
+    expect(res.status(), to).toBe(307);
+    const loc = res.headers().location;
+    expect(loc.startsWith('//'), `${to} → ${loc}`).toBe(false);
+    expect(new URL(loc, 'http://localhost').host, `${to} → ${loc}`).not.toContain('evil');
+  }
+});

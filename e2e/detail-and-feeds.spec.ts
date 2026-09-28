@@ -118,3 +118,24 @@ test('cancelled events say so in the title', async ({ page }) => {
   await page.goto('/zh/events/build-in-public-happy-hour');
   await expect(page).toHaveTitle(/^\[已取消\] /);
 });
+
+test('every list page has a description for share cards', async ({ page }) => {
+  for (const p of ['/calendar', '/zh/calendar?m=2026-10', '/week/2026-W41', '/zh/week/2026-W41', '/archive', '/going', '/about', '/']) {
+    await page.goto(p);
+    await expect(page.locator('meta[name="description"]'), p).toHaveAttribute('content', /.{20,}/);
+    await expect(page.locator('meta[property="og:description"]'), p).toHaveAttribute('content', /.{20,}/);
+  }
+});
+
+test('add-to-calendar menu stays inside a phone screen', async ({ page }, info) => {
+  test.skip(info.project.name !== 'mobile', 'phone layout only');
+  for (const p of ['/events/bilingual-ai-salon', '/zh/events/weekend-agent-hackathon']) {
+    await page.goto(p);
+    await page.locator('summary', { hasText: /Add to calendar|加入日历/ }).click();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(overflow, p).toBeLessThanOrEqual(0);
+    const box = await page.locator('details ul').last().boundingBox();
+    const vw = page.viewportSize()!.width;
+    expect(box && box.x >= 0 && box.x + box.width <= vw, p).toBe(true);
+  }
+});
