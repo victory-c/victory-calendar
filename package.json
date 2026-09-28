@@ -16,13 +16,13 @@
     "db:seed": "tsx scripts/seed.ts",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
     "fonts:cjk": "tsx scripts/fonts-cjk.ts && python3 scripts/glyph-paths.py > src/lib/covers/glyphs.ts",
-    "lhci": "lhci autorun"
+    "lhci": "lhci autorun",
+    "tz:vendor": "tsx scripts/vtimezones.ts"
   },
   "dependencies": {
     "@better-auth/passkey": "^1.7.6",
     "@date-fns/tz": "^1.5.0",
     "@neondatabase/serverless": "^1.1.0",
-    "@touch4it/ical-timezones": "^1.9.0",
     "@upstash/ratelimit": "^2.2.0",
     "@upstash/redis": "^1.39.0",
     "@vercel/blob": "^2.8.0",
@@ -58,7 +58,8 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5",
-    "vitest": "^5.0.2"
+    "vitest": "^5.0.2",
+    "@touch4it/ical-timezones": "^1.9.0"
   },
   "packageManager": "pnpm@12.3.4",
   "engines": {

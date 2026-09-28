@@ -1,13 +1,13 @@
 // iCalendar output shared by /calendar.ics, /calendar/going.ics and /ics/[slug]
-// (guide「日历订阅」). VTIMEZONE injected via @touch4it/ical-timezones.
+// (guide「日历订阅」). VTIMEZONE blocks are vendored in ./vtimezones.ts (pnpm tz:vendor).
 import { TZDate } from '@date-fns/tz';
-import { getVtimezoneComponent } from '@touch4it/ical-timezones';
 import ical, { ICalCalendarMethod, ICalEventStatus } from 'ical-generator';
 import { note, titles } from './events/display';
 import { publicGoing } from './events/going';
 import type { PublicEvent } from './events/types';
 import { publicHost, publicOrigin } from './host';
 import { CATEGORIES, type Category, type Locale } from './taxonomy';
+import { vtimezone } from './vtimezones';
 
 export const ICS_HEADERS = {
   'Content-Type': 'text/calendar; charset=utf-8',
@@ -39,7 +39,7 @@ export function buildIcs({ events, locale, name, now, showAttendance, single }: 
   const cal = ical({
     name,
     prodId: { company: 'victor-picks', product: 'picks', language: locale === 'zh' ? 'ZH' : 'EN' },
-    timezone: { name: 'America/Los_Angeles', generator: getVtimezoneComponent },
+    timezone: { name: 'America/Los_Angeles', generator: vtimezone },
     ttl: single ? null : 3600, // REFRESH-INTERVAL and X-PUBLISHED-TTL: PT1H
   });
   cal.method(ICalCalendarMethod.PUBLISH);
