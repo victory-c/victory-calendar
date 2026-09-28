@@ -1,4 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
+import { config } from 'dotenv';
+
+config({ path: '.env.local', quiet: true });
 
 const PORT = Number(process.env.E2E_PORT ?? 3100);
 const baseURL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`;
@@ -15,5 +18,12 @@ export default defineConfig({
   ],
   webServer: process.env.E2E_BASE_URL
     ? undefined
-    : { command: `pnpm start -p ${PORT}`, url: baseURL, reuseExistingServer: !process.env.CI, timeout: 60_000 },
+    : {
+        command: `pnpm start -p ${PORT}`,
+        url: baseURL,
+        reuseExistingServer: !process.env.CI,
+        timeout: 60_000,
+        // Passkeys bind to the origin, so the server must know the port it runs on.
+        env: { PUBLIC_HOST: `localhost:${PORT}`, BETTER_AUTH_URL: baseURL },
+      },
 });

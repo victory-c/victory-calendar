@@ -22,10 +22,11 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 
 ## 当前状态
 
-- 分支：`m0-foundations`
-- 里程碑：M0 基础（到 2026-10-11），第 1 周进行中
+- 分支：`m0-foundations`（M0 代码全部在这里，未合并进 `main`）
+- 里程碑：M0 代码完成；G0 还差 3 条依赖外部步骤的条目（见「门槛」）
 - Vercel 项目：`victor-picks`（victory-c-8190s-projects），已连 GitHub，推送分支自动出预览
-- 预览链接：每次推送 `m0-foundations` 自动生成；预览受 Vercel Authentication 保护，手机上需登录 Vercel 账号才能看
+- 分支固定预览地址：`https://victor-picks-git-m0-foundations-victory-c-8190s-projects.vercel.app`（受 Vercel Authentication 保护：登录 Vercel 即可看；给别人看需要临时分享链接，23 小时有效）
+- 预览目前是种子模式（Vercel 上还没有数据库），页面顶部有「示例数据」横幅
 
 ## 周记录
 
@@ -46,17 +47,40 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 
 检查结果：`pnpm typecheck && pnpm lint && pnpm test && pnpm build` 全部通过（Vitest 23 个用例，Playwright 冒烟 10 个用例：手机与桌面各 5 个）。
 
-下一步：第 2 周 Better Auth、Resend、Upstash、Blob、CJK 字体切片，然后用 20 条种子活动把首页做出来。
+### M0 第 2 周（10/5–10/11，提前完成）
 
-阻塞：Neon、Resend、Upstash、Blob 需要你在 Marketplace 安装（checklist 第 2 项）；未装之前我用本地 Postgres 和 mock 继续。
+做了什么
+- Better Auth 1.7.6：magic link（5 分钟有效）+ passkey 插件 + 白名单 before hook（非 `ADMIN_EMAIL` 连注册都 403）；30 天滚动会话；`/api/auth/[...all]`；`/admin` 是独立根布局，`/admin/sign-in` 登录页，`/admin` 首页可添加 passkey 与退出；proxy 改用 `getSessionCookie`；Server Component 用 `requireAdmin()` 再验一次。
+- Better Auth 表用官方 CLI 生成（`auth` 包，见文档冲突 8），迁移 `drizzle/0001_auth.sql`。
+- 邮件：`sendEmail()` 包一层 Resend；没有 `RESEND_API_KEY` 时写进服务器日志（邮箱脱敏）。没有验证域名前默认发件人是 Resend 的 `onboarding@resend.dev`，它只能发给 Resend 账号本人的邮箱：所以 `ADMIN_EMAIL` 请设成你注册 Resend 用的邮箱。
+- 限流：`src/lib/ratelimit.ts`，有 Upstash 就用滑动窗口，没有就用进程内固定窗口；阈值按指南（订阅每 IP 10 分钟 5 次、每邮箱每天 3 次、令牌每小时 60 次）。
+- CJK 字体：`pnpm fonts:cjk` 下载官方 OFL 源文件 → fontTools 按 GB 2312 子集化（8,247 字）→ cn-font-split 切片 → `public/fonts/cjk.css`（Noto Serif SC 600 + Noto Sans SC 400，gzip 40 KB）和 `cjk-note.css`（霞鹜文楷，gzip 20 KB）。只在 zh 页面和 /admin 链接；切片文件带内容哈希、一年 immutable 缓存。回退字体的 ascent/descent 用 Noto 实测值（116% / 28.8%，衬线 115.1% / 28.6%）。
+- 日期：Node 22 与 Node 26 的 ICU 空格不同（`PM` 前一个是窄不换行空格），统一成 en「6:30 – 8:00 PM」（细空格 + 不换行空格）、zh「18:30–20:00」。
+- Vercel 预览构建：固定 Next.js 框架、Node 22、pnpm 构建脚本白名单。
+
+用 20 条种子活动跑起来的首页
+- 20 条示例活动的日期相对「今天（太平洋时间）」计算，预览永远有当周内容；主办方是虚构的，页面顶部有「示例数据」横幅。`pnpm db:seed` 可把同样 20 条写进数据库。
+- 公开读模型 `PublicEvent`、缓存查询 `getUpcoming()`（`'use cache'` + `cacheTag('events')`）、`publicGoing()` 把 PRD §7 的会去规则写成纯函数（12 个用例覆盖：平台、私人场地、重复活动、骑行、去过、总开关、已取消）。
+- 组件：SiteHeader + Wordmark（朱砂小印 V）、LangSwitch、CategoryChips（真按钮 + aria-pressed，状态写进 `?c=`）、GoingStrip、FeaturedRail（手机 260 px 横滑、桌面三列）、DayHeader（吸顶）、EventCard（时间列 | 1:1 封面 | 标题，点评跨两列）、CoverImage（无图或模板封面时用纯 CSS 的类别色 + 大字瓦片，不发图片请求）、GoingBadge（中文两字竖排、英文等宽大写，−3°，120 ms 盖章）、CuratorNote、DateTime、EmptyState、SiteFooter。
+
+检查结果：`pnpm typecheck && pnpm lint && pnpm test && pnpm build` 全部通过（Vitest 45 个用例）；Playwright 16 个用例全过（手机与桌面：两种语言首页、首访跳转、无横向滚动、语言切换保留路径与筛选、类别芯片筛选、/admin 重定向，以及桌面上 magic link → 添加 passkey → 退出 → passkey 登录的完整流程，用 Chromium 虚拟认证器）；GitHub Actions CI 绿。
+
+下一步
+- 等你看预览后的设计意见，优先改设计。
+- M1 第 4 周起：活动详情页、JSON-LD、hreflang、sitemap；然后月历、/going、RSS、三条 ICS。
+
+阻塞
+- G0 的真机 Face ID / Touch ID、DKIM/DMARC 需要 checklist 第 1、2、3、9、10 项。
 
 ## 门槛
 
 | 门槛 | 条目 | 结果 |
 |---|---|---|
-| G0 | iPhone Face ID 与 Mac Touch ID 登录 /admin | 未验证 |
-| G0 | DMARC、DKIM 验证通过 | 未验证（依赖域名） |
-| G0 | pnpm test 与 Playwright 冒烟在预览分支通过 | 未验证 |
+| G0 | iPhone Face ID 与 Mac Touch ID 登录 /admin | ⏳ 代码路径已验证：本地用 Chromium 虚拟认证器跑通 magic link → 注册 passkey → 退出 → passkey 登录。真机需要 Vercel 上有数据库和 env（checklist 2、9），然后你在两台设备上各做一次（checklist 10） |
+| G0 | DMARC、DKIM 验证通过 | ⏳ 依赖域名（checklist 1、3） |
+| G0 | pnpm test 与 Playwright 冒烟在预览分支通过 | ✅ `m0-foundations` 的 GitHub Actions：typecheck、lint、Vitest、build、Playwright 全绿；该分支的 Vercel 预览构建 READY |
+
+G0 结论：本地能验证的全部通过，剩下两条只差外部步骤。M1 的工作不碰鉴权和发信，所以我在等外部步骤的同时继续 M1，G0 这两条补验后再记结果。
 
 ## 待确认（我先按最简单、可逆的方案做了）
 
@@ -67,6 +91,14 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 - **本地 Node 26，CI 与 Vercel 用 Node 22**（指南要求 Node 22；`engines: 22.x`）。
 - **`main` 分支只推了文档那一个 commit**，作为 PR 的基准；代码都在 feature 分支上。Vercel 对 `main` 的生产部署会因为没有代码而失败，合并 M0 后自然恢复。
 - **预览部署保持 Vercel Authentication 保护**（没有改项目安全设置）。要让不登录 Vercel 的人也能看，需要你在项目 Settings → Deployment Protection 关掉，或等域名绑定后看生产站。
+- **首页「本周」= 今天起 7 天（太平洋时间）**，而不是 ISO 周一到周日；周五打开也能看到下周初的活动。`/week/[yyyy-Www]` 仍按 ISO 周。
+- **模板封面在站内不发图片请求**：`cover.kind = template` 直接渲染 CSS 瓦片（同一套类别色 + 大字），next/og 生成的模板图只用于 OG 和邮件。
+- **「Victor 会去」条不跟随类别筛选**，精选卡和日列表跟随。
+- **手机卡片的点评跨封面和标题两列**：PRD 估算的手机标题列 246 px 按公式算其实只有 174 px（见文档冲突 9），点评放在标题列里太窄。
+- **手机时间列 56 px、字号 1.125rem**：PRD 的 48 px 放不下 1.25rem 等宽的「18:30」（约 60 px）。桌面仍是 1.25rem。
+- **中文字体只覆盖 GB 2312**（6,763 个常用汉字加标点），更少见的字回退到系统的苹方或微软雅黑，这样 @font-face CSS 从 180 KB 降到 40 KB（gzip）。
+- **语言切换是整页跳转**（普通链接），因为换 `[locale]` 根参数时软导航没有更新正文；换语言是低频操作。
+- **`victorchun-site` 升级到 16.3.7 暂缓**：npm 上 next 最新仍是 16.3.6（今天 9/28，指南说 9/30 之后发布）。它在另一个仓库，发布后单独处理。
 
 ## 文档冲突记录（按实现指南执行）
 
@@ -77,3 +109,6 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 5. **zh 日期格式**：指南代码片段用 `month: 'numeric'`，当前 ICU 输出是「10/7周三」，与指南和 PRD 写的「10月7日周三」不符。改用 `month: 'short'`，输出与 PRD F08 验收串一致。
 6. **en 时间区间的空格**：ICU 在 en dash 两侧放的是细空格（U+2009），不是普通空格。按指南「统一用 Intl 的实际输出」保留。
 7. **hreflang**：next-intl 默认在响应头里写 `hreflang="zh"`，PRD 要求 `zh-Hans`。关掉 next-intl 的 alternateLinks，由页面 metadata 输出 en、zh-Hans、x-default。
+8. **Better Auth CLI**：指南写 `pnpm dlx @better-auth/cli generate`，该包已在 npm 上标记弃用、停在 1.4.21；与 better-auth 1.7.6 配套的 CLI 现在叫 `auth`（`pnpm dlx auth@1.7.6 generate`）。用后者。
+9. **手机标题列宽**：PRD §9b 与指南都写「390 − 32 − 48 − 112 − 24 ≈ 246 px」，实际算出来是 174 px。按实际宽度设计（见待确认）。
+10. **印章以外的朱砂**：PRD 规定朱砂只属于 going 系统，但同一份文档也写了焦点环、点评左线和字标小印用朱砂。三处都照文档保留，别处（例如「今天」标签）不用。
