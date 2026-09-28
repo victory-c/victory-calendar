@@ -12,8 +12,10 @@ export default function proxy(req: NextRequest) {
   // Language switch: the only place the one-year NEXT_LOCALE cookie is written (PRD §9).
   if (pathname === '/_locale') {
     const locale = searchParams.get('l') === 'zh' ? 'zh' : 'en';
-    const to = safeReturnPath(searchParams.get('to'), req.nextUrl.origin);
-    const res = NextResponse.redirect(new URL(to, req.url), 307);
+    const origin = req.nextUrl.origin;
+    const target = new URL(safeReturnPath(searchParams.get('to'), origin), origin);
+    // Belt and braces: never emit a Location that leaves this origin.
+    const res = NextResponse.redirect(target.origin === origin ? target : new URL('/', origin), 307);
     res.cookies.set(LOCALE_COOKIE, locale, { path: '/', maxAge: LOCALE_COOKIE_MAX_AGE, sameSite: 'lax' });
     return res;
   }

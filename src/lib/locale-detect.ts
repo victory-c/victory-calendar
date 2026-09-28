@@ -25,12 +25,19 @@ export function preferredLocale(acceptLanguage: string | null | undefined, cooki
   return top && (top === 'zh' || top.startsWith('zh-')) ? 'zh' : 'en';
 }
 
-/** Same-origin, path-only redirect target for the language switch; anything else → "/". */
+/**
+ * Same-origin, path-only redirect target for the language switch; anything else → "/".
+ * Checks the NORMALIZED path too: dot segments can turn "/.//evil.com" into "//evil.com",
+ * which a Location header would read as a protocol-relative off-site URL.
+ */
 export function safeReturnPath(to: string | null, origin: string) {
-  if (!to || !to.startsWith('/') || to.startsWith('//') || to.includes('\\')) return '/';
+  if (!to || !to.startsWith('/') || to.startsWith('//') || /[\\\u0000-\u001f]/.test(to)) return '/';
   try {
     const u = new URL(to, origin);
-    return u.origin === origin ? `${u.pathname}${u.search}` : '/';
+    if (u.origin !== origin) return '/';
+    const path = u.pathname;
+    if (!path.startsWith('/') || path.startsWith('//') || path.includes('\\')) return '/';
+    return `${path}${u.search}`;
   } catch {
     return '/';
   }

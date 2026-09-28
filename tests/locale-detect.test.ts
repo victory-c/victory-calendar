@@ -37,4 +37,10 @@ describe('language switch links', () => {
     for (const bad of ['//evil.com', 'https://evil.com', '/\\evil.com', 'javascript:alert(1)', null, ''])
       expect(safeReturnPath(bad, o), String(bad)).toBe('/');
   });
+  it('rejects dot-segment and control-character tricks that normalize to "//host"', () => {
+    const o = 'https://picks.example.com';
+    for (const bad of ['/.//evil.com', '/a/..//evil.com', '/%2e%2e//evil.com', '/./\\evil.com', '/\t/evil.com', '/\n//evil.com'])
+      expect(safeReturnPath(bad, o), JSON.stringify(bad)).toBe('/');
+    expect(safeReturnPath('/zh/./events/../about', o)).toBe('/zh/about');
+  });
 });
