@@ -9,6 +9,7 @@ import {
   fmtRange,
   fmtTime,
   isoWithOffset,
+  normalizeSpaces,
 } from '@/lib/format/date';
 
 // Wed 2026-10-07 18:30–20:00 PDT
@@ -20,18 +21,26 @@ describe('fmtRange', () => {
     expect(fmtRange(start, end, 'zh')).toBe('10月7日周三 18:30–20:00 北美太平洋时间');
   });
   it('renders the PRD en string', () => {
-    // ICU puts thin spaces (U+2009) around the en dash.
-    expect(fmtRange(start, end, 'en')).toBe('Wed, Oct 7 · 6:30\u2009–\u20098:00 PM PT');
+    // Pinned spacing: thin spaces (U+2009) around the dash, no-break space before PM.
+    expect(fmtRange(start, end, 'en')).toBe('Wed, Oct 7 · 6:30\u2009–\u20098:00\u00a0PM PT');
   });
   it('shows only the start time when there is no end', () => {
     expect(fmtRange(start, null, 'zh')).toBe('10月7日周三 18:30 北美太平洋时间');
   });
   it('does not render a cross-day range as a same-day time range', () => {
     const multi = new Date('2026-10-10T03:00:00Z');
-    expect(fmtRange(start, multi, 'en')).toBe('Wed, Oct 7 · 6:30 PM PT');
+    expect(fmtRange(start, multi, 'en')).toBe('Wed, Oct 7 · 6:30\u00a0PM PT');
   });
   it('handles PST after 2026-11-01', () => {
     expect(fmtRange(new Date('2026-11-05T02:30:00Z'), null, 'zh')).toBe('11月4日周三 18:30 北美太平洋时间');
+  });
+});
+
+describe('normalizeSpaces', () => {
+  it('maps every ICU variant to one form', () => {
+    for (const v of ['6:30 – 8:00 PM', '6:30\u2009–\u20098:00\u202fPM', '6:30–8:00 PM'])
+      expect(normalizeSpaces(v)).toBe('6:30\u2009–\u20098:00\u00a0PM');
+    expect(normalizeSpaces('18:30 – 20:00', 'zh')).toBe('18:30–20:00');
   });
 });
 
@@ -44,7 +53,7 @@ describe('helpers', () => {
     expect(fmtDayHeader(start, 'zh')).toEqual({ date: '10月7日', weekday: '周三' });
     expect(fmtDayHeader(start, 'en')).toEqual({ date: 'Oct 7', weekday: 'Wed' });
     expect(fmtTime(start, 'zh')).toBe('18:30');
-    expect(fmtTime(start, 'en')).toBe('6:30 PM');
+    expect(fmtTime(start, 'en')).toBe('6:30\u00a0PM');
     expect(fmtDateBadge(start, 'zh')).toEqual({ day: '07', weekday: '周三' });
   });
   it('duration', () => {

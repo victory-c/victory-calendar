@@ -14,6 +14,7 @@ export default function AdminLayout({ children }: LayoutProps<'/admin'>) {
   return (
     <html lang="en" className={fontVars}>
       <body className="min-h-dvh">
+        {/* eslint-disable-next-line @next/next/no-css-tags -- static CJK slice index, see scripts/fonts-cjk.ts */}
         <link rel="stylesheet" href="/fonts/cjk.css" precedence="default" />
         {children}
       </body>

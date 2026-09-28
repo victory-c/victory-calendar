@@ -21,12 +21,23 @@ function timeFmt(locale: Locale, tz: string) {
 
 export const zoneLabel = (locale: Locale) => (locale === 'zh' ? '北美太平洋时间' : 'PT');
 
+/**
+ * ICU versions disagree on spacing (Node 22: "8:00\u202fPM", Node 26: "8:00 PM"; range dash
+ * with or without thin spaces). Pin one form so server, email and ICS output never drift:
+ * en: thin spaces around the range dash and a no-break space before AM/PM.
+ * zh: a bare dash (18:30–20:00), as PRD F08 specifies.
+ */
+export function normalizeSpaces(s: string, locale: Locale = 'en') {
+  if (locale === 'zh') return s.replace(/\s*[–-]\s*(?=\d)/g, '–');
+  return s.replace(/\s*[–-]\s*(?=\d)/g, '\u2009–\u2009').replace(/[\s\u202f\u00a0]+(AM|PM)/g, '\u00a0$1');
+}
+
 /** zh → 10月7日周三 18:30–20:00 北美太平洋时间 · en → Wed, Oct 7 · 6:30 – 8:00 PM PT */
 export function fmtRange(start: Date, end: Date | null, locale: Locale, tz = PT) {
   const day = dayFmt(locale, tz).format(start);
   const time = timeFmt(locale, tz);
   const sameDay = end && dayKey(start, tz) === dayKey(end, tz);
-  const range = end && sameDay ? time.formatRange(start, end) : time.format(start);
+  const range = normalizeSpaces(end && sameDay ? time.formatRange(start, end) : time.format(start), locale);
   return locale === 'zh' ? `${day} ${range} ${zoneLabel(locale)}` : `${day} · ${range} ${zoneLabel(locale)}`;
 }
 
@@ -50,7 +61,7 @@ export function fmtDayHeader(d: Date, locale: Locale, tz = PT) {
 
 /** TimeBadge: "18:30" (zh) / "6:30 PM" (en) */
 export function fmtTime(d: Date, locale: Locale, tz = PT) {
-  return timeFmt(locale, tz).format(d);
+  return normalizeSpaces(timeFmt(locale, tz).format(d), locale);
 }
 
 /** DateBadge for ungrouped contexts: { day: "07", weekday: "周三" | "Wed" } */
