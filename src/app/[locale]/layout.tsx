@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getTranslations } from 'next-intl/server';
 import { htmlLang, routing, type AppLocale } from '@/i18n/routing';
+import { NoteFontLoader } from '@/components/NoteFontLoader';
 import { fontVars } from '../fonts';
 import '../globals.css';
 
@@ -32,11 +33,7 @@ export default async function LocaleLayout({ children }: LayoutProps<'/[locale]'
           <link rel="stylesheet" href="/fonts/cjk.css" precedence="default" />
         )}
         <NextIntlClientProvider>{children}</NextIntlClientProvider>
-        {/* Note font (LXGW WenKai): its 20 KB index CSS is hoisted after cjk.css; the woff2 slices use font-display: swap. */}
-        {locale === 'zh' && (
-          // eslint-disable-next-line @next/next/no-css-tags -- static CJK slice index, see scripts/fonts-cjk.ts
-          <link rel="stylesheet" href="/fonts/cjk-note.css" precedence="low" />
-        )}
+        {locale === 'zh' && <NoteFontLoader href="/fonts/cjk-note.css" />}
       </body>
     </html>
   );

@@ -23,7 +23,7 @@ export default async function ArchivePage({ searchParams }: PageProps<'/[locale]
     <PageShell locale={locale}>
       <h1 className="pt-6 text-h1 md:pt-10">{t('title')}</h1>
       <p className="mt-2 text-muted">{t('intro')}</p>
-      <Suspense fallback={<div className="h-96" />}>
+      <Suspense fallback={<div className="min-h-[150vh]" aria-busy="true" />}>
         <Past locale={locale} searchParams={searchParams} />
       </Suspense>
     </PageShell>

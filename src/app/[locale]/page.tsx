@@ -43,7 +43,7 @@ export default async function Home({ searchParams }: PageProps<'/[locale]'>) {
             <CategoryChips locale={locale} label={t('filter')} allLabel={t('all')} />
           </Suspense>
         </div>
-        <Suspense fallback={<div className="h-96" />}>
+        <Suspense fallback={<div className="min-h-[150vh]" aria-busy="true" />}>
           <Week locale={locale} searchParams={searchParams} />
         </Suspense>
       </main>

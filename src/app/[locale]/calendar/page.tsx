@@ -32,7 +32,7 @@ export default async function CalendarPage({ searchParams }: PageProps<'/[locale
           <CategoryChips locale={locale} label={th('filter')} allLabel={th('all')} />
         </Suspense>
       </div>
-      <Suspense fallback={<div className="h-96" />}>
+      <Suspense fallback={<div className="min-h-[150vh]" aria-busy="true" />}>
         <Month locale={locale} searchParams={searchParams} />
       </Suspense>
     </PageShell>

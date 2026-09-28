@@ -1,6 +1,7 @@
 import Image from 'next/image';
 import type { SealKind } from '@/lib/events/going';
 import type { PublicCover } from '@/lib/events/types';
+import { GLYPHS } from '@/lib/covers/glyphs';
 import { CATEGORIES, type Category, type Locale } from '@/lib/taxonomy';
 import { GoingBadge } from './GoingBadge';
 
@@ -54,11 +55,23 @@ export function CoverImage({ cover, category, hostName, alt, size, seal, locale,
 
 export function TemplateTile({ category, hostName }: { category: Category; hostName: string | null }) {
   const glyph = CATEGORIES[category].glyph;
-  const latin = /^[A-Za-z]+$/.test(glyph);
+  const outline = GLYPHS[glyph];
   return (
     <div className="cover-tile absolute inset-0" style={{ ['--c' as string]: `var(--color-cat-${category})` }} aria-hidden>
       <div className="cover-tile-block" />
-      <span className={`cover-tile-glyph ${latin ? 'font-display' : 'font-display cjk'}`}>{glyph}</span>
+      {outline ? (
+        // CJK glyphs ship as outlines so the tile never waits for a font slice.
+        <span className="cover-tile-glyph">
+          <svg
+            className="cover-tile-svg"
+            viewBox={`${outline.box[0]} ${-outline.box[3]} ${outline.box[2] - outline.box[0]} ${outline.box[3] - outline.box[1]}`}
+          >
+            <path d={outline.d} transform="scale(1,-1)" fill="currentColor" />
+          </svg>
+        </span>
+      ) : (
+        <span className="cover-tile-glyph font-display">{glyph}</span>
+      )}
       {hostName && <span className="cover-tile-host font-mono">{hostName}</span>}
     </div>
   );

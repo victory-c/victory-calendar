@@ -141,6 +141,7 @@ h3 {
     font-synthesis: none;
   }
   .note:lang(en) {
+    font-family: var(--font-fraunces-italic), var(--font-fraunces), serif;
     font-style: italic;
   }
   .note:lang(zh-Hans) {
@@ -191,9 +192,9 @@ h3 {
   letter-spacing: -0.02em;
   font-variation-settings: "opsz" 144;
 }
-.cover-tile-glyph.cjk {
-  font-size: 50cqw;
-  letter-spacing: 0;
+.cover-tile-svg {
+  width: 44cqw;
+  height: 44cqw;
 }
 .cover-tile-host {
   display: none;

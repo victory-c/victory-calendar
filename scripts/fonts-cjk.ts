@@ -39,6 +39,8 @@ const FONTS = [
     weight: '600',
     display: 'swap',
     sheet: 'cjk.css',
+    // Chrome's local() matches full or PostScript names, not family names.
+    local: ['Noto Serif SC SemiBold', 'NotoSerifSC-SemiBold', 'Noto Serif CJK SC SemiBold', 'NotoSerifCJKsc-SemiBold', 'SourceHanSerifSC-SemiBold'],
     file: 'NotoSerifSC-SemiBold.otf',
     url: 'https://github.com/notofonts/noto-cjk/raw/main/Serif/SubsetOTF/SC/NotoSerifSC-SemiBold.otf',
   },
@@ -46,8 +48,13 @@ const FONTS = [
     dir: 'noto-sans-sc',
     family: 'Noto Sans SC',
     weight: '400',
-    display: 'swap',
+    // Body text: never delay LCP or reflow — if a slice isn't ready within ~100 ms the system
+    // CJK font stays for this page view and the slice is used from cache next time.
+    display: 'optional',
     sheet: 'cjk.css',
+    // System copies first: Apple (PingFang SC) and Android (Noto Sans CJK SC) download nothing;
+    // Windows/Linux get the Noto slices. Calibrated against the zh first-screen budget.
+    local: ['PingFang SC Regular', 'PingFangSC-Regular', 'Noto Sans CJK SC Regular', 'NotoSansCJKsc-Regular', 'Noto Sans SC Regular', 'NotoSansSC-Regular', 'SourceHanSansSC-Regular'],
     file: 'NotoSansSC-Regular.otf',
     url: 'https://github.com/notofonts/noto-cjk/raw/main/Sans/SubsetOTF/SC/NotoSansSC-Regular.otf',
   },
@@ -56,7 +63,8 @@ const FONTS = [
     family: 'LXGW WenKai',
     weight: '400',
     display: 'swap',
-    sheet: 'cjk-note.css', // only CuratorNote uses it; loaded without blocking first paint
+    sheet: 'cjk-note.css', // only CuratorNote uses it; injected after load by NoteFontLoader
+    local: ['LXGW WenKai Regular', 'LXGWWenKai-Regular'],
     file: 'LXGWWenKai-Regular.ttf',
     url: 'https://github.com/lxgw/LxgwWenKai/releases/latest/download/LXGWWenKai-Regular.ttf',
   },
@@ -86,7 +94,8 @@ async function main() {
     await fontSplit({
       input: new Uint8Array(readFileSync(src)),
       outDir,
-      css: { fontFamily: f.family, fontWeight: f.weight, fontStyle: 'normal', fontDisplay: f.display, compress: true },
+      css: { fontFamily: f.family, fontWeight: f.weight, fontStyle: 'normal', fontDisplay: f.display, compress: true, localFamily: [...f.local] },
+      chunkSize: 16 * 1024, // smaller chunks → fewer unused glyphs per page (HTTP/2 makes requests cheap)
       testHtml: false,
       reporter: false,
       silent: true,

@@ -15,7 +15,8 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
-    "fonts:cjk": "tsx scripts/fonts-cjk.ts"
+    "fonts:cjk": "tsx scripts/fonts-cjk.ts && python3 scripts/glyph-paths.py > src/lib/covers/glyphs.ts",
+    "lhci": "lhci autorun"
   },
   "dependencies": {
     "@better-auth/passkey": "^1.7.6",
