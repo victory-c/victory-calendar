@@ -13,6 +13,10 @@ export async function SiteHeader({ locale }: { locale: Locale }) {
         <Wordmark locale={locale} name={t('name')} />
       </Link>
       <div className="flex items-center gap-2">
+        <nav aria-label={t('nav')} className="mr-2 hidden items-center gap-4 text-sm text-muted md:flex">
+          <Link href="/calendar">{t('calendar')}</Link>
+          <Link href="/going">{t('going')}</Link>
+        </nav>
         <Suspense fallback={<LangSwitchFallback label={t('langSwitch')} />}>
           <LangSwitch label={t('langSwitch')} />
         </Suspense>

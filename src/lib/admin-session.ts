@@ -5,7 +5,8 @@ import { auth, isAdminEmail } from './auth';
 
 /** Server Components / Server Actions: returns the admin session or redirects to sign-in. */
 export async function requireAdmin() {
-  const session = await auth.api.getSession({ headers: await headers() });
+  const h = await headers(); // request-time API first, so prerendering bails before auth is built
+  const session = await auth.api.getSession({ headers: h });
   if (!session || !isAdminEmail(session.user.email)) redirect('/admin/sign-in');
   return session;
 }

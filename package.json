@@ -8,14 +8,16 @@
     "start": "next start",
     "typecheck": "next typegen && tsc --noEmit",
     "lint": "eslint --max-warnings=0",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "TZ=UTC vitest run",
+    "test:watch": "TZ=UTC vitest",
     "e2e": "playwright test",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
-    "fonts:cjk": "tsx scripts/fonts-cjk.ts"
+    "fonts:cjk": "tsx scripts/fonts-cjk.ts && python3 scripts/glyph-paths.py > src/lib/covers/glyphs.ts",
+    "lhci": "lhci autorun",
+    "tz:vendor": "tsx scripts/vtimezones.ts"
   },
   "dependencies": {
     "@better-auth/passkey": "^1.7.6",
@@ -25,11 +27,12 @@
     "@upstash/redis": "^1.39.0",
     "@vercel/blob": "^2.8.0",
     "better-auth": "^1.7.6",
-    "date-fns": "^4.4.0",
     "drizzle-orm": "^0.45.3",
     "geist": "^1.7.2",
+    "ical-generator": "^11.1.1",
     "next": "16.3.6",
     "next-intl": "^4.14.7",
+    "node-ical": "^0.27.2",
     "pg": "^8.23.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -55,7 +58,8 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5",
-    "vitest": "^5.0.2"
+    "vitest": "^5.0.2",
+    "@touch4it/ical-timezones": "^1.9.0"
   },
   "packageManager": "pnpm@12.3.4",
   "engines": {

@@ -50,6 +50,7 @@ export type PublicEvent = {
   goingVisibility: GoingVisibility;
   featured: boolean;
   sequence: number;
+  publishedAt: Date | null;
   cover: PublicCover | null;
   /** True for fixture rows shown before a database exists. */
   sample?: boolean;
