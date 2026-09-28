@@ -24,7 +24,8 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 
 - 分支：`m0-foundations`
 - 里程碑：M0 基础（到 2026-10-11），第 1 周进行中
-- 预览链接：未部署
+- Vercel 项目：`victor-picks`（victory-c-8190s-projects），已连 GitHub，推送分支自动出预览
+- 预览链接：每次推送 `m0-foundations` 自动生成；预览受 Vercel Authentication 保护，手机上需登录 Vercel 账号才能看
 
 ## 周记录
 
@@ -40,7 +41,14 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 - 三条 cron 写进 `vercel.json`，端点先是带 `CRON_SECRET` 校验的空壳。
 - 测试：Vitest（日期、token 对比度、schema 约束用 PGlite 跑真迁移），Playwright 冒烟（/、/zh、html lang、zh 首访跳转、无横向滚动、/admin 重定向），GitHub Actions CI。
 
-检查结果：见下一次更新。
+- Vercel：建项目 `victor-picks` 并连 GitHub；`vercel.json` 固定 `framework: nextjs`；`pnpm-workspace.yaml` 显式批准构建脚本（pnpm 12 在 CI 里遇到未批准的脚本会直接失败）；`engines.node` 固定 `22.x`。
+- 首个预览部署 READY。
+
+检查结果：`pnpm typecheck && pnpm lint && pnpm test && pnpm build` 全部通过（Vitest 23 个用例，Playwright 冒烟 10 个用例：手机与桌面各 5 个）。
+
+下一步：第 2 周 Better Auth、Resend、Upstash、Blob、CJK 字体切片，然后用 20 条种子活动把首页做出来。
+
+阻塞：Neon、Resend、Upstash、Blob 需要你在 Marketplace 安装（checklist 第 2 项）；未装之前我用本地 Postgres 和 mock 继续。
 
 ## 门槛
 
@@ -56,7 +64,9 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 - **生产用 neon-http 驱动。** 它不支持交互式事务，所以 digest 的 claim 行会写成单条 `INSERT … SELECT … RETURNING`。若 Better Auth 需要事务，第 2 周改用 Neon 的 WebSocket Pool。
 - **Vercel 项目名 `victor-picks`**，预览域名随之而定。
 - **React 保持 19.2.8**（create-next-app 为 Next 16.3.6 固定的版本；npm 上已有 19.3.0，但指南写的是 React 19.2）。**TypeScript 保持 5.x**（npm 最新 7.0.2，未确认 Next 16.3 的 typegen 支持）。**ESLint 保持 9**（create-next-app 的选择）。
-- **本地 Node 26，CI 与 Vercel 用 Node 22**（指南要求 Node 22；`engines: >=22`）。
+- **本地 Node 26，CI 与 Vercel 用 Node 22**（指南要求 Node 22；`engines: 22.x`）。
+- **`main` 分支只推了文档那一个 commit**，作为 PR 的基准；代码都在 feature 分支上。Vercel 对 `main` 的生产部署会因为没有代码而失败，合并 M0 后自然恢复。
+- **预览部署保持 Vercel Authentication 保护**（没有改项目安全设置）。要让不登录 Vercel 的人也能看，需要你在项目 Settings → Deployment Protection 关掉，或等域名绑定后看生产站。
 
 ## 文档冲突记录（按实现指南执行）
 
