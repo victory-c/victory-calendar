@@ -1,7 +1,7 @@
 // 20 sample events for design review before the database and ingest exist. Dates are
 // relative to "today" in Pacific time so the preview always has a current week. Every page
 // that renders these shows a "sample data · 示例数据" banner; hosts are fictional.
-import { TZDate } from '@date-fns/tz';
+import { zonedInstant } from '../format/calendar';
 import { dayKey, PT } from '../format/date';
 import type { Category } from '../taxonomy';
 import type { GoingStatus, GoingVisibility, PublicEvent } from './types';
@@ -201,7 +201,7 @@ const SEEDS: Seed[] = [
 function atPT(dayOffset: number, hhmm: string, now: Date) {
   const [y, m, d] = dayKey(now, PT).split('-').map(Number);
   const [hh, mm] = hhmm.split(':').map(Number);
-  return new Date(new TZDate(y, m - 1, d + dayOffset, hh, mm, 0, PT).getTime());
+  return zonedInstant(y, m, d + dayOffset, hh, mm);
 }
 
 export function seedEvents(now = new Date()): PublicEvent[] {

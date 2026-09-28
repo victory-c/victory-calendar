@@ -8,7 +8,10 @@ export async function SiteFooter({ locale }: { locale: Locale }) {
   const ics = locale === 'zh' ? '/calendar.ics?lang=zh' : '/calendar.ics';
   return (
     <footer className="mx-auto mt-16 max-w-4xl border-t border-rule px-4 py-8 text-sm text-muted">
-      <nav aria-label={t('nav')} className="flex flex-wrap gap-x-5 gap-y-2">
+      <nav aria-label={`${t('nav')} · footer`} className="flex flex-wrap gap-x-5 gap-y-2">
+        <Link href="/calendar">{t('calendar')}</Link>
+        <Link href="/going">{t('going')}</Link>
+        <Link href="/archive">{t('archive')}</Link>
         <Link href="/about">{t('about')}</Link>
         <a href={feed}>{t('rss')}</a>
         <a href={ics}>{t('ical')}</a>

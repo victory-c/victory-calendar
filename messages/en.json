@@ -11,7 +11,10 @@
     "rss": "RSS",
     "ical": "Calendar feed",
     "sample": "Sample data — these 20 events are placeholders for design review, not real listings.",
-    "nav": "Main"
+    "nav": "Main",
+    "calendar": "Calendar",
+    "going": "Going",
+    "archive": "Archive"
   },
   "Home": {
     "thisWeek": "This week",
@@ -57,5 +60,64 @@
     "rsvpAt": "RSVP on {platform}",
     "refreshNote": "Calendar apps refresh subscriptions on their own schedule; cancellations also go out by email.",
     "onlineAt": "Online"
+  },
+  "Facets": {
+    "title": "More filters",
+    "lang": "Event language",
+    "langAny": "Any",
+    "langZh": "Chinese",
+    "langBilingual": "Bilingual",
+    "fmt": "Format",
+    "fmtAny": "Any",
+    "fmtInPerson": "In person",
+    "fmtOnline": "Online",
+    "region": "Area",
+    "regionAny": "Anywhere",
+    "sf": "San Francisco",
+    "east_bay": "East Bay",
+    "peninsula": "Peninsula",
+    "south_bay": "South Bay",
+    "north_bay": "North Bay",
+    "online": "Online",
+    "free": "Free only",
+    "apply": "Apply",
+    "clear": "Clear"
+  },
+  "Calendar": {
+    "title": "Calendar",
+    "prev": "Previous month",
+    "next": "Next month",
+    "today": "Today",
+    "agenda": "Events this month",
+    "empty": "No picks this month yet.",
+    "events": "{count, plural, one {# event} other {# events}}"
+  },
+  "Going": {
+    "title": "Where Victor is going",
+    "upcoming": "Coming up",
+    "went": "Went",
+    "intro": "Only events I've publicly marked. Private venues, cycling and repeat meetups never show up here ahead of time.",
+    "empty": "Nothing public right now."
+  },
+  "Archive": {
+    "title": "Archive",
+    "intro": "Past picks, month by month.",
+    "empty": "Nothing archived for this month."
+  },
+  "Week": {
+    "title": "Week of {date}",
+    "prev": "Previous week",
+    "next": "Next week"
+  },
+  "About": {
+    "title": "About",
+    "body1": "I'm Victor, a Berkeley student who goes to a lot of Bay Area tech events. Every week I pick the ones I'd actually recommend and say why in a line or two.",
+    "body2": "You can see which ones I'm going to, filter by the categories you care about, and subscribe by calendar feed. Every page is in English and Chinese.",
+    "body3": "No paid placements. Hosts can't buy their way onto this list.",
+    "nav": {
+      "calendar": "Calendar",
+      "going": "Where I'm going",
+      "archive": "Archive"
+    }
   }
 }

@@ -1,9 +1,9 @@
 import 'server-only';
-import { TZDate } from '@date-fns/tz';
 import { and, asc, eq, gte, inArray, lt } from 'drizzle-orm';
 import { cacheLife, cacheTag } from 'next/cache';
 import { db, hasDatabase } from '../db';
 import { covers, eventsPublic } from '../db/schema';
+import { startOfKey } from '../format/calendar';
 import { dayKey, PT } from '../format/date';
 import { showAttendance } from '../settings';
 import { isCategory } from '../taxonomy';
@@ -19,10 +19,7 @@ export type Upcoming = {
   sample: boolean;
 };
 
-function startOfDayPT(now: Date, addDays = 0) {
-  const [y, m, d] = dayKey(now, PT).split('-').map(Number);
-  return new Date(new TZDate(y, m - 1, d + addDays, 0, 0, 0, PT).getTime());
-}
+const startOfDayPT = (now: Date, addDays = 0) => startOfKey(dayKey(now, PT), addDays);
 
 const PUBLIC_STATUSES = ['published', 'cancelled'] as const;
 
@@ -112,4 +109,26 @@ export async function getEventBySlug(slug: string): Promise<(Window & { event: P
 export async function upcomingSlugs() {
   const { events } = await getWindow(-1, 30);
   return events.map((e) => e.slug);
+}
+
+/** Explicit Pacific day-key range [fromKey, toKey) — month grid, ISO week, archive. */
+export async function getRange(fromKey: string, toKey: string): Promise<Window & { todayKey: string }> {
+  'use cache';
+  cacheTag('events');
+  cacheLife({ stale: 300, revalidate: 900, expire: 86_400 });
+  const now = new Date();
+  const from = startOfKey(fromKey);
+  const to = startOfKey(toKey);
+  const sample = !hasDatabase();
+  const events = sample
+    ? seedEvents(now).filter((e) => e.startAt >= from && e.startAt < to).sort((a, b) => +a.startAt - +b.startAt)
+    : await fromDb(from, to);
+  return { now: now.toISOString(), todayKey: dayKey(now, PT), events, showAttendance: await showAttendance(), sample };
+}
+
+/** Today's PT day key, cached alongside the event data so pages stay prerenderable. */
+export async function getToday() {
+  'use cache';
+  cacheLife({ stale: 300, revalidate: 900, expire: 86_400 });
+  return dayKey(new Date(), PT);
 }

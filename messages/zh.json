@@ -11,7 +11,10 @@
     "rss": "RSS",
     "ical": "日历订阅",
     "sample": "示例数据：这 20 场活动只是设计评审用的占位，不是真实活动。",
-    "nav": "主导航"
+    "nav": "主导航",
+    "calendar": "月历",
+    "going": "会去",
+    "archive": "归档"
   },
   "Home": {
     "thisWeek": "本周",
@@ -57,5 +60,64 @@
     "rsvpAt": "去 {platform} 报名",
     "refreshNote": "日历 App 按自己的节奏刷新订阅；取消和改期也会发邮件通知。",
     "onlineAt": "线上"
+  },
+  "Facets": {
+    "title": "更多筛选",
+    "lang": "活动语言",
+    "langAny": "不限",
+    "langZh": "中文",
+    "langBilingual": "双语",
+    "fmt": "形式",
+    "fmtAny": "不限",
+    "fmtInPerson": "线下",
+    "fmtOnline": "线上",
+    "region": "区域",
+    "regionAny": "不限",
+    "sf": "旧金山",
+    "east_bay": "东湾",
+    "peninsula": "半岛",
+    "south_bay": "南湾",
+    "north_bay": "北湾",
+    "online": "线上",
+    "free": "只看免费",
+    "apply": "应用",
+    "clear": "清除"
+  },
+  "Calendar": {
+    "title": "月历",
+    "prev": "上个月",
+    "next": "下个月",
+    "today": "今天",
+    "agenda": "本月活动",
+    "empty": "这个月还没有精选。",
+    "events": "{count} 场活动"
+  },
+  "Going": {
+    "title": "Victor 会去哪",
+    "upcoming": "接下来",
+    "went": "去过",
+    "intro": "只列我公开标记的活动。私人场地、骑行和常规聚会不会提前出现在这里。",
+    "empty": "目前没有公开的行程。"
+  },
+  "Archive": {
+    "title": "归档",
+    "intro": "按月查看过去的精选。",
+    "empty": "这个月没有归档的活动。"
+  },
+  "Week": {
+    "title": "{date} 这一周",
+    "prev": "上一周",
+    "next": "下一周"
+  },
+  "About": {
+    "title": "关于",
+    "body1": "我是 Victor，在伯克利读书，经常跑湾区的 tech 活动。每周我挑出真心推荐的几场，用一两句话说为什么。",
+    "body2": "你能看到我会去哪几场，只看你关心的类别，也可以用日历订阅。每个页面都有中英文。",
+    "body3": "无付费植入，主办方不能花钱上这个列表。",
+    "nav": {
+      "calendar": "月历",
+      "going": "我会去哪",
+      "archive": "归档"
+    }
   }
 }
