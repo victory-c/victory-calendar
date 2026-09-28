@@ -1,0 +1,10 @@
+# pnpm 12 fails installs with unreviewed build scripts; each entry is an explicit decision.
+allowBuilds:
+  esbuild: true # drizzle-kit, tsx, vitest
+  sharp: false # prebuilt @img/* binaries, no script needed
+  unrs-resolver: false
+  '@parcel/watcher': false
+  '@swc/core': false
+  cn-font-split: true # postinstall fetches its native binary (devDependency, font pipeline only)
+  koffi: false # ships prebuilt binaries in the package
+  protobufjs: false # postinstall is only a version notice

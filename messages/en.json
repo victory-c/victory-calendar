@@ -1,0 +1,50 @@
+{
+  "Site": {
+    "name": "Victor's Picks",
+    "tagline": "A bilingual Bay Area tech events calendar. See where I'm going, subscribe only to what you care about.",
+    "skip": "Skip to content",
+    "subscribe": "Subscribe",
+    "langSwitch": "Language",
+    "about": "About",
+    "privacy": "Privacy",
+    "noPaid": "No paid placements.",
+    "rss": "RSS",
+    "ical": "Calendar feed",
+    "sample": "Sample data — these 20 events are placeholders for design review, not real listings.",
+    "nav": "Main"
+  },
+  "Home": {
+    "thisWeek": "This week",
+    "title": "This week's picks",
+    "featured": "Featured this week",
+    "going": "Victor is going",
+    "filter": "Filter by category",
+    "all": "All",
+    "today": "Today",
+    "tomorrow": "Tomorrow",
+    "empty": "Nothing in these categories this week that I'd recommend. Try widening the filter.",
+    "emptyFilter": "Show all categories",
+    "eventCount": "{count, plural, one {# pick} other {# picks}}",
+    "comingSoon": "Picks are on the way."
+  },
+  "NotFound": {
+    "title": "Page not found",
+    "back": "Back to this week"
+  },
+  "Event": {
+    "interested": "Interested",
+    "free": "Free",
+    "apply": "Apply",
+    "waitlist": "Waitlist",
+    "sold_out": "Sold out",
+    "langZh": "中文",
+    "langBilingual": "Bilingual",
+    "online": "Online",
+    "hybrid": "Hybrid",
+    "cancelled": "Cancelled",
+    "allDay": "All day",
+    "signature": "— Victor",
+    "rsvp": "RSVP",
+    "sealLabel": "Victor: {label}"
+  }
+}
