@@ -43,7 +43,7 @@ describe('normalizeUrl / platformRef', () => {
 
   it('drops sensitive and tracking parameters but keeps ordinary ones', () => {
     const u = normalizeUrl(
-      'https://example.org/e?id=7&token=abc&access_token=x&invite-code=y&sig=z&api_key=k&password=p&email=a%40b.c&sessionid=s&page=2&keyword=ai&utm_source=x#frag',
+      'https://example.org/e?id=7&token=abc&access_token=x&invite-code=y&sig=z&X-Amz-Credential=AKIA%2F1&api_key=k&password=p&email=a%40b.c&sessionid=s&page=2&keyword=ai&utm_source=x#frag',
     );
     expect(u.toString()).toBe('https://example.org/e?id=7&page=2&keyword=ai');
     expect(normalizeUrl('https://www.eventbrite.com/e/x-tickets-123456789012?discount=VIP&aff=a').toString()).toBe(
