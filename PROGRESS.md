@@ -8,9 +8,9 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 
 | # | 步骤 | 何时需要 | 状态 |
 |---|---|---|---|
-| 1 | 买域名，决定 `picks.<domain>`（站点）和 `mail.<domain>`（Resend 发信）。买好后告诉我域名，我改 `PUBLIC_HOST` 并在 Vercel 绑定 | M1 结束前（大陆可达、Resend 发信的前置） | ⬜ 暂用 `*.vercel.app` |
+| 1 | 买域名，决定 `picks.<domain>`（站点）和 `mail.<domain>`（Resend 发信）。买好后告诉我域名，我改 `PUBLIC_HOST` 并在 Vercel 绑定 | M3 newsletter 首发前（Resend 发信、大陆可达的前置） | ⏸ 2026-09-30 决定暂不买，继续用 `victor-picks.vercel.app` |
 | 2 | Vercel 控制台 → 项目 → Integrations/Marketplace：安装 **Neon**、**Resend**、**Upstash Redis**；Storage 页创建 **Blob** store 并连到项目。装完我跑 `vercel env pull` | M0 第 2 周 | ⬜ 未装时站点用种子数据 |
-| 3 | Resend：添加 `mail.<domain>`，把它生成的 DKIM、SPF 记录加到 DNS，再加 DMARC `v=DMARC1; p=none; rua=mailto:<你的别名>` | 域名买好后 | ⬜ |
+| 3 | Resend：添加 `mail.<domain>`，把它生成的 DKIM、SPF 记录加到 DNS，再加 DMARC `v=DMARC1; p=none; rua=mailto:<你的别名>` | 域名买好后（M3 前） | ⏸ 随第 1 项推迟 |
 | 4 | Google Calendar（**berkeley.edu 账号**）：设置 → 选日历 → Integrate calendar → 看有没有「Secret address in iCal format」。Workspace 管理员可能隐藏了它：**没有就改用个人 Gmail 日历**并告诉我。有的话复制到 Vercel env `GCAL_SECRET_ICS_URL` | M2 第 11 周 | ⬜ |
 | 5 | Google Calendar：Settings → Event settings → 「Add invitations to my calendar」设为 **From everyone**，否则 Luma 邀请不会进日历 | 同上 | ⬜ |
 | 6 | Luma：Settings → Calendar Syncing → Add iCal Subscription，复制 URL 到 Vercel env `LUMA_PERSONAL_ICS_URL` | M2 第 11 周 | ⬜ |
@@ -20,14 +20,15 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 | 10 | 首次登录 /admin/sign-in：用 magic link 登录，然后在 iPhone（Face ID）和 Mac（Touch ID）各注册一个 passkey（G0 门槛） | M0 第 2 周部署后 | ⬜ |
 | 11 | 安装两个 iOS 快捷指令（Add to Picks、Add & Publish），我会给 iCloud 链接和令牌生成步骤 | M2 第 10 周 | ⬜ |
 | 12 | 批准把 `m0-foundations` 和 `m1-public-site` 合并进 `main` | G1 验证前 | ✅ 2026-09-28 已合并（#1、#2，以及修正 #3），生产站 `https://victor-picks.vercel.app` 公开可访问 |
-| 13 | G1 实测：iPhone「设置 → 日历 → 账户 → 添加已订阅的日历」填 `webcal://victor-picks.vercel.app/calendar.ics?lang=zh`，Google Calendar 用「通过网址添加」填同一地址的 https 版；看活动时间是否是本地时间、改期后是否更新 | 第 12 项之后 | ⬜ |
+| 13 | G1 实测：iPhone「设置 → 日历 → 账户 → 添加已订阅的日历」填 `webcal://victor-picks.vercel.app/calendar.ics?lang=zh`，Google Calendar 用「通过网址添加」填同一地址的 https 版；看活动时间是否是本地时间、改期后是否更新 | 第 12 项之后 | ✅ 2026-09-30 你已订阅，没有问题 |
 | 14 | 给我 20 场你真的想推荐的活动（链接 + 一句点评即可），替换示例数据。M2 的后台做好后也可以自己录 | M1 第 6 周 | ⬜ |
 
 ## 当前状态
 
 - 分支：M0（#1）、M1（#2）和生产验证后的修正（#3）都已于 2026-09-28 合并进 `main`，生产站已部署并抽查通过
 - 生产站：`https://victor-picks.vercel.app`（公开，种子模式，顶部有「示例数据」横幅）
-- 里程碑：M0 代码完成，G0 差 2 条外部步骤；M1 代码完成，G1 只差你用真机订阅日历（checklist 13）。按规则 G1 全部通过前不进 M2
+- 里程碑：M0 代码完成，G0 差 passkey 真机登录（checklist 2、9、10）和 DKIM/DMARC（随域名推迟到 M3 前）；**M1 完成，G1 于 2026-09-30 全部通过**，可以进 M2
+- 域名：2026-09-30 决定暂不买，继续用 `*.vercel.app`。影响见「待确认」里的域名一条
 
 - Vercel 项目：`victor-picks`（victory-c-8190s-projects），已连 GitHub，推送分支自动出预览
 - 分支固定预览地址：`https://victor-picks-git-m0-foundations-victory-c-8190s-projects.vercel.app`（受 Vercel Authentication 保护：登录 Vercel 即可看；给别人看需要临时分享链接，23 小时有效）
@@ -144,16 +145,16 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 | 门槛 | 条目 | 结果 |
 |---|---|---|
 | G0 | iPhone Face ID 与 Mac Touch ID 登录 /admin | ⏳ 代码路径已验证：本地用 Chromium 虚拟认证器跑通 magic link → 注册 passkey → 退出 → passkey 登录。真机需要 Vercel 上有数据库和 env（checklist 2、9），然后你在两台设备上各做一次（checklist 10） |
-| G0 | DMARC、DKIM 验证通过 | ⏳ 依赖域名（checklist 1、3） |
+| G0 | DMARC、DKIM 验证通过 | ⏸ 推迟：域名暂不买（checklist 1、3），改为 M3 newsletter 首发前必须补齐 |
 | G0 | pnpm test 与 Playwright 冒烟在预览分支通过 | ✅ `m0-foundations` 的 GitHub Actions：typecheck、lint、Vitest、build、Playwright 全绿；该分支的 Vercel 预览构建 READY |
 
 G0 结论：本地能验证的全部通过，剩下两条只差外部步骤。M1 的工作不碰鉴权和发信，所以我在等外部步骤的同时继续 M1，G0 这两条补验后再记结果。
 
 | G1 | Lighthouse 性能 ≥ 90（移动端，3 次取中位数） | ✅ 生产站真实网络（2026-09-28）：`/` 0.98、`/zh` 0.97、`/zh/events/chinese-founders-mixer` 0.97、`/calendar` 0.96。之前本地的 0.88 是 localhost 模拟的假象 |
 | G1 | Lighthouse 无障碍 ≥ 95 | ✅ 四个页面都是 100；CLS 约 0 |
-| G1 | ICS 在 Apple Calendar 与 Google 导入正确 | ⏳ 生产站自动检查全部通过：46 个文件（6 条订阅 + 40 个单场）CRLF、75 字节折行、VTIMEZONE、每场 DTSTART 与页面时间一致、node-ical 回读一致；用 iOS、macOS、Google、Outlook 的 User-Agent 匿名抓取都是 200。剩下你在 iPhone 和 Google Calendar 上各订阅一次（checklist 13） |
+| G1 | ICS 在 Apple Calendar 与 Google 导入正确 | ✅ 2026-09-30 你在 iPhone 与 Google Calendar 真机订阅，没有问题。此前生产站自动检查也全部通过：46 个文件（6 条订阅 + 40 个单场）CRLF、75 字节折行、VTIMEZONE、每场 DTSTART 与页面时间一致、node-ical 回读一致；用 iOS、macOS、Google、Outlook 的 User-Agent 匿名抓取都是 200 |
 
-G1 结论：只差 checklist 13 这一项真机测试；按规则通过前不进 M2。
+G1 结论：2026-09-30 全部通过，进入 M2。
 
 Lighthouse 说明：本机测量时 Chrome 找得到苹方，所以中文正文不下载切片；在没有苹方的 Linux CI 上分数会更低，因此 `pnpm lhci` 目前只在本地跑，没有放进 GitHub Actions。
 
@@ -186,6 +187,7 @@ Lighthouse 说明：本机测量时 Chrome 找得到苹方，所以中文正文�
 - **骑行活动在所有公开出口只显示城市**，不显示场地名或起点，包括已报名的正式骑行（gran fondo）。
 - **VTIMEZONE 只内置 17 个时区**（太平洋、山地、中部、东部、夏威夷、阿拉斯加、伦敦、巴黎、柏林、上海、香港、台北、东京、新加坡、加尔各答、UTC）。其他时区的活动仍写 TZID，但不附 VTIMEZONE 块，主流日历 App 认识 IANA 名称。
 - **ICS 与 RSS 从第 6 周提前到第 4 周**，因为详情页的「加入日历」要用。
+- **域名暂不买（2026-09-30 你的决定）**：继续用 `victor-picks.vercel.app`。影响：① 大陆访问不了（`*.vercel.app` 被干扰），中文读者在国内要翻墙；② Resend 只能用 `onboarding@resend.dev` 发信，且只能发给 Resend 账号本人的邮箱，所以后台 magic link 能用（`ADMIN_EMAIL` 设成注册 Resend 的邮箱），但 M3 的 newsletter 发不出去；③ G0 的 DKIM/DMARC 推迟到 M3 首发前验证。M2（抓取、后台录入、AI 草稿、封面）不依赖域名。买域名后要改的只有 `PUBLIC_HOST`、Vercel 域名绑定、ICS 的 UID 主机名（UID 变会让已订阅的日历重复一次，越早换越好）。
 - **`victorchun-site` 升级到 16.3.7 暂缓**：npm 上 next 最新仍是 16.3.6（今天 9/28，指南说 9/30 之后发布）。它在另一个仓库，发布后单独处理。
 
 ## 文档冲突记录（按实现指南执行）
