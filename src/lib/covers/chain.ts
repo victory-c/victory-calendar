@@ -6,6 +6,7 @@ import { db as defaultDb, type DB } from '../db';
 import { covers, events } from '../db/schema';
 import { platformName } from '../events/platform';
 import { newId } from '../ids';
+import { publicSafeUrl } from '../ingest/normalize';
 import { safeFetchBytes } from '../ingest/safe-fetch';
 import { readSetting } from '../settings';
 import type { Category } from '../taxonomy';
@@ -113,7 +114,7 @@ export async function runCoverChain(input: ChainInput, deps: ChainDeps = {}): Pr
         const urls = await upload(store, input.eventId, p);
         const id = await attachCover(db, store, input.eventId, {
           kind: 'official', ...urls, urlOgEn: '', urlOgZh: '', thumbhash: p.thumbhash, dominant: p.dominant,
-          bytes: p.master.byteLength, letterboxed: p.letterboxed, sourceUrl: input.officialUrl,
+          bytes: p.master.byteLength, letterboxed: p.letterboxed, sourceUrl: publicSafeUrl(input.officialUrl),
           sourcePageUrl: input.sourcePageUrl, attribution: `Cover: ${host} via ${platform}`,
         }, true);
         if (id) return { kind: 'official', coverId: id, tried };
@@ -154,8 +155,14 @@ export async function runCoverChain(input: ChainInput, deps: ChainDeps = {}): Pr
   return { kind: 'template', coverId: id, tried };
 }
 
-/** Manual pick in the cover selector: pasted image URL (fetched through safe-fetch). */
+/**
+ * Manual pick in the cover selector: pasted image URL (fetched through safe-fetch). The fetch
+ * uses the link as given (signed image links need their parameters); what we store, and show as
+ * the cover's source, is the scrubbed form. Links with a login are refused.
+ */
 export async function coverFromUrl(eventId: string, url: string, deps: ChainDeps = {}) {
+  const clean = publicSafeUrl(url);
+  if (!clean) throw new Error('only plain https image links without a username or password');
   const store = deps.store === undefined ? (blobConfigured() ? blobStore : null) : deps.store;
   if (!store) throw new Error('Blob storage is not configured');
   const db = deps.db ?? defaultDb;
@@ -163,7 +170,7 @@ export async function coverFromUrl(eventId: string, url: string, deps: ChainDeps
   const urls = await upload(store, eventId, p);
   return attachCover(db, store, eventId, {
     kind: 'url', ...urls, urlOgEn: '', urlOgZh: '', thumbhash: p.thumbhash, dominant: p.dominant,
-    bytes: p.master.byteLength, letterboxed: p.letterboxed, sourceUrl: url, sourcePageUrl: url,
+    bytes: p.master.byteLength, letterboxed: p.letterboxed, sourceUrl: clean, sourcePageUrl: clean,
   }, false);
 }
 

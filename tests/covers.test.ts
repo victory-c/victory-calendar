@@ -135,6 +135,16 @@ describe('cover chain', () => {
     expect((await cover())!.id).toBe(manual!.id);
   });
 
+  it('pasted URL: fetched as given, stored scrubbed; logins refused', async () => {
+    const signed = 'https://cdn.example.org/poster.jpg?w=1600&X-Amz-Signature=abc&token=s3cret';
+    const seen: string[] = [];
+    await coverFromUrl('evt_1', signed, deps({ fetchBytes: async (u) => (seen.push(u), img(1200, 1200, 'jpeg')) }));
+    expect(seen).toEqual([signed]);
+    const c = await cover();
+    expect(c).toMatchObject({ kind: 'url', sourceUrl: 'https://cdn.example.org/poster.jpg?w=1600', sourcePageUrl: 'https://cdn.example.org/poster.jpg?w=1600' });
+    await expect(coverFromUrl('evt_1', 'https://u:p@cdn.example.org/a.jpg', deps())).rejects.toThrow(/username or password/);
+  });
+
   it('upload: processes the original, then deletes it', async () => {
     const original = 'https://store0.public.blob.vercel-storage.com/uploads/photo.jpg';
     await coverFromUpload('evt_1', original, deps({ fetchBytes: async () => img(900, 1200, 'jpeg') }));
