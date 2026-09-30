@@ -19,7 +19,7 @@ const LUMA_RESERVED = new Set([
 // session ids, e-mail addresses. Matched on the whole parameter name or a `_`/`-` suffix
 // (access_token, invite-code), so `id`, `keyword`, `page` survive.
 const SENSITIVE =
-  /^(?:.*[_-])?(?:token|tk|secret|password|passwd|pwd|pass|auth|authorization|signature|sig|session|sessionid|sid|jwt|apikey|api[_-]?key|key|code|otp|invite|invitation|email|mail)$/i;
+  /^(?:.*[_-])?(?:token|tk|secret|password|passwd|pwd|pass|auth|authorization|signature|sig|credential|credentials|session|sessionid|sid|jwt|apikey|api[_-]?key|key|code|otp|invite|invitation|email|mail)$/i;
 
 export class NormalizeError extends Error {}
 
