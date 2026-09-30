@@ -26,10 +26,13 @@
     "@upstash/ratelimit": "^2.2.0",
     "@upstash/redis": "^1.39.0",
     "@vercel/blob": "^2.8.0",
+    "ai": "^7.0.122",
     "better-auth": "^1.7.6",
+    "cheerio": "^1.2.0",
     "drizzle-orm": "^0.45.3",
     "geist": "^1.7.2",
     "ical-generator": "^11.1.1",
+    "ipaddr.js": "^2.5.0",
     "next": "16.3.6",
     "next-intl": "^4.14.7",
     "node-ical": "^0.27.2",
@@ -39,6 +42,7 @@
     "react-email": "^6.11.0",
     "resend": "^6.30.0",
     "server-only": "^0.0.1",
+    "undici": "^8.11.2",
     "zod": "^4.6.5"
   },
   "devDependencies": {
@@ -46,6 +50,7 @@
     "@lhci/cli": "^0.15.1",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
+    "@touch4it/ical-timezones": "^1.9.0",
     "@types/node": "^22",
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
@@ -58,8 +63,7 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5",
-    "vitest": "^5.0.2",
-    "@touch4it/ical-timezones": "^1.9.0"
+    "vitest": "^5.0.2"
   },
   "packageManager": "pnpm@12.3.4",
   "engines": {
