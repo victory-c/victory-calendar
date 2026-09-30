@@ -97,8 +97,10 @@ test('category chips are pressed buttons that filter via ?c=', async ({ page }) 
   await chip.click();
   await expect(page).toHaveURL(/\?c=hackathon$/);
   await expect(chip).toHaveAttribute('aria-pressed', 'true');
-  const cats = await page.locator('article[data-cat]').evaluateAll((els) => els.map((e) => e.getAttribute('data-cat')));
-  expect(new Set(cats)).toEqual(new Set(['hackathon']));
+  // The list re-renders after the URL changes; poll instead of reading it once.
+  await expect
+    .poll(async () => new Set(await page.locator('article[data-cat]').evaluateAll((els) => els.map((e) => e.getAttribute('data-cat')))))
+    .toEqual(new Set(['hackathon']));
 });
 
 test('the switch endpoint cannot be bent into an off-site redirect with dot segments', async ({ request }) => {

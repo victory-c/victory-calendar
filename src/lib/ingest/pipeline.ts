@@ -6,6 +6,7 @@ import { covers, CREATED_VIA, eventSources, events, type NewEvent, REGIONS } fro
 import { blobConfigured } from '../covers/blob';
 import { templateCoverRow } from '../covers/template';
 import { publicOrigin } from '../host';
+import { readSetting } from '../settings';
 import { newId } from '../ids';
 import { type PageFacts, readFacts } from './adapters';
 import { enrich, type EventDraft } from './extract';
@@ -252,6 +253,8 @@ export async function ingest(input: IngestInput, deps: IngestDeps = {}): Promise
     hostUrl: publicSafeUrl(facts.hostUrl),
     sourceUrl: url.toString(),
     coverId,
+    coverPolicy: (await readSetting('cover_policy_default')).policy,
+    goingVisibility: (await readSetting('going_visibility_default')).v,
     createdVia: input.createdVia,
     publishedAt: publishing ? now() : null,
   };

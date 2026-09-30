@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { dark, light, toHex } from '@/lib/tokens';
 import { fontVars } from '../fonts';
 import '../globals.css';
 
@@ -6,9 +7,20 @@ import '../globals.css';
 export const metadata: Metadata = {
   title: { default: "Admin · Victor's Picks", template: "%s · Admin · Victor's Picks" },
   robots: { index: false, follow: false },
+  manifest: '/admin/manifest.webmanifest',
+  appleWebApp: { capable: true, title: 'Picks', statusBarStyle: 'default' },
+  icons: { apple: '/admin/apple-touch-icon.png', icon: '/admin/icon-192.png' },
 };
 
-export const viewport: Viewport = { width: 'device-width', initialScale: 1, viewportFit: 'cover' };
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: toHex(light.paper) },
+    { media: '(prefers-color-scheme: dark)', color: toHex(dark.paper) },
+  ],
+};
 
 export default function AdminLayout({ children }: LayoutProps<'/admin'>) {
   return (

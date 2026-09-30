@@ -2,8 +2,8 @@
 // not in env vars. SHOW_ATTENDANCE env only forces attendance off at deploy time.
 export const SETTINGS_DEFAULTS = {
   show_attendance: { on: true },
-  cover_policy_default: { policy: 'official' },
-  going_visibility_default: { v: 'public' },
+  cover_policy_default: { policy: 'official' } as { policy: 'official' | 'template' },
+  going_visibility_default: { v: 'public' } as { v: 'public' | 'after_event' | 'hidden' },
   official_covers_to_template: { on: false },
 } as const;
 
