@@ -131,6 +131,35 @@ describe('POST /api/ingest', () => {
   });
 });
 
+describe('POST /api/ingest mode candidate', () => {
+  const pick = { url: 'https://lu.ma/testpick?utm_source=skill', title: 'AI Tinkerers SF', start_at: '2026-10-08T01:30:00Z', comment: '筛选制 demo 夜', suggest_going: true };
+
+  it('needs the candidates scope; an ingest-only token gets 403', async () => {
+    const phone = await createToken('phone', ['ingest']);
+    expect((await post({ mode: 'candidate', batch: [pick] }, phone.token)).status).toBe(403);
+  });
+
+  it('lands the batch in the private inbox, never as an event', async () => {
+    const skill = await createToken('weekly-events-skill', ['candidates']);
+    const res = await post({ mode: 'candidate', batch: [pick, pick] }, skill.token);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.results.map((r: { status: string }) => r.status)).toEqual(['created', 'merged']);
+    const { candidates } = await import('@/lib/db/schema');
+    const rows = await (h.db as import('@/lib/db').DB).select().from(candidates);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ providerKey: 'luma:testpick', sourceKinds: ['skill'], suggestGoing: true, links: ['https://luma.com/testpick'] });
+    expect(await (h.db as import('@/lib/db').DB).$count(events)).toBe(0);
+    expect(h.revalidated).toEqual([]);
+  });
+
+  it('400 on a malformed batch', async () => {
+    const skill = await createToken('weekly-events-skill', ['candidates']);
+    expect((await post({ mode: 'candidate', batch: [] }, skill.token)).status).toBe(400);
+    expect((await post({ mode: 'candidate', batch: [{ url: 'https://luma.com/x' }] }, skill.token)).status).toBe(400);
+  });
+});
+
 describe('GET /api/index', () => {
   it('needs a token with candidates or ingest scope and lists published ids', async () => {
     expect((await GET(new Request('http://localhost/api/index'))).status).toBe(401);

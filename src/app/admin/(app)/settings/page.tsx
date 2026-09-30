@@ -1,10 +1,12 @@
 import { Suspense } from 'react';
 import { dropToken, saveDefaults, toggleSwitch } from '@/app/admin/actions';
+import { ClearInboxButton } from '@/components/admin/ClearInboxButton';
 import { NewTokenForm } from '@/components/admin/NewTokenForm';
 import { btn, field, Screen } from '@/components/admin/ui';
 import { requireAdmin } from '@/lib/admin-session';
 import { listTokens } from '@/lib/api/tokens';
 import { publicOrigin } from '@/lib/host';
+import { configuredFeeds, FEED_KINDS, feedEnvName } from '@/lib/inbox/sync-ics';
 import { readSetting } from '@/lib/settings';
 
 export const metadata = { title: 'Settings' };
@@ -30,6 +32,7 @@ async function Settings() {
     readSetting('going_visibility_default'), listTokens(),
   ]);
   const api = `${publicOrigin()}/api/ingest`;
+  const feeds = new Set(configuredFeeds().map((f) => f.kind));
   return (
     <div className="space-y-10">
       <section>
@@ -104,9 +107,33 @@ async function Settings() {
         <p className="text-muted">Returns 201 draft or published, 202 when the page can’t be read, 409 for a duplicate · 返回 201 已建草稿或已发布，202 读不到页面，409 重复。</p>
       </section>
 
-      <section className="text-sm text-muted">
-        <h2 className="mb-1 font-mono text-xs uppercase">Calendar feeds · 私密日历源</h2>
-        <p>Google Calendar, Luma and Partiful feeds are set as Vercel env vars and arrive with the inbox (week 11) · 三条私密日历源放在 Vercel 环境变量里，第 11 周随收件箱接入。</p>
+      <section className="space-y-3 text-sm">
+        <h2 className="font-mono text-xs uppercase text-muted">Inbox feeds · 收件箱的私密日历源</h2>
+        <ul className="divide-y divide-rule border-y border-rule">
+          {FEED_KINDS.map((k) => (
+            <li key={k} className="flex items-center justify-between gap-3 py-2">
+              <code className="font-mono text-xs">{feedEnvName(k)}</code>
+              <span className={feeds.has(k) ? '' : 'text-muted'}>{feeds.has(k) ? 'Set · 已配置' : 'Not set · 未配置'}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="text-muted">
+          These URLs are secrets: add them in Vercel → Settings → Environment Variables, never here · 这三个地址等同密码，只放 Vercel 环境变量：
+        </p>
+        <ol className="list-decimal space-y-1.5 pl-5">
+          <li>Google Calendar 网页版 → 设置 → 选日历 → 集成日历 → 「iCal 格式的私密地址」。同时把「活动设置 → 将邀请添加到我的日历」设为「来自所有人」。</li>
+          <li>Luma → Settings → Calendar Syncing → Add iCal Subscription。</li>
+          <li>Partiful（桌面版）→ Calendar sync → Copy Link。</li>
+        </ol>
+        <p className="text-muted">
+          Google Calendar entries only show up when they carry a link · Google 日历里只有带链接的条目才会进收件箱，私人日程不会存。
+        </p>
+        <p>
+          weekly-events skill：建一个名为 <code className="font-mono">weekly-events-skill</code>、权限 candidates 的令牌，先 GET{' '}
+          <code className="break-all font-mono">{publicOrigin()}/api/index</code> 跳过已发布的，再 POST 到{' '}
+          <code className="break-all font-mono">{api}</code>，body 为 <code className="font-mono">{'{"mode":"candidate","batch":[…]}'}</code>。
+        </p>
+        <ClearInboxButton />
       </section>
     </div>
   );

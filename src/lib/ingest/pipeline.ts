@@ -2,12 +2,13 @@ import 'server-only';
 import type { LanguageModel } from 'ai';
 import { and, eq, inArray, like, or, sql } from 'drizzle-orm';
 import { db as defaultDb, type DB } from '../db';
-import { covers, CREATED_VIA, eventSources, events, type NewEvent, REGIONS } from '../db/schema';
+import { covers, CREATED_VIA, eventSources, events, type NewEvent } from '../db/schema';
 import { blobConfigured } from '../covers/blob';
 import { templateCoverRow } from '../covers/template';
 import { publicOrigin } from '../host';
 import { readSetting } from '../settings';
 import { newId } from '../ids';
+import { regionFor } from './regions';
 import { type PageFacts, readFacts } from './adapters';
 import { enrich, type EventDraft } from './extract';
 import { isShortLink, normalizeUrl, NormalizeError, type PlatformRef, platformRef, publicSafeUrl } from './normalize';
@@ -18,6 +19,8 @@ import { safeFetch, SafeFetchError } from './safe-fetch';
 // (publish mode: template cover first, then publish). Never drops a link: anything we
 // can't read becomes a minimal draft with needs_manual.
 
+export { regionFor };
+
 export type CreatedVia = (typeof CREATED_VIA)[number];
 export type IngestMode = 'draft' | 'publish';
 export type IngestInput = {
@@ -26,6 +29,8 @@ export type IngestInput = {
   mode: IngestMode;
   name: string | null;
   createdVia: CreatedVia;
+  /** Title for a minimal draft when the page can't be read (the inbox passes the calendar title). */
+  fallbackName?: string | null;
 };
 
 export type CoverStatus = 'pending' | 'official' | 'template' | 'template_pending_official';
@@ -58,24 +63,6 @@ export type IngestDeps = {
 
 const adminUrl = (id: string) => `${publicOrigin()}/admin/e/${id}`;
 const publicUrl = (slug: string) => `${publicOrigin()}/events/${slug}`;
-
-const REGION_BY_CITY: Record<string, (typeof REGIONS)[number]> = {
-  'san francisco': 'sf',
-  oakland: 'east_bay', berkeley: 'east_bay', emeryville: 'east_bay', alameda: 'east_bay', richmond: 'east_bay',
-  'walnut creek': 'east_bay', hayward: 'east_bay', fremont: 'east_bay', albany: 'east_bay', 'san leandro': 'east_bay',
-  'palo alto': 'peninsula', 'menlo park': 'peninsula', 'redwood city': 'peninsula', 'san mateo': 'peninsula',
-  burlingame: 'peninsula', 'foster city': 'peninsula', 'south san francisco': 'peninsula', 'daly city': 'peninsula',
-  stanford: 'peninsula', 'san carlos': 'peninsula', 'half moon bay': 'peninsula',
-  'mountain view': 'south_bay', 'san jose': 'south_bay', 'santa clara': 'south_bay', sunnyvale: 'south_bay',
-  cupertino: 'south_bay', milpitas: 'south_bay', 'los gatos': 'south_bay', campbell: 'south_bay', 'los altos': 'south_bay',
-  'san rafael': 'north_bay', sausalito: 'north_bay', 'mill valley': 'north_bay', 'santa rosa': 'north_bay',
-  napa: 'north_bay', novato: 'north_bay', petaluma: 'north_bay', 'corte madera': 'north_bay',
-};
-
-export function regionFor(city: string | null, format: string): (typeof REGIONS)[number] | null {
-  if (format === 'online') return 'online';
-  return city ? REGION_BY_CITY[city.trim().toLowerCase()] ?? null : null;
-}
 
 export function slugify(title: string) {
   return title
@@ -133,7 +120,7 @@ export function publishBlockers(d: EventDraft) {
 async function minimalDraft(db: DB, input: IngestInput, url: URL, refs: PlatformRef[], reason: string): Promise<IngestResult> {
   const id = newId('evt');
   const note = input.comment?.trim() || null;
-  const title = input.name?.trim() || null;
+  const title = input.name?.trim() || input.fallbackName?.trim() || null;
   await db.insert(events).values({
     id,
     slug: await uniqueSlug(db, title, id),
