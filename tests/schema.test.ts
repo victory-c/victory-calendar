@@ -62,4 +62,9 @@ describe('schema', () => {
     const [row] = await h.db.select().from(settings);
     expect(row.value).toEqual({ on: true });
   });
+
+  it('indexes the canonical URL columns ingest dedupes on', async () => {
+    const res = await h.db.execute(sql`select indexname from pg_indexes where indexname in ('events_source_url', 'event_sources_url') order by 1`);
+    expect((res.rows as { indexname: string }[]).map((r) => r.indexname)).toEqual(['event_sources_url', 'events_source_url']);
+  });
 });

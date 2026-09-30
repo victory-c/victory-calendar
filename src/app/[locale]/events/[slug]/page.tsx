@@ -17,7 +17,7 @@ import { eventJsonLd, serializeJsonLd } from '@/lib/events/jsonld';
 import { platformName } from '@/lib/events/platform';
 import { getEventBySlug, upcomingSlugs } from '@/lib/events/queries';
 import { fmtBeijing } from '@/lib/format/date';
-import { pageMeta } from '@/lib/seo';
+import { ogImageUrl, pageMeta } from '@/lib/seo';
 import type { Locale } from '@/lib/taxonomy';
 
 export async function generateStaticParams() {
@@ -34,9 +34,7 @@ export async function generateMetadata({ params }: PageProps<'/[locale]/events/[
   const n = note(event, locale);
   const t = await getTranslations({ locale, namespace: 'Event' });
   const title = event.status === 'cancelled' ? `[${t('cancelled')}] ${primary}` : primary;
-  // OG art (1200×630 per language) arrives with the cover pipeline in M2; until then only real covers.
-  const images = event.cover && event.cover.kind !== 'template' ? [event.cover.url1600] : undefined;
-  return pageMeta({ path: `/events/${slug}`, locale, title, description: n?.text ?? undefined, images });
+  return pageMeta({ path: `/events/${slug}`, locale, title, description: n?.text ?? undefined, images: [ogImageUrl(event, locale)] });
 }
 
 // Lookup happens outside any Suspense boundary so an unknown slug can still answer 404.

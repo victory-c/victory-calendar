@@ -28,7 +28,7 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 - 分支：M0（#1）、M1（#2）和生产验证后的修正（#3）都已于 2026-09-28 合并进 `main`，生产站已部署并抽查通过
 - 生产站：`https://victor-picks.vercel.app`（公开，种子模式，顶部有「示例数据」横幅）
 - 里程碑：M0 代码完成，G0 差 passkey 真机登录（checklist 2、9、10）和 DKIM/DMARC（随域名推迟到 M3 前）；**M1 完成，G1 于 2026-09-30 全部通过**，可以进 M2
-- M2：分支 `m2-ingest`，第 7–8 周的代码已完成（抓取、适配器、AI 补全、`/api/ingest`、`/api/index`、令牌），PR 待你审；下一步第 9 周封面管线
+- M2：第 7–8 周（ingest 管线，#6）已合并；第 9 周封面管线在分支 `m2-covers`，PR 待你审；下一步第 10 周后台 PWA
 - 域名：2026-09-30 决定暂不买，继续用 `*.vercel.app`。影响见「待确认」里的域名一条
 
 - Vercel 项目：`victor-picks`（victory-c-8190s-projects），已连 GitHub，推送分支自动出预览
@@ -155,12 +155,35 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 
 检查结果：typecheck、lint 通过；Vitest 178 个用例通过（新增：SSRF 49 个、适配器 25 个、AI 补全 7 个、ingest 流程 10 个、接口 7 个）；构建通过。另外在真实网络上验证：`lu.ma/g42o84ln` 跳转到 luma.com 并正确读出时间、时区、场地、主办方、封面（封面图 336 KB 能下载）；解析到 `::1` 的域名被挡；本地开发服务器上 `/api/ingest` 实测 201（约 0.5–1.8 秒，未开 AI）、409、202、401 都符合契约，测试数据已清理。
 
+审查后的修正（Codex 审查 #6：FIX_REQUIRED / MEDIUM，两条都核实属实）
+- **链接里的敏感信息会被存下并公开**：带账号密码的链接（`https://user:pass@…`）以前会在抓取失败后作为最小草稿原样存进 `source_url`；带 `token`、`invite_code`、`sig` 这类参数的通用链接也会原样保存，之后出现在活动页、RSS、ICS 和 `/api/index`。现在带账号密码的链接直接返回 400、什么都不存；token、密钥、签名、会话、邀请码、邮箱这类参数在保存和抓取前一律去掉；Eventbrite 链接的查询串整个去掉；从页面读到的主办方链接也经过同样的清洗。另外修了一个相关的边角：重定向目标解析失败时不再报 500，而是沿用原链接。
+- **去重查询没有索引**：`events.source_url` 和 `event_sources.url` 加了索引（迁移 `drizzle/0002_ingest_dedupe_indexes.sql`），活动多了以后每次录入不再全表扫描。
+- 新增测试 8 个（凭据链接被拒且不入库、敏感参数被去掉、主办方链接清洗、两个索引存在）。
+
 下一步
 - 第 9 周：封面链 1–3 步（官方封面经 safe-fetch 下载 → sharp 处理 → Blob；主办方组合图；排版模板）、`after()` 里替换官方封面、OG 图、上传与粘贴 URL。
 - 第 10 周：后台 PWA（Add、Drafts、Live、编辑器、Settings 令牌与总开关）和两个 iOS 快捷指令。
 
 阻塞
 - 生产上用 `/api/ingest` 需要 Vercel 上有数据库和密钥（checklist 2、9）；封面存储需要 Blob（checklist 2）；AI 补全需要 Gateway 绑定支付（checklist 8），没绑之前按「只用事实」工作。
+
+### M2 第 9 周（2026-09-30，提前完成）：封面管线
+
+做了什么
+- **封面链 `src/lib/covers/chain.ts`**：ingest 返回后在 `after()` 里跑，依次尝试：① 官方封面（经 safe-fetch 下载）→ ② 主办方组合图（最多 3 个头像叠在类别色模板上）→ ③ 排版模板（不会失败）。自动运行只会替换模板封面，不会覆盖你手动选的封面；换封面时删掉旧的 Blob 文件和旧行。`cover_policy = template` 和 Settings 里的「官方封面全换模板」开关都生效。已发布的活动换完封面后 `revalidateTag('events', { expire: 0 })`。
+- **图片处理 `process.ts`**（sharp 0.35.5）：嗅探格式、拒绝 SVG 和短边小于 200 px 的图、动图只取首帧、按 EXIF 纠正方向并去掉元数据；宽高比 0.8–1.25 居中裁成方形，横幅和竖图铺在主色底上（标 `letterboxed`）；输出 1600²、800²、400² 三种 WebP，外加主色和约 25 字节的 thumbhash。
+- **存储 `blob.ts`**：写入 Vercel Blob，路径带内容哈希加随机后缀，缓存一年。**没有 `BLOB_READ_WRITE_TOKEN` 时第 1、2 步直接跳过，活动停在模板封面**（生产站现在就是这样，等 checklist 2）。
+- **模板图与分享卡片**（next/og）：`/og/template/[类别]?h=主办方&s=尺寸` 按需渲染模板封面（和站内 CSS 瓦片同一版式，缓存一年）；`/og/[en|zh]/[slug]` 按需渲染 1200×630 分享卡片（左边方形封面，右边类别、标题最多 3 行、日期、字标与小印），活动页的 og:image 与 Twitter 卡都指向它，URL 带内容指纹，改了标题、时间或封面就换新地址。字体按文字取 Google Fonts 子集（Fraunces、Noto Serif SC、Geist Mono）。
+- **手动选封面**（后台编辑器第 10 周接上）：`coverFromUrl`（粘贴图片链接，经 safe-fetch）、`coverFromUpload`（手机相册直传 Blob 后处理，再删掉原图）、`coverToTemplate`（换回模板）；`POST /api/covers/upload` 只给已登录的你签发上传令牌，限 image/*、15 MB、10 分钟有效。
+- **站内显示**：next/image 只允许 Blob 主机的 `/covers/**`，质量固定 75；封面加载前用 thumbhash 模糊占位。
+
+检查结果：typecheck、lint 通过；Vitest 189 个通过（新增封面处理与封面链 11 个）；构建通过；Playwright 按 CI 方式（不带本地数据库）69 个通过、3 个跳过。另外实测：真实 Luma 官方封面（1920² PNG）处理成三种尺寸正常；用真实 Luma 头像渲染的组合图、四种模板图和中英文分享卡片都看过效果；未知 slug 与语言返回 404。
+
+下一步
+- 第 10 周：后台 PWA（Add、Drafts、Live、编辑器含封面选择器、Settings 令牌与总开关）和两个 iOS 快捷指令。
+
+阻塞
+- 官方封面和组合图要存进 Blob，需要 checklist 2（在 Vercel Storage 页创建 Blob store 并连到项目）。在那之前所有活动都用模板封面，分享卡片照常生成。
 
 ## 门槛
 
@@ -214,9 +237,14 @@ Lighthouse 说明：本机测量时 Chrome 找得到苹方，所以中文正文�
 - **页面事实优先于模型**：时间、时区、场地、城市、价格、报名方式只要页面上有，就不用模型的值；模型可以把活动标成私人场地，但不能取消私人场地标记。
 - **标题去掉装饰性 emoji**（「⚕️ HealthTech Pitch⚕️」→「HealthTech Pitch」），卡片有自己的视觉语言。
 - **私人场地的场地名和街区不写进数据库的公开列**：PRD 只说私人场地影响「会去」印章，但判定为私人场地的情况里场地名常常就是街道地址，所以更保守地留空；完整地址仍存在不公开的 `address` 列。
+- **需要 token 才能打开的私密链接不会被抓取**：敏感参数在抓取前就去掉了，这类页面会作为最小草稿（202）保存，由你手动补信息；这是为了保证 token 永远不进数据库。
 - **读不了的链接也建草稿（202）**，包括被 SSRF 规则挡下的地址；这种草稿从不再次抓取，只保存链接和点评。
 - **publish 模式的模板封面暂用种子数据的约定 `template:<类别>`**（公开站本来就用 CSS 瓦片渲染模板封面，不发图片请求）；第 9 周的封面管线接上 next/og 后生成真正的模板图与 OG 图。
 - **没有 AI 时的类别**：Luma 自带类别 `ai` 时先填 `ai`，置信度 0.5；其他情况留空，发布校验会要求补上。
+- **模板图和分享卡片按需渲染、边缘缓存，不存进 Blob**：指南写的是生成后 `put` 到 Blob（`url_og_en`、`url_og_zh`）。改成 `/og/...` 路由按需渲染有三个好处：还没装 Blob 也能用；改了标题或时间自动更新（URL 带指纹）；省 Blob 的写操作额度。`covers.url_og_*` 暂时留空。
+- **组合图版式**：有主办方头像时类别字缩到约 26% 并上移，头像放大到 26% 放在下方；没有头像时和站内模板一致。
+- **分享卡片的字体在运行时从 Google Fonts 取子集**：指南只对中文字形这样写，我把 Fraunces 和 Geist Mono 也一起这样取，避免把字体文件打进函数包（之前打包 node_modules 里的文件被 Vercel 拒过）。取不到时 Satori 用内置字体兜底，不会失败。
+- **上传路由只签发令牌，不用 `onUploadCompleted` 回调**：回调需要公网可达的地址，本地开发收不到；编辑器拿到上传后的 URL 直接调 `coverFromUpload` 处理。
 - **本地 API 令牌脚本叫 `pnpm api-token`**（pnpm 保留了 `token` 这个命令名）。
 - **`victorchun-site` 升级到 16.3.7 暂缓**：npm 上 next 最新仍是 16.3.6（今天 9/28，指南说 9/30 之后发布）。它在另一个仓库，发布后单独处理。
 

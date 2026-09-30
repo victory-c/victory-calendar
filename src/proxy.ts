@@ -35,5 +35,5 @@ export default function proxy(req: NextRequest) {
   return intl(new NextRequest(req.url, { headers, method: req.method }));
 }
 
-// Anchored exclusions: /api and /ics are skipped only as whole first segments.
-export const config = { matcher: ['/((?!(?:api|ics|_next|_vercel)(?:/|$)|.*\\..*).*)'] };
+// Anchored exclusions: /api, /ics and /og are skipped only as whole first segments.
+export const config = { matcher: ['/((?!(?:api|ics|og|_next|_vercel)(?:/|$)|.*\\..*).*)'] };
