@@ -16,7 +16,7 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 | 6 | Luma：Settings → Calendar Syncing → Add iCal Subscription，复制 URL 到 Vercel env `LUMA_PERSONAL_ICS_URL` | M2 第 11 周 | ⬜ |
 | 7 | Partiful：桌面版 Calendar sync → Copy Link，存到 Vercel env `PARTIFUL_ICS_URL` | M2 第 11 周 | ⬜ |
 | 8 | Vercel AI Gateway：团队设置里绑定支付方式（约 $0.5–2/月） | M2 第 7 周 | ⬜ |
-| 9 | Vercel env：`ADMIN_EMAIL`（victorchun@berkeley.edu）已设；`BETTER_AUTH_SECRET`、`CRON_SECRET`、`SUBSCRIBER_LINK_SECRET` 由你运行命令随机生成并直接写入（`openssl rand -base64 32`，值不经过对话） | M0 第 2 周 | ⏳ 差三个密钥 |
+| 9 | Vercel env：`ADMIN_EMAIL`（victorchun@berkeley.edu）已设；`BETTER_AUTH_SECRET`、`CRON_SECRET`、`SUBSCRIBER_LINK_SECRET` 由你运行命令随机生成并直接写入生产环境（值不经过对话）。预览环境还没加，只影响分支预览站的后台 | M0 第 2 周 | ✅ 生产 · ⏳ 预览 |
 | 10 | 首次登录 /admin/sign-in：用 magic link 登录，然后在 iPhone（Face ID）和 Mac（Touch ID）各注册一个 passkey（G0 门槛） | M0 第 2 周部署后 | ⬜ |
 | 11 | 安装两个 iOS 快捷指令（Add to Picks、Add & Publish）。iCloud 链接我生成不了，步骤写在后台「设置」页底部；令牌也在设置页生成（只显示一次） | M2 第 10 周；生产上要先完成第 2、9 项 | ⬜ |
 | 12 | 批准把 `m0-foundations` 和 `m1-public-site` 合并进 `main` | G1 验证前 | ✅ 2026-09-28 已合并（#1、#2，以及修正 #3），生产站 `https://victor-picks.vercel.app` 公开可访问 |
