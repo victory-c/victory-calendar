@@ -17,7 +17,7 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 | 7 | Partiful：桌面版 Calendar sync → Copy Link，存到 Vercel env `PARTIFUL_ICS_URL` | M2 第 11 周 | ⬜ |
 | 8 | Vercel AI Gateway：团队设置里绑定支付方式（约 $0.5–2/月） | M2 第 7 周 | ⬜ |
 | 9 | Vercel env：`ADMIN_EMAIL`（victorchun@berkeley.edu）已设；`BETTER_AUTH_SECRET`、`CRON_SECRET`、`SUBSCRIBER_LINK_SECRET` 由你运行命令随机生成并直接写入生产环境（值不经过对话）。预览环境还没加，只影响分支预览站的后台 | M0 第 2 周 | ✅ 生产 · ⏳ 预览 |
-| 10 | 首次登录 /admin/sign-in：用 magic link 登录，然后在 iPhone（Face ID）和 Mac（Touch ID）各注册一个 passkey（G0 门槛） | M0 第 2 周部署后 | ⬜ |
+| 10 | 首次登录 /admin/sign-in：还没有 Resend，登录链接写在 Vercel Logs 里（搜 `email:dev`），5 分钟内打开；然后在 iPhone（Face ID）和 Mac（Touch ID）各注册一个 passkey（G0 门槛） | M0 第 2 周部署后 | ✅ 2026-09-30 生产登录成功 · passkey 两台设备待确认 |
 | 11 | 安装两个 iOS 快捷指令（Add to Picks、Add & Publish）。iCloud 链接我生成不了，步骤写在后台「设置」页底部；令牌也在设置页生成（只显示一次） | M2 第 10 周；生产上要先完成第 2、9 项 | ⬜ |
 | 12 | 批准把 `m0-foundations` 和 `m1-public-site` 合并进 `main` | G1 验证前 | ✅ 2026-09-28 已合并（#1、#2，以及修正 #3），生产站 `https://victor-picks.vercel.app` 公开可访问 |
 | 13 | G1 实测：iPhone「设置 → 日历 → 账户 → 添加已订阅的日历」填 `webcal://victor-picks.vercel.app/calendar.ics?lang=zh`，Google Calendar 用「通过网址添加」填同一地址的 https 版；看活动时间是否是本地时间、改期后是否更新 | 第 12 项之后 | ✅ 2026-09-30 你已订阅，没有问题 |
@@ -26,7 +26,7 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 ## 当前状态
 
 - 分支：M0（#1）、M1（#2）和生产验证后的修正（#3）都已于 2026-09-28 合并进 `main`，生产站已部署并抽查通过
-- 生产站：`https://victor-picks.vercel.app`（公开，种子模式，顶部有「示例数据」横幅）
+- 生产站：`https://victor-picks.vercel.app`，2026-09-30 起接真实数据库（Neon），示例数据横幅已去掉；后台登录已验证。首页在录入活动前显示「精选正在路上」
 - 里程碑：M0 代码完成，G0 差 passkey 真机登录（checklist 2、9、10）和 DKIM/DMARC（随域名推迟到 M3 前）；**M1 完成，G1 于 2026-09-30 全部通过**，可以进 M2
 - M2：第 7–8 周（ingest，#6）、审查修正（#8）、第 9 周（封面，#7）都已合并；第 10 周后台 PWA 在分支 `m2-admin`，PR 待你审；下一步第 11 周候选收件箱
 - 域名：2026-09-30 决定暂不买，继续用 `*.vercel.app`。影响见「待确认」里的域名一条
