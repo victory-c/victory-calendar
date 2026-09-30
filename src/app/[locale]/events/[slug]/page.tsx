@@ -20,9 +20,11 @@ import { fmtBeijing } from '@/lib/format/date';
 import { ogImageUrl, pageMeta } from '@/lib/seo';
 import type { Locale } from '@/lib/taxonomy';
 
+// Cache Components needs at least one param at build time. With an empty database (a fresh
+// deploy) a placeholder keeps the build valid; the page answers it with notFound().
 export async function generateStaticParams() {
   const slugs = await upcomingSlugs();
-  return slugs.map((slug) => ({ slug }));
+  return slugs.length ? slugs.map((slug) => ({ slug })) : [{ slug: '__placeholder__' }];
 }
 
 export async function generateMetadata({ params }: PageProps<'/[locale]/events/[slug]'>): Promise<Metadata> {
