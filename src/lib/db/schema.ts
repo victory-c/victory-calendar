@@ -122,6 +122,7 @@ export const events = pgTable(
     ),
     index('events_pub_start').on(t.status, t.startAt).where(sql`${t.status} = 'published'`),
     index('events_category').on(t.category, t.startAt),
+    index('events_source_url').on(t.sourceUrl), // ingest dedupe by canonical URL
   ],
 );
 
@@ -141,6 +142,7 @@ export const eventSources = pgTable(
     unique('event_sources_platform_external_id').on(t.platform, t.externalId), // 全站去重键
     check('event_sources_platform_check', inList('platform', PLATFORMS)),
     index('event_sources_ical').on(t.icalUid),
+    index('event_sources_url').on(t.url), // ingest dedupe by canonical URL
   ],
 );
 

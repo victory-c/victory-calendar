@@ -7,7 +7,7 @@ import { publicOrigin } from '../host';
 import { newId } from '../ids';
 import { type PageFacts, readFacts } from './adapters';
 import { enrich, type EventDraft } from './extract';
-import { isShortLink, normalizeUrl, NormalizeError, type PlatformRef, platformRef } from './normalize';
+import { isShortLink, normalizeUrl, NormalizeError, type PlatformRef, platformRef, publicSafeUrl } from './normalize';
 import { safeFetch, SafeFetchError } from './safe-fetch';
 
 // POST /api/ingest body → event row (guide「完整 ingest 顺序」):
@@ -176,7 +176,12 @@ export async function ingest(input: IngestInput, deps: IngestDeps = {}): Promise
     const reason = e instanceof SafeFetchError ? `fetch_${e.code}` : 'fetch_failed';
     return minimalDraft(db, input, url, ref ? [ref] : [], reason);
   }
-  const finalUrl = normalizeUrl(page.url);
+  let finalUrl = url;
+  try {
+    finalUrl = normalizeUrl(page.url);
+  } catch {
+    // A redirect target we wouldn't accept as input: keep the (already clean) requested URL.
+  }
   if (finalUrl.toString() !== url.toString()) {
     url = finalUrl;
     ref = platformRef(url);
@@ -244,7 +249,7 @@ export async function ingest(input: IngestInput, deps: IngestDeps = {}): Promise
     priceText: draft.price_text,
     access: draft.access,
     hostName: facts.hostName,
-    hostUrl: facts.hostUrl,
+    hostUrl: publicSafeUrl(facts.hostUrl),
     sourceUrl: url.toString(),
     coverId,
     createdVia: input.createdVia,
