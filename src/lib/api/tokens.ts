@@ -38,3 +38,10 @@ export async function tokenFrom(req: Request): Promise<TokenPrincipal | null> {
   await db.update(apiTokens).set({ lastUsedAt: new Date() }).where(eq(apiTokens.id, row.id));
   return { kind: 'token', id: row.id, name: row.name, scopes: row.scopes.filter((s): s is Scope => (SCOPES as readonly string[]).includes(s)) };
 }
+
+export async function listTokens() {
+  return db
+    .select({ id: apiTokens.id, name: apiTokens.name, scopes: apiTokens.scopes, lastUsedAt: apiTokens.lastUsedAt, revokedAt: apiTokens.revokedAt, createdAt: apiTokens.createdAt })
+    .from(apiTokens)
+    .orderBy(apiTokens.createdAt);
+}

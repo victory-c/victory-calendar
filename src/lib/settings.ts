@@ -15,3 +15,10 @@ export async function showAttendance() {
   if (process.env.SHOW_ATTENDANCE === 'false') return false;
   return (await readSetting('show_attendance')).on;
 }
+
+export async function writeSetting<K extends SettingKey>(key: K, value: SettingValue<K> | Record<string, unknown>) {
+  await db
+    .insert(settings)
+    .values({ key, value })
+    .onConflictDoUpdate({ target: settings.key, set: { value, updatedAt: new Date() } });
+}
