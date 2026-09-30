@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import type { PublicEvent } from './events/types';
 import { publicOrigin } from './host';
 
 type Locale = 'en' | 'zh';
@@ -58,3 +59,23 @@ export function pageMeta(opts: {
 }
 
 export const validMonth = (m: unknown) => (typeof m === 'string' && /^(20\d\d)-(0[1-9]|1[0-2])$/.test(m) ? m : undefined);
+
+type OgSource = Pick<PublicEvent, 'slug' | 'titleEn' | 'titleZh' | 'startAt' | 'endAt' | 'status' | 'category' | 'hostName' | 'cover'>;
+
+/** FNV-1a, 32-bit, base36: a short fingerprint so edits change the OG image URL. */
+function fingerprint(s: string) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+
+/** 1200×630 share card rendered by /og/[lang]/[slug]. */
+export function ogImageUrl(e: OgSource, locale: Locale) {
+  const v = fingerprint(
+    [e.titleEn, e.titleZh, e.startAt.toISOString(), e.endAt?.toISOString(), e.status, e.category, e.hostName, e.cover?.url800].join('|'),
+  );
+  return `${publicOrigin()}/og/${locale}/${e.slug}?v=${v}`;
+}

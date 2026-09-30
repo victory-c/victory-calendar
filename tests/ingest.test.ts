@@ -44,7 +44,7 @@ const model = (over: Partial<EventDraft> = {}) =>
 const input = (over: Partial<IngestInput> = {}): IngestInput => ({
   url: 'https://lu.ma/abcd1234?utm_source=ios', comment: '适合第一次参加', mode: 'draft', name: null, createdVia: 'shortcut', ...over,
 });
-const run = (over: Partial<IngestInput> = {}, m = model()) => ingest(input(over), { db, fetchPage, model: m });
+const run = (over: Partial<IngestInput> = {}, m = model()) => ingest(input(over), { db, fetchPage, model: m, canStoreCovers: true });
 
 describe('ingest', () => {
   it('creates a draft with facts, model fields and both source ids', async () => {
@@ -56,7 +56,11 @@ describe('ingest', () => {
       start_at: '2026-10-08T01:00:00.000Z', tz: 'America/Los_Angeles', category: 'hackathon',
       category_confidence: 0.91, cover_status: 'pending', public_url: null, ai: true,
     });
-    expect(r.coverSource).toBe('https://images.lumacdn.com/uploads/op/00000000-cover.png');
+    expect(r.cover).toEqual({
+      officialUrl: 'https://images.lumacdn.com/uploads/op/00000000-cover.png',
+      hostImages: expect.arrayContaining(['https://images.lumacdn.com/uploads/kd/00000000-host.jpg']),
+      sourcePageUrl: 'https://luma.com/abcd1234',
+    });
     const [e] = await db.select().from(events).where(eq(events.id, r.body.id));
     expect(e).toMatchObject({
       slug: 'agent-builders-night', sourceUrl: 'https://luma.com/abcd1234', venueName: 'Example Labs', city: 'San Francisco',
@@ -98,7 +102,8 @@ describe('ingest', () => {
     const [e] = await db.select().from(events).where(eq(events.id, r.body.id));
     expect(e.publishedAt).toBeInstanceOf(Date);
     const [c] = await db.select().from(covers).where(eq(covers.id, e.coverId!));
-    expect(c).toMatchObject({ kind: 'template', url1600: 'template:hackathon' });
+    expect(c.kind).toBe('template');
+    expect(c.url1600).toMatch(/\/og\/template\/hackathon\?s=1600&h=Example\+Labs$/);
     expect((await publishedIndex(db)).map((x) => x.external_ids.sort())).toEqual([['luma:abcd1234', 'luma:evt-TestLuma000001']]);
   });
 

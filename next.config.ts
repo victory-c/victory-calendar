@@ -9,6 +9,12 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   // Root layout lives under [locale], so unmatched URLs need app/global-not-found.tsx.
   experimental: { globalNotFound: true },
+  // Covers are copied into our Blob store (never hot-linked) in three pre-cut sizes; one quality
+  // keeps Image Optimization inside the Hobby allowance (guide「存储与尺寸」).
+  images: {
+    remotePatterns: [{ protocol: 'https', hostname: '*.public.blob.vercel-storage.com', pathname: '/covers/**' }],
+    qualities: [75],
+  },
   async headers() {
     return [
       // Baseline hardening for every response (nothing on this site is meant to be framed).

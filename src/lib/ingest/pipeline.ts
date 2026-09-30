@@ -3,6 +3,8 @@ import type { LanguageModel } from 'ai';
 import { and, eq, inArray, like, or, sql } from 'drizzle-orm';
 import { db as defaultDb, type DB } from '../db';
 import { covers, CREATED_VIA, eventSources, events, type NewEvent, REGIONS } from '../db/schema';
+import { blobConfigured } from '../covers/blob';
+import { templateCoverRow } from '../covers/template';
 import { publicOrigin } from '../host';
 import { newId } from '../ids';
 import { type PageFacts, readFacts } from './adapters';
@@ -37,8 +39,8 @@ export type IngestResult =
         /** Why a publish request was saved as a draft instead. */
         not_published?: string[];
       };
-      /** Official cover to fetch in after() (cover chain step 1), if any. */
-      coverSource: string | null;
+      /** Inputs for the cover chain, which the route runs in after(). */
+      cover: { officialUrl: string | null; hostImages: string[]; sourcePageUrl: string };
     }
   | { status: 202; body: { id: string; needs_manual: true; reason: string; admin_url: string } }
   | { status: 409; body: { existing_id: string; admin_url: string } }
@@ -49,6 +51,8 @@ export type IngestDeps = {
   fetchPage?: (url: URL) => Promise<{ url: string; text: string }>;
   model?: LanguageModel;
   now?: () => Date;
+  /** Whether official covers can be stored (Blob configured); only changes the reported cover_status. */
+  canStoreCovers?: boolean;
 };
 
 const adminUrl = (id: string) => `${publicOrigin()}/admin/e/${id}`;
@@ -204,16 +208,12 @@ export async function ingest(input: IngestInput, deps: IngestDeps = {}): Promise
   const id = newId('evt');
   const slug = await uniqueSlug(db, draft.title_en || null, id);
 
-  // Template cover (guide: publish mode generates it synchronously so the cover check always
-  // passes; after() swaps in the official one). Rendering lives in the cover pipeline; the row
-  // follows the seed convention `template:<category>` until then.
+  // Template cover first (guide: publish mode makes it synchronously so the cover check always
+  // passes); the cover chain in after() swaps in the official one when there is one.
   let coverId: string | null = null;
   if (publishing && draft.category) {
     coverId = newId('cov');
-    await db.insert(covers).values({
-      id: coverId, kind: 'template', url1600: `template:${draft.category}`, url800: `template:${draft.category}`,
-      url400: `template:${draft.category}`, urlOgEn: '', urlOgZh: '', thumbhash: '', dominant: '', bytes: 0,
-    });
+    await db.insert(covers).values({ id: coverId, ...templateCoverRow(draft.category, facts.hostName) });
   }
 
   const row: NewEvent = {
@@ -256,9 +256,10 @@ export async function ingest(input: IngestInput, deps: IngestDeps = {}): Promise
   await db.insert(events).values(row);
   await recordSources(db, id, facts.refs, url.toString());
 
+  const official = Boolean(facts.coverUrl) && (deps.canStoreCovers ?? blobConfigured());
   const coverStatus: CoverStatus = coverId
-    ? facts.coverUrl ? 'template_pending_official' : 'template'
-    : facts.coverUrl ? 'pending' : 'template';
+    ? official ? 'template_pending_official' : 'template'
+    : official ? 'pending' : 'template';
 
   return {
     status: 201,
@@ -277,7 +278,7 @@ export async function ingest(input: IngestInput, deps: IngestDeps = {}): Promise
       ai,
       ...(blockers.length ? { not_published: blockers } : {}),
     },
-    coverSource: facts.coverUrl,
+    cover: { officialUrl: facts.coverUrl, hostImages: facts.hostImages, sourcePageUrl: url.toString() },
   };
 }
 

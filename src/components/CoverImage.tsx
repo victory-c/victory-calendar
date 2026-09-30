@@ -1,4 +1,5 @@
 import Image from 'next/image';
+import { thumbHashToDataURL } from 'thumbhash';
 import type { SealKind } from '@/lib/events/going';
 import type { PublicCover } from '@/lib/events/types';
 import { GLYPHS } from '@/lib/covers/glyphs';
@@ -37,7 +38,9 @@ export function CoverImage({ cover, category, hostName, alt, size, seal, locale,
             alt={alt}
             fill
             sizes={`${size}px`}
+            quality={75}
             priority={priority}
+            {...blur(cover.thumbhash)}
             className="object-cover"
           />
         ) : (
@@ -51,6 +54,16 @@ export function CoverImage({ cover, category, hostName, alt, size, seal, locale,
       )}
     </div>
   );
+}
+
+/** ~25-byte thumbhash → tiny PNG data URL for the blur-up placeholder. */
+function blur(thumbhash: string): { placeholder?: 'blur'; blurDataURL?: string } {
+  if (!thumbhash) return {};
+  try {
+    return { placeholder: 'blur', blurDataURL: thumbHashToDataURL(Buffer.from(thumbhash, 'base64')) };
+  } catch {
+    return {};
+  }
 }
 
 export function TemplateTile({ category, hostName }: { category: Category; hostName: string | null }) {

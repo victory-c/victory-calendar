@@ -11,6 +11,12 @@ vi.mock('@/lib/admin-session', () => ({
   adminSessionFrom: async () => (h.session ? { user: { email: 'v@example.org' } } : null),
 }));
 vi.mock('next/cache', () => ({ revalidateTag: (tag: string) => h.revalidated.push(tag) }));
+// after() callbacks run once the response is built; the tests flush them explicitly.
+const afters = vi.hoisted(() => [] as (() => Promise<void>)[]);
+vi.mock('next/server', async (orig) => ({ ...(await orig()), after: (fn: () => Promise<void>) => afters.push(fn) }));
+const flushAfter = async () => {
+  while (afters.length) await afters.shift()!();
+};
 
 const { POST } = await import('@/app/api/ingest/route');
 const { GET } = await import('@/app/api/index/route');
@@ -40,6 +46,7 @@ beforeEach(async () => {
   h.db = (await testDb()).db;
   h.session = false;
   h.revalidated = [];
+  afters.length = 0;
   _resetMemoryLimits();
 });
 
@@ -65,7 +72,11 @@ describe('POST /api/ingest', () => {
     expect(res.status).toBe(201);
     expect(res.headers.get('cache-control')).toBe('no-store');
     const body = await res.json();
-    expect(body).toMatchObject({ status: 'draft', title_en: 'Agent Builders Night', ai: false, cover_status: 'pending' });
+    // No Blob store in tests: the official cover can't be kept, so the event ends on the template.
+    expect(body).toMatchObject({ status: 'draft', title_en: 'Agent Builders Night', ai: false, cover_status: 'template' });
+    await flushAfter();
+    const [withCover] = await (h.db as import('@/lib/db').DB).select().from(events).where(eq(events.id, body.id));
+    expect(withCover.coverId).toMatch(/^cov_/);
     expect(body.admin_url).toMatch(/\/admin\/e\/evt_/);
     const [row] = await (h.db as import('@/lib/db').DB).select().from(apiTokens).where(eq(apiTokens.id, id));
     expect(row.tokenHash).not.toContain(token);
@@ -103,8 +114,10 @@ describe('POST /api/ingest', () => {
     const res = await post({ url: 'https://luma.com/abcd1234', comment: 'Good one', mode: 'publish' });
     expect(res.status).toBe(201);
     const body = await res.json();
-    expect(body).toMatchObject({ status: 'published', category: 'ai', cover_status: 'template_pending_official' });
+    expect(body).toMatchObject({ status: 'published', category: 'ai', cover_status: 'template' });
     expect(h.revalidated).toEqual(['events']);
+    await flushAfter();
+    expect(h.revalidated).toEqual(['events', 'events']);
     const [e] = await (h.db as import('@/lib/db').DB).select().from(events).where(eq(events.id, body.id));
     expect(e.createdVia).toBe('admin');
   });

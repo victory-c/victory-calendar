@@ -1,6 +1,8 @@
 import { revalidateTag } from 'next/cache';
+import { after } from 'next/server';
 import { z } from 'zod';
 import { principalFrom } from '@/lib/api/principal';
+import { runCoverChain } from '@/lib/covers/chain';
 import { hasDatabase } from '@/lib/db';
 import { ingest, type CreatedVia } from '@/lib/ingest/pipeline';
 import { limit } from '@/lib/ratelimit';
@@ -53,6 +55,19 @@ export async function POST(req: Request) {
     name: parsed.name ?? null,
     createdVia: createdVia(who.kind, who.name, parsed.client),
   });
-  if (result.status === 201 && result.body.status === 'published') revalidateTag('events', { expire: 0 });
+  if (result.status === 201) {
+    const published = result.body.status === 'published';
+    if (published) revalidateTag('events', { expire: 0 });
+    // Cover chain after the response (guide: official → host composite → template within ~15 s).
+    const { id } = result.body;
+    after(async () => {
+      try {
+        const r = await runCoverChain({ eventId: id, ...result.cover });
+        if (published && r.coverId) revalidateTag('events', { expire: 0 });
+      } catch (err) {
+        console.error('[ingest] cover chain failed', err);
+      }
+    });
+  }
   return json(result.status, result.body);
 }
