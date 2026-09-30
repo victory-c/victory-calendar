@@ -76,7 +76,10 @@ async function Week({ locale, searchParams }: { locale: Locale; searchParams: Pa
       <GoingStrip items={goingItems} locale={locale} />
       <FeaturedRail items={featured.map((e) => ({ event: e, going: going(e) }))} locale={locale} />
       <div className="mt-10">
-        {visible.length === 0 ? (
+        {data.events.length === 0 ? (
+          // Nothing picked yet this week: no filter to widen.
+          <EmptyState text={t('comingSoon')} />
+        ) : visible.length === 0 ? (
           <EmptyState text={t('empty')} action={{ href: '/', label: t('emptyFilter') }} />
         ) : (
           <DayList events={visible} locale={locale} now={now} todayKey={data.todayKey} showAttendance={data.showAttendance} label={t('title')} />
