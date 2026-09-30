@@ -9,14 +9,14 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 | # | 步骤 | 何时需要 | 状态 |
 |---|---|---|---|
 | 1 | 买域名，决定 `picks.<domain>`（站点）和 `mail.<domain>`（Resend 发信）。买好后告诉我域名，我改 `PUBLIC_HOST` 并在 Vercel 绑定 | M3 newsletter 首发前（Resend 发信的前置） | ⏸ 2026-09-30 决定暂不买，继续用 `victor-picks.vercel.app` |
-| 2 | Vercel 控制台 → 项目 → Integrations/Marketplace：安装 **Neon**、**Resend**、**Upstash Redis**；Storage 页创建 **Blob** store 并连到项目。装完我跑 `vercel env pull` | M0 第 2 周 | ⬜ 未装时站点用种子数据 |
+| 2 | Vercel 集成：**Neon**（免费，iad1）、**Upstash Redis**（免费，iad1）、**Blob**（公开，iad1）已于 2026-09-30 装好并连到生产与预览环境，Neon 已建表。**Resend 暂不装**：通过 Vercel 安装必须填自有发信域名，随域名推迟到 M3 前 | M0 第 2 周 | ✅（Resend ⏸） |
 | 3 | Resend：添加 `mail.<domain>`，把它生成的 DKIM、SPF 记录加到 DNS，再加 DMARC `v=DMARC1; p=none; rua=mailto:<你的别名>` | 域名买好后（M3 前） | ⏸ 随第 1 项推迟 |
 | 4 | Google Calendar（**berkeley.edu 账号**）：设置 → 选日历 → Integrate calendar → 看有没有「Secret address in iCal format」。Workspace 管理员可能隐藏了它：**没有就改用个人 Gmail 日历**并告诉我。有的话复制到 Vercel env `GCAL_SECRET_ICS_URL` | M2 第 11 周 | ⬜ |
 | 5 | Google Calendar：Settings → Event settings → 「Add invitations to my calendar」设为 **From everyone**，否则 Luma 邀请不会进日历 | 同上 | ⬜ |
 | 6 | Luma：Settings → Calendar Syncing → Add iCal Subscription，复制 URL 到 Vercel env `LUMA_PERSONAL_ICS_URL` | M2 第 11 周 | ⬜ |
 | 7 | Partiful：桌面版 Calendar sync → Copy Link，存到 Vercel env `PARTIFUL_ICS_URL` | M2 第 11 周 | ⬜ |
 | 8 | Vercel AI Gateway：团队设置里绑定支付方式（约 $0.5–2/月） | M2 第 7 周 | ⬜ |
-| 9 | 在 Vercel env 设 `ADMIN_EMAIL`（后台唯一允许登录的邮箱）、`BETTER_AUTH_SECRET`、`CRON_SECRET`、`SUBSCRIBER_LINK_SECRET`（各用 `openssl rand -base64 32` 生成） | M0 第 2 周 | ⬜ |
+| 9 | Vercel env：`ADMIN_EMAIL`（victorchun@berkeley.edu）已设；`BETTER_AUTH_SECRET`、`CRON_SECRET`、`SUBSCRIBER_LINK_SECRET` 由你运行命令随机生成并直接写入（`openssl rand -base64 32`，值不经过对话） | M0 第 2 周 | ⏳ 差三个密钥 |
 | 10 | 首次登录 /admin/sign-in：用 magic link 登录，然后在 iPhone（Face ID）和 Mac（Touch ID）各注册一个 passkey（G0 门槛） | M0 第 2 周部署后 | ⬜ |
 | 11 | 安装两个 iOS 快捷指令（Add to Picks、Add & Publish）。iCloud 链接我生成不了，步骤写在后台「设置」页底部；令牌也在设置页生成（只显示一次） | M2 第 10 周；生产上要先完成第 2、9 项 | ⬜ |
 | 12 | 批准把 `m0-foundations` 和 `m1-public-site` 合并进 `main` | G1 验证前 | ✅ 2026-09-28 已合并（#1、#2，以及修正 #3），生产站 `https://victor-picks.vercel.app` 公开可访问 |
@@ -273,6 +273,9 @@ Lighthouse 说明：本机测量时 Chrome 找得到苹方，所以中文正文�
 - **组合图版式**：有主办方头像时类别字缩到约 26% 并上移，头像放大到 26% 放在下方；没有头像时和站内模板一致。
 - **分享卡片的字体在运行时从 Google Fonts 取子集**：指南只对中文字形这样写，我把 Fraunces 和 Geist Mono 也一起这样取，避免把字体文件打进函数包（之前打包 node_modules 里的文件被 Vercel 拒过）。取不到时 Satori 用内置字体兜底，不会失败。
 - **上传路由只签发令牌，不用 `onUploadCompleted` 回调**：回调需要公网可达的地址，本地开发收不到；编辑器拿到上传后的 URL 直接调 `coverFromUpload` 处理。
+- **没有 Resend 时第一次登录后台用日志里的链接**：`sendEmail` 在没有 `RESEND_API_KEY` 时把邮件正文写进服务器日志。生产日志只有你的 Vercel 账号能看，链接 5 分钟有效、一次性，而且只有 `ADMIN_EMAIL` 能申请。登录后注册通行密钥，之后不再需要邮件。等 M3 有域名、装好 Resend 后自动改回发邮件。
+- **Upstash 通过 Vercel 安装时注入的是 `KV_REST_API_URL` / `KV_REST_API_TOKEN`**，代码现在两套名字都认。
+- **预览部署和生产共用同一个 Neon 数据库**：Neon 的「每个 PR 一个数据库分支」以后再开；在那之前别在预览环境里做破坏性操作。
 - **本地 API 令牌脚本叫 `pnpm api-token`**（pnpm 保留了 `token` 这个命令名）。
 - **`victorchun-site` 升级到 16.3.7 暂缓**：npm 上 next 最新仍是 16.3.6（今天 9/28，指南说 9/30 之后发布）。它在另一个仓库，发布后单独处理。
 

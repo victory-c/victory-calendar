@@ -11,7 +11,13 @@ export const LIMITS = {
 type LimitName = keyof typeof LIMITS;
 type Result = { success: boolean; reset: number; remaining: number };
 
-const hasUpstash = () => Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
+// The Vercel Marketplace install injects KV_REST_API_*; a direct Upstash setup uses UPSTASH_REDIS_REST_*.
+// Redis.fromEnv() reads either pair.
+const hasUpstash = () =>
+  Boolean(
+    (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) ||
+      (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN),
+  );
 
 const windowMs = (w: string) => {
   const [n, unit] = w.split(' ');
