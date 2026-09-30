@@ -135,6 +135,24 @@ describe('ingest', () => {
     expect(e.autoFields).not.toContain('title_en');
   });
 
+  it('never stores credentials or secret parameters, even for unreadable links', async () => {
+    expect(await run({ url: 'https://victor:hunter2@example.org/private' })).toMatchObject({ status: 400 });
+    expect(await db.select().from(events)).toHaveLength(0);
+    const r = await run({ url: 'https://example.org/invite?event=9&token=s3cret&invite_code=abc' });
+    expect(r.status).toBe(202);
+    const [e] = await db.select().from(events);
+    expect(e.sourceUrl).toBe('https://example.org/invite?event=9');
+    const src = await db.select().from(eventSources);
+    expect(JSON.stringify(src)).not.toContain('s3cret');
+  });
+
+  it('cleans the host link taken from the page', async () => {
+    const r = await run({ url: 'https://luma.com/abcd1234' });
+    if (r.status !== 201) throw new Error('expected 201');
+    const [e] = await db.select().from(events).where(eq(events.id, r.body.id));
+    expect(e.hostUrl).toBe('https://luma.com/example-labs');
+  });
+
   it('rejects things that are not links', async () => {
     expect((await run({ url: 'javascript:alert(1)' })).status).toBe(400);
   });
