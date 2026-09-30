@@ -28,6 +28,7 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 - 分支：M0（#1）、M1（#2）和生产验证后的修正（#3）都已于 2026-09-28 合并进 `main`，生产站已部署并抽查通过
 - 生产站：`https://victor-picks.vercel.app`（公开，种子模式，顶部有「示例数据」横幅）
 - 里程碑：M0 代码完成，G0 差 passkey 真机登录（checklist 2、9、10）和 DKIM/DMARC（随域名推迟到 M3 前）；**M1 完成，G1 于 2026-09-30 全部通过**，可以进 M2
+- M2：分支 `m2-ingest`，第 7–8 周的代码已完成（抓取、适配器、AI 补全、`/api/ingest`、`/api/index`、令牌），PR 待你审；下一步第 9 周封面管线
 - 域名：2026-09-30 决定暂不买，继续用 `*.vercel.app`。影响见「待确认」里的域名一条
 
 - Vercel 项目：`victor-picks`（victory-c-8190s-projects），已连 GitHub，推送分支自动出预览
@@ -140,6 +141,27 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 
 运维备注：复查时多个代理同时高频请求预览，触发了 Vercel 的安全验证页（403 challenge，约 10 分钟后自动解除）。这是平台对短时间大量无头浏览器请求的防护，不是站点问题；日历 App 的正常抓取频率不会触发。
 
+### M2 第 7–8 周（2026-09-30，提前完成）：ingest 管线
+
+做了什么
+- **安全抓取 `src/lib/ingest/safe-fetch.ts`**（唯一允许出网的抓取器，lint 禁止 ingest、covers、inbox 目录直接用 fetch 或 undici）：只接受 https 和默认端口，URL 里不能带账号密码；每个主机名都解析 A 与 AAAA，用 ipaddr.js 只放行公网单播地址（挡住回环、RFC1918、169.254 元数据、fc00::/7、多播、IPv4 映射、NAT64、6to4）；socket 只连已检查过的地址（自定义 lookup，防 DNS 重绑定）；重定向手动跟随最多 3 跳，每跳重新校验；10 秒超时，HTML 4 MB、图片 15 MB 上限；Chrome UA。
+- **链接归一化 `normalize.ts`**：去 utm 等追踪参数，lu.ma 改 luma.com，Luma、Partiful、Meetup 的查询串整个去掉（顺带去掉 Luma 的邀请令牌 `tk`，不会出现在公开的 source_url 里）；提取平台 id（Luma slug 与 `evt-`、Partiful、Eventbrite、Meetup）。
+- **适配器 `adapters/`**：Luma 先读 `__NEXT_DATA__`（原始 `cover_url`、IANA 时区、主办方、地址可见性、票务），再用 JSON-LD 兜底，绝不取 og:image；Partiful 的时区取 `__NEXT_DATA__`（JSON-LD 只有 UTC），封面取 imgix 海报改成 1600²；Eventbrite、Meetup 和其他网站走通用 JSON-LD（Eventbrite 解开 `/_next/image` 包装），没有 JSON-LD 时用 og 标签。私人场地按指南规则判定。
+- **AI 补全 `extract.ts`**：AI SDK 7 的 `Output.object` 经 AI Gateway 调 `anthropic/claude-haiku-4.5`。页面上读到的事实永远优先，模型只写摘要、翻译标题和点评、选类别，页面缺的事实才由模型补；模型补的字段记进 `auto_fields`（后台显示 AI 标记）。没有 Gateway 或调用失败时退回「只用事实」的草稿，不会丢链接。
+- **`POST /api/ingest`**：session cookie 或 `Bearer vp_…` 令牌；每令牌每小时 60 次；返回 201 / 202（读不了的页面存最小草稿，`needs_manual`）/ 401 / 403（缺 scope）/ 409（重复，按 URL、Luma 别名、短链、`evt-` id 都能认出）/ 429。publish 模式先过发布校验（名字、时间、类别、点评），缺项就存草稿并在 `not_published` 里说明；通过时同步建模板封面再发布，并 `revalidateTag('events', { expire: 0 })`。`mode=candidate` 暂回 400，随第 11 周收件箱实现。
+- **`GET /api/index`**：只接受带 candidates 或 ingest scope 的令牌，列出已发布活动的外部 id，给 weekly-events skill 去重。
+- **令牌**：`vp_` + 32 字节随机数，只存 SHA-256；记录 last_used；可吊销。后台 Settings 做好前用 `pnpm api-token create "<名字>" ingest[,publish]` 创建（明文只显示一次）、`pnpm api-token list`、`pnpm api-token revoke <id>`。
+- fixture：仓库是公开的，所以 `fixtures/` 里是保留真实页面结构、但名字、id、文案都换成虚构内容的精简版。
+
+检查结果：typecheck、lint 通过；Vitest 178 个用例通过（新增：SSRF 49 个、适配器 25 个、AI 补全 7 个、ingest 流程 10 个、接口 7 个）；构建通过。另外在真实网络上验证：`lu.ma/g42o84ln` 跳转到 luma.com 并正确读出时间、时区、场地、主办方、封面（封面图 336 KB 能下载）；解析到 `::1` 的域名被挡；本地开发服务器上 `/api/ingest` 实测 201（约 0.5–1.8 秒，未开 AI）、409、202、401 都符合契约，测试数据已清理。
+
+下一步
+- 第 9 周：封面链 1–3 步（官方封面经 safe-fetch 下载 → sharp 处理 → Blob；主办方组合图；排版模板）、`after()` 里替换官方封面、OG 图、上传与粘贴 URL。
+- 第 10 周：后台 PWA（Add、Drafts、Live、编辑器、Settings 令牌与总开关）和两个 iOS 快捷指令。
+
+阻塞
+- 生产上用 `/api/ingest` 需要 Vercel 上有数据库和密钥（checklist 2、9）；封面存储需要 Blob（checklist 2）；AI 补全需要 Gateway 绑定支付（checklist 8），没绑之前按「只用事实」工作。
+
 ## 门槛
 
 | 门槛 | 条目 | 结果 |
@@ -188,6 +210,14 @@ Lighthouse 说明：本机测量时 Chrome 找得到苹方，所以中文正文�
 - **VTIMEZONE 只内置 17 个时区**（太平洋、山地、中部、东部、夏威夷、阿拉斯加、伦敦、巴黎、柏林、上海、香港、台北、东京、新加坡、加尔各答、UTC）。其他时区的活动仍写 TZID，但不附 VTIMEZONE 块，主流日历 App 认识 IANA 名称。
 - **ICS 与 RSS 从第 6 周提前到第 4 周**，因为详情页的「加入日历」要用。
 - **域名暂不买（2026-09-30 你的决定）**：继续用 `victor-picks.vercel.app`。大陆访问不了（`*.vercel.app` 被干扰），但你确认这不需要考虑：活动都在湾区，国内读者看得到也去不了。所以域名只剩一个用途：发信。影响：① Resend 只能用 `onboarding@resend.dev` 发信，且只能发给 Resend 账号本人的邮箱，所以后台 magic link 能用（`ADMIN_EMAIL` 设成注册 Resend 的邮箱），但 M3 的 newsletter 发不出去；② G0 的 DKIM/DMARC 推迟到 M3 首发前验证。M2（抓取、后台录入、AI 草稿、封面）不依赖域名。买域名后要改的只有 `PUBLIC_HOST`、Vercel 域名绑定、ICS 的 UID 主机名（UID 变会让已订阅的日历重复一次，越早换越好）。
+- **ingest 的 AI 输出长度与范围事后裁剪**：指南的 schema 写了 `summary_en ≤ 240`、`summary_zh ≤ 120`、置信度 0–1；我把限制写进字段说明，调用后再截断和钳制，而不是交给 schema 校验，免得模型多写几个字就让整次录入失败。
+- **页面事实优先于模型**：时间、时区、场地、城市、价格、报名方式只要页面上有，就不用模型的值；模型可以把活动标成私人场地，但不能取消私人场地标记。
+- **标题去掉装饰性 emoji**（「⚕️ HealthTech Pitch⚕️」→「HealthTech Pitch」），卡片有自己的视觉语言。
+- **私人场地的场地名和街区不写进数据库的公开列**：PRD 只说私人场地影响「会去」印章，但判定为私人场地的情况里场地名常常就是街道地址，所以更保守地留空；完整地址仍存在不公开的 `address` 列。
+- **读不了的链接也建草稿（202）**，包括被 SSRF 规则挡下的地址；这种草稿从不再次抓取，只保存链接和点评。
+- **publish 模式的模板封面暂用种子数据的约定 `template:<类别>`**（公开站本来就用 CSS 瓦片渲染模板封面，不发图片请求）；第 9 周的封面管线接上 next/og 后生成真正的模板图与 OG 图。
+- **没有 AI 时的类别**：Luma 自带类别 `ai` 时先填 `ai`，置信度 0.5；其他情况留空，发布校验会要求补上。
+- **本地 API 令牌脚本叫 `pnpm api-token`**（pnpm 保留了 `token` 这个命令名）。
 - **`victorchun-site` 升级到 16.3.7 暂缓**：npm 上 next 最新仍是 16.3.6（今天 9/28，指南说 9/30 之后发布）。它在另一个仓库，发布后单独处理。
 
 ## 文档冲突记录（按实现指南执行）

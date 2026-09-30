@@ -17,7 +17,8 @@
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
     "fonts:cjk": "tsx scripts/fonts-cjk.ts && python3 scripts/glyph-paths.py > src/lib/covers/glyphs.ts",
     "lhci": "lhci autorun",
-    "tz:vendor": "tsx scripts/vtimezones.ts"
+    "tz:vendor": "tsx scripts/vtimezones.ts",
+    "api-token": "tsx scripts/token.ts"
   },
   "dependencies": {
     "@better-auth/passkey": "^1.7.6",
