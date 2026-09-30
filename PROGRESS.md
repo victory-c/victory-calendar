@@ -8,7 +8,7 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 
 | # | 步骤 | 何时需要 | 状态 |
 |---|---|---|---|
-| 1 | 买域名，决定 `picks.<domain>`（站点）和 `mail.<domain>`（Resend 发信）。买好后告诉我域名，我改 `PUBLIC_HOST` 并在 Vercel 绑定 | M3 newsletter 首发前（Resend 发信、大陆可达的前置） | ⏸ 2026-09-30 决定暂不买，继续用 `victor-picks.vercel.app` |
+| 1 | 买域名，决定 `picks.<domain>`（站点）和 `mail.<domain>`（Resend 发信）。买好后告诉我域名，我改 `PUBLIC_HOST` 并在 Vercel 绑定 | M3 newsletter 首发前（Resend 发信的前置） | ⏸ 2026-09-30 决定暂不买，继续用 `victor-picks.vercel.app` |
 | 2 | Vercel 控制台 → 项目 → Integrations/Marketplace：安装 **Neon**、**Resend**、**Upstash Redis**；Storage 页创建 **Blob** store 并连到项目。装完我跑 `vercel env pull` | M0 第 2 周 | ⬜ 未装时站点用种子数据 |
 | 3 | Resend：添加 `mail.<domain>`，把它生成的 DKIM、SPF 记录加到 DNS，再加 DMARC `v=DMARC1; p=none; rua=mailto:<你的别名>` | 域名买好后（M3 前） | ⏸ 随第 1 项推迟 |
 | 4 | Google Calendar（**berkeley.edu 账号**）：设置 → 选日历 → Integrate calendar → 看有没有「Secret address in iCal format」。Workspace 管理员可能隐藏了它：**没有就改用个人 Gmail 日历**并告诉我。有的话复制到 Vercel env `GCAL_SECRET_ICS_URL` | M2 第 11 周 | ⬜ |
@@ -187,7 +187,7 @@ Lighthouse 说明：本机测量时 Chrome 找得到苹方，所以中文正文�
 - **骑行活动在所有公开出口只显示城市**，不显示场地名或起点，包括已报名的正式骑行（gran fondo）。
 - **VTIMEZONE 只内置 17 个时区**（太平洋、山地、中部、东部、夏威夷、阿拉斯加、伦敦、巴黎、柏林、上海、香港、台北、东京、新加坡、加尔各答、UTC）。其他时区的活动仍写 TZID，但不附 VTIMEZONE 块，主流日历 App 认识 IANA 名称。
 - **ICS 与 RSS 从第 6 周提前到第 4 周**，因为详情页的「加入日历」要用。
-- **域名暂不买（2026-09-30 你的决定）**：继续用 `victor-picks.vercel.app`。影响：① 大陆访问不了（`*.vercel.app` 被干扰），中文读者在国内要翻墙；② Resend 只能用 `onboarding@resend.dev` 发信，且只能发给 Resend 账号本人的邮箱，所以后台 magic link 能用（`ADMIN_EMAIL` 设成注册 Resend 的邮箱），但 M3 的 newsletter 发不出去；③ G0 的 DKIM/DMARC 推迟到 M3 首发前验证。M2（抓取、后台录入、AI 草稿、封面）不依赖域名。买域名后要改的只有 `PUBLIC_HOST`、Vercel 域名绑定、ICS 的 UID 主机名（UID 变会让已订阅的日历重复一次，越早换越好）。
+- **域名暂不买（2026-09-30 你的决定）**：继续用 `victor-picks.vercel.app`。大陆访问不了（`*.vercel.app` 被干扰），但你确认这不需要考虑：活动都在湾区，国内读者看得到也去不了。所以域名只剩一个用途：发信。影响：① Resend 只能用 `onboarding@resend.dev` 发信，且只能发给 Resend 账号本人的邮箱，所以后台 magic link 能用（`ADMIN_EMAIL` 设成注册 Resend 的邮箱），但 M3 的 newsletter 发不出去；② G0 的 DKIM/DMARC 推迟到 M3 首发前验证。M2（抓取、后台录入、AI 草稿、封面）不依赖域名。买域名后要改的只有 `PUBLIC_HOST`、Vercel 域名绑定、ICS 的 UID 主机名（UID 变会让已订阅的日历重复一次，越早换越好）。
 - **`victorchun-site` 升级到 16.3.7 暂缓**：npm 上 next 最新仍是 16.3.6（今天 9/28，指南说 9/30 之后发布）。它在另一个仓库，发布后单独处理。
 
 ## 文档冲突记录（按实现指南执行）
@@ -205,3 +205,4 @@ Lighthouse 说明：本机测量时 Chrome 找得到苹方，所以中文正文�
 11. **字体预算**：PRD 与指南写 en 首屏字体 ≤ 120 KB，但指定的四个字体（Geist、Geist Mono、Fraunces 正体带 opsz、Fraunces 斜体）子集化后实测仍是 140 KB。两份文档都写了这个数字是估算、要用 Lighthouse CI 校准，所以按实测 140 KB 记为新预算；zh 首屏在苹果设备上实测为 Latin 140 KB + 标题切片约 80–370 KB（视页面文字而定）。
 12. **date-fns**：指南选了 date-fns 4.4 + @date-fns/tz，但 Next 16.3 的 Cache Components 在预渲染时拒绝 `TZDate` 内部的无参数 `new Date()`。改用 Intl 计算偏移，去掉这两个依赖。
 13. **首页 JS 预算**：PRD 与指南写首页 JS ≤ 120 KB（gzip），生产实测 157 KB，其中 React 与 Next 运行时约 117 KB，砍业务代码也到不了 120 KB。按实测记为新预算。
+14. **大陆可达性**：PRD 风险表与指南把「大陆可达」列为买域名的理由之一；你在 2026-09-30 决定不考虑大陆读者（活动都在湾区）。域名只作为 M3 发信的前置。zh 界面仍保留 Apple、Outlook 优先的日历按钮顺序，不改代码。
