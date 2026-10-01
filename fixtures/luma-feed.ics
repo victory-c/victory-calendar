@@ -1,0 +1,26 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Luma//Luma Calendar//EN
+CALSCALE:GREGORIAN
+BEGIN:VEVENT
+DTSTART:20261007T013000Z
+DTEND:20261007T040000Z
+DTSTAMP:20261001T120000Z
+UID:evt-TestLumaIcs001@events.lu.ma
+SUMMARY:Agent Builders Night 🤖
+DESCRIPTION:Get up-to-date information at: https://luma.com/testagent\n\nAddress:\nTest Hall
+LOCATION:Test Hall, 1 Example St, San Francisco, CA 94103
+URL:https://luma.com/testagent
+STATUS:CONFIRMED
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20261010T170000Z
+DTEND:20261010T200000Z
+DTSTAMP:20261001T120000Z
+UID:evt-TestLumaIcs002@events.lu.ma
+SUMMARY:Waitlisted Hack Day
+DESCRIPTION:Get up-to-date information at: https://luma.com/testhack
+LOCATION:https://luma.com/testhack
+STATUS:CONFIRMED
+END:VEVENT
+END:VCALENDAR

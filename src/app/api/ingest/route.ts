@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { principalFrom } from '@/lib/api/principal';
 import { runCoverChain } from '@/lib/covers/chain';
 import { hasDatabase } from '@/lib/db';
+import { CandidateBatch, pushCandidates } from '@/lib/inbox/push';
 import { ingest, type CreatedVia } from '@/lib/ingest/pipeline';
 import { limit } from '@/lib/ratelimit';
 
@@ -13,7 +14,7 @@ export const maxDuration = 60;
 const Body = z.object({
   url: z.string().min(4).max(2048),
   comment: z.string().max(2000).nullish(),
-  mode: z.enum(['draft', 'publish', 'candidate']).default('draft'),
+  mode: z.enum(['draft', 'publish']).default('draft'),
   client: z.string().max(40).nullish(),
   name: z.string().max(200).nullish(),
 });
@@ -37,13 +38,25 @@ export async function POST(req: Request) {
     return json(429, { error: 'rate_limited' }, { 'retry-after': String(Math.max(1, Math.ceil((rl.reset - Date.now()) / 1000))) });
   }
 
-  let parsed: z.infer<typeof Body>;
+  let raw: unknown;
   try {
-    parsed = Body.parse(await req.json());
+    raw = await req.json();
   } catch {
     return json(400, { error: 'bad_request' });
   }
-  if (parsed.mode === 'candidate') return json(400, { error: 'unsupported_mode', detail: 'candidate batches arrive with the inbox' });
+
+  // Candidate batches (weekly-events skill) go to the private inbox, never onto the site.
+  if (raw && typeof raw === 'object' && (raw as { mode?: unknown }).mode === 'candidate') {
+    if (!who.scopes.includes('candidates')) return json(403, { error: 'scope' });
+    const batch = CandidateBatch.safeParse(raw);
+    if (!batch.success) return json(400, { error: 'bad_request' });
+    if (!hasDatabase()) return json(503, { error: 'no_database' });
+    return json(200, await pushCandidates(batch.data.batch));
+  }
+
+  const body = Body.safeParse(raw);
+  if (!body.success) return json(400, { error: 'bad_request' });
+  const parsed = body.data;
   if (!who.scopes.includes('ingest')) return json(403, { error: 'scope' });
   if (parsed.mode === 'publish' && !who.scopes.includes('publish')) return json(403, { error: 'scope' });
   if (!hasDatabase()) return json(503, { error: 'no_database' });
