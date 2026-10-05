@@ -23,13 +23,15 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 | 13 | G1 实测：iPhone「设置 → 日历 → 账户 → 添加已订阅的日历」填 `webcal://victor-picks.vercel.app/calendar.ics?lang=zh`，Google Calendar 用「通过网址添加」填同一地址的 https 版；看活动时间是否是本地时间、改期后是否更新 | 第 12 项之后 | ✅ 2026-09-30 你已订阅，没有问题 |
 | 14 | 给我 20 场你真的想推荐的活动（链接 + 一句点评即可），替换示例数据。M2 的后台做好后也可以自己录 | M1 第 6 周 | ⬜ |
 | 15 | weekly-events skill 推送到收件箱：后台「设置」生成令牌，名字写 `weekly-events-skill`、只勾 candidates；把令牌存进本机文件 `~/.config/victor-picks/skill-token`（`chmod 600`）。没有这个文件时 skill 的第 5 步自动跳过 | M2 第 11 周 | ⬜ |
+| 16 | 订阅表单开放前（域名和 Resend 就绪后）：① Vercel env 设 `RESEND_API_KEY`、`RESEND_FROM`（必须是自有域名地址，例如 `Victor's Picks <picks@mail.<domain>>`）、`RESEND_WEBHOOK_SECRET`；② Resend 控制台建 webhook 指向 `/api/webhooks/resend`，勾 email.bounced、email.complained、email.suppressed；③ Resend 关闭打开与点击追踪；④ Vercel Firewall 加一条规则：POST `/subscribe` 与 `/zh/subscribe` 限速；⑤ 确认项目 Settings → Security 里 OIDC Federation 是开启的（BotID 需要）；⑥ 第 15 周的 /privacy 上线后再开。都齐了之后重新部署，表单自动打开（`NEWSLETTER_OPEN=0` 可随时关） | M3 首发前 | ⬜ |
 
 ## 当前状态
 
 - 分支：M0（#1）、M1（#2）和生产验证后的修正（#3）都已于 2026-09-28 合并进 `main`，生产站已部署并抽查通过
 - 生产站：`https://victor-picks.vercel.app`，2026-09-30 起接真实数据库（Neon），示例数据横幅已去掉；后台登录已验证。首页在录入活动前显示「精选正在路上」
 - 里程碑：M0 代码完成，G0 差 passkey 真机登录（checklist 2、9、10）和 DKIM/DMARC（随域名推迟到 M3 前）；**M1 完成，G1 于 2026-09-30 全部通过**，可以进 M2
-- M2：第 7–8 周（ingest，#6）、审查修正（#8）、第 9 周（封面，#7）都已合并；第 10 周后台 PWA（#9）已合并；第 11 周候选收件箱在分支 `feat/inbox`，PR 待你审；收件箱要真正有内容还差 checklist 4–7 和 15
+- M2：第 7–8 周（ingest，#6）、审查修正（#8）、第 9 周（封面，#7）都已合并；第 10 周后台 PWA（#9）、第 11 周候选收件箱（#13）已合并；收件箱要真正有内容还差 checklist 4–7 和 15。G2 门槛（手机实测）还没做，等你有空
+- M3：第 12 周的定时任务骨架早已就绪；第 13 周订阅流程在分支 `feat/subscribe`，PR 待你审。生产上订阅表单保持关闭，等域名和 Resend 发信域名（checklist 1、3）
 - 域名：2026-09-30 决定暂不买，继续用 `*.vercel.app`。影响见「待确认」里的域名一条
 
 - Vercel 项目：`victor-picks`（victory-c-8190s-projects），已连 GitHub，推送分支自动出预览
@@ -228,6 +230,24 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 下一步
 - 第 12 周：G2 门槛实测（分享到草稿 p50 ≤ 6 秒、每个发布活动都有封面、总开关验证），然后进 M3 newsletter。
 
+### M3 第 13 周（2026-10-04）：订阅流程
+
+做了什么
+- **订阅页 `/subscribe`、`/zh/subscribe`**：邮箱、7 个类别（按 `?c=` 预选，默认全选）、邮件语言；Server Action 依次检查蜜罐、填写时间 ≥ 3 秒（从页面开始加载算）、Vercel BotID、每 IP 10 分钟 5 次、每个收件箱每天 3 次（`+tag` 和 Gmail 的点算同一个收件箱）、全站每天的订阅邮件预算（默认 40 封，`SUBSCRIBE_DAILY_SEND_CAP`）。新地址、待确认、已退订、已订阅、被抑制，表单一律显示「还差一步」，邮件在响应之后才发，所以从页面和响应时间都看不出谁订阅过。已订阅的地址会收到一封「已经订阅过了」的偏好链接，不改任何东西。
+- **双重确认**：确认邮件中英双语，订阅者的语言在前，没有任何推广内容；没有 Resend key 时写进服务器日志（和后台登录一样）。链接 `/confirm/<token>` 把待确认改成订阅中，然后跳到偏好页显示「订阅好了」；超过 7 天的链接算过期；对 HEAD 请求不做任何事（防邮件扫描器）。
+- **链接令牌**：`<id>.<HMAC-SHA256(SUBSCRIBER_LINK_SECRET, id:token_version)>`，不落库，常数时间比对；网址里永远没有邮箱。
+- **偏好页 `/prefs/<token>`**：语言和类别（全不选等于退订）、暂停 4 周 / 恢复、全部退订 / 重新订阅；不显示邮箱。重新订阅会记录新的同意（时间、IP、浏览器、来源页）。
+- **退订**：`POST /api/unsubscribe?t=…` 按 RFC 8058 一键退订（不需要 cookie、返回 200、不跳转、立即生效、重复调用不报错）；同一网址的 GET 只跳到人工退订页，从不退订（邮件扫描器会预取链接）。人工页 `/unsubscribe?t=` 可以只退一个类别或全部退订，只有按按钮才改。
+- **退信与投诉**：`/api/webhooks/resend` 用 Resend SDK 校验 Svix 签名；硬退信、投诉、Resend 自己的抑制都把地址标为 suppressed，之后表单和偏好页都不能再订阅它。
+- **清理**：每天 13:00 UTC 的 cron 删除 7 天没确认的新地址；曾经订阅过、重新申请却没确认的地址退回「已退订」而不是删除（保留历史，也不会撞上 digest_sends 的外键）。成功和失败都写 `jobs_log`。
+- **开关**：`newsletterStatus()`。本地和 CI 有数据库和密钥就开放；Vercel 上要有 Resend key 且发件地址在自有域名才开放。关闭时订阅页显示「邮件周报快开始了」和日历订阅菜单，页头、页脚、sitemap 都不出现订阅入口。确认、偏好、退订和 webhook 不受开关影响。
+- **接线**：proxy 让带点的令牌路径也走 next-intl（否则英文的 `/confirm/<id>.<sig>` 会 404），并跳过 BotID 的挑战路径；令牌页加 `noindex` 和 `X-Robots-Tag`；BotID 只保护这两个 POST 路径。
+
+检查结果：typecheck、lint、build 通过；Vitest 555 个通过（本周新增约 320 个）；Playwright 接本地数据库 63 个通过（另外 63 个是只在无数据库时跑的），按 CI 的无数据库方式 101 个通过（25 个需要数据库的跳过），没有失败。开发方式：先用 5 个并行调研摸清约定、文档和需求，我写核心库（令牌、状态机、邮件、开关）和设计约定，4 个并行任务分别做页面、偏好页、接口、接线和 e2e；然后 6 个角度的对抗式审查（安全、合规、状态机、Next.js、体验、测试），40 个代理核实后确认 24 条（多数是低严重度），全部修复或记录；再用 3 个代理核验修复，另外补了 6 个小问题（每 IP 每天 10 次、预算先看后扣、确认邮件的 7 天措辞、退订页「不可用」措辞、填写计时防时钟回拨、关闭状态下无 JS 也能看到日历订阅）。我在浏览器里用手机尺寸走了一遍：订阅 → 日志里的确认链接 → 偏好页「订阅好了」→ 一键退订 → 偏好页「已退订」，测试数据已删除。
+
+下一步
+- 第 14 周：周报模板、按语言和类别组装、分批发送、两条周日 cron。
+
 ## 门槛
 
 | 门槛 | 条目 | 结果 |
@@ -295,6 +315,16 @@ Lighthouse 说明：本机测量时 Chrome 找得到苹方，所以中文正文�
 - **循环活动的每次出现不用平台 id 去重**：同一个 Meetup 链接会把每周的活动合成一行，所以每次出现按自己的 UID 和模糊键去重。
 - **RSVP 只存不显示**：指南说 P2 之前收件箱不显示 RSVP 灰字。读 PARTSTAT 时认 `INBOX_EMAILS`（逗号分隔，可选），没设就用 `ADMIN_EMAIL`；Google 日历在个人 Gmail 账号上时可以设成那个地址。
 - **skill 推送成功返回 200**（逐条结果），不是单链接 ingest 的 201/202/409。
+- **订阅表单在生产上保持关闭**，直到 Resend 有自有域名的发件地址：共享的 onboarding@resend.dev 只能发给 Resend 账号本人，开着表单会让访客等一封永远不会到的确认信。`NEWSLETTER_OPEN=1` 可以临时在 Vercel 上打开（只适合你自己测试）。
+- **确认用 GET**（按指南），邮件扫描器有可能替人确认；如果以后发现这种情况，改成页面上一个「确认」按钮。HEAD 请求不确认。
+- **令牌不轮换**：退订不改 token_version，旧邮件里的一键退订链接永远有效（RFC 8058 要求能自动完成）。轮换密钥会让所有已发邮件的链接失效，只在泄露时用。
+- **偏好页可以「重新订阅」**：持有链接就证明是本人收件箱，确认过的地址直接恢复，没确认过的重新发确认信；被抑制的地址不能恢复。
+- **全站每天订阅邮件预算 40 封**（`SUBSCRIBE_DAILY_SEND_CAP`）：指南的每 IP、每地址限速挡不住多地址刷量，Resend Free 每天 100 封还要留给后台登录和周报。超出时表单显示「今天暂停接受新订阅」。
+- **BotID 服务本身出错时放行**（记日志），靠蜜罐、填写时间和三层限速兜底；否则 OIDC 没开之类的配置问题会挡住所有真实订阅。
+- **订阅邮件在响应之后发**（`after()`）：所有结果响应时间一致，看不出地址是否被抑制；代价是发送失败时访客不会立刻知道，提示里有「没收到就再提交一次」。
+- **going 提醒复选框不放**：指南的表单写了可选的 going 提醒，但它是 P1（M4），放一个不起作用的选项不诚实。
+- **确认邮件用纯 HTML**，和后台登录邮件一样；react-email 在第 14 周随周报模板一起用（react-email 6.11 没有导出 render，需要另选渲染方式）。
+- **没开 JavaScript 的访客**：订阅表单和偏好页需要 JavaScript（BotID 只能验证脚本发出的请求）；页面会说明，退订页提示可以用邮件 App 的退订按钮（RFC 8058）。
 - **重译用 anthropic/claude-sonnet-4.6**（指南指定）；没配 AI Gateway 时提示「AI 还没配置」。
 - **本地连数据库跑 e2e 时 sitemap 那条会失败**：本地库里的 20 条示例活动是 9/28 写进去的，日期是相对那天算的，现在已经过期。CI 不连数据库，不受影响。要刷新的话删掉本地 `seed_` 开头的活动再 `pnpm db:seed`（我没有动你的本地数据）。
 - **模板图和分享卡片按需渲染、边缘缓存，不存进 Blob**：指南写的是生成后 `put` 到 Blob（`url_og_en`、`url_og_zh`）。改成 `/og/...` 路由按需渲染有三个好处：还没装 Blob 也能用；改了标题或时间自动更新（URL 带指纹）；省 Blob 的写操作额度。`covers.url_og_*` 暂时留空。
@@ -326,3 +356,6 @@ Lighthouse 说明：本机测量时 Chrome 找得到苹方，所以中文正文�
 15. **收件箱怎么抓 ICS**：指南的 `sync-ics.ts` 示例用 `ical.async.fromURL`，而同一份指南又用 ESLint 禁止 `inbox/` 目录直接发请求（SSRF 规则）。按 SSRF 规则：`safeFetch` 取文本，再 `ical.sync.parseICS`。
 16. **取消的日历条目**：指南示例代码直接跳过 CANCELLED，正文又说 `event_status = CANCELLED` 时显示「已取消」。两者合起来：不新建，只更新已有的行。
 17. **收件箱同步锁**：指南写 Upstash 锁防并发。改用 `sync_state` 表的一条条件 UPDATE，冷却和锁一步完成，本地和测试也不需要 Redis。
+18. **订阅表单提交方式**：PRD 写「用 fetch 提交」，指南写 Server Action。按指南。
+19. **令牌存储**：PRD 写「32 字节哈希 token」（暗示存哈希），指南用 HMAC 现算、不落库、靠 token_version 作废。按指南。
+20. **going 提醒**：指南的表单与组件表写了可选 going 提醒，PRD 与指南的里程碑把它放在 P1（M4）。按里程碑，第 13 周不放（见待确认）。

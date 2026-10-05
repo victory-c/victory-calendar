@@ -1,5 +1,6 @@
 import { getTranslations } from 'next-intl/server';
 import { Link } from '@/i18n/navigation';
+import { newsletterStatus } from '@/lib/newsletter/status';
 import type { Locale } from '@/lib/taxonomy';
 
 export async function SiteFooter({ locale }: { locale: Locale }) {
@@ -13,6 +14,7 @@ export async function SiteFooter({ locale }: { locale: Locale }) {
         <Link href="/going">{t('going')}</Link>
         <Link href="/archive">{t('archive')}</Link>
         <Link href="/about">{t('about')}</Link>
+        {newsletterStatus() === 'open' && <Link href="/subscribe">{t('subscribe')}</Link>}
         <a href={feed}>{t('rss')}</a>
         <a href={ics}>{t('ical')}</a>
       </nav>

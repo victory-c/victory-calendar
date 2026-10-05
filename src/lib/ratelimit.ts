@@ -1,10 +1,17 @@
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 
-// Limits from the guide: subscribe 5 / IP / 10 min and 3 / email / day; tokens 60 / hour.
+// Limits from the guide: subscribe 5 / IP / 10 min and 3 / email / day; tokens 60 / hour. Plus a
+// deployment-wide daily cap on subscription email (week 13 review).
 export const LIMITS = {
   subscribeIp: { max: 5, window: '10 m' },
+  // A day's ceiling per IP too, so one address can't spend the whole daily email budget below.
+  subscribeIpDay: { max: 10, window: '1 d' },
   subscribeEmail: { max: 3, window: '1 d' },
+  // One budget for every subscription email (confirmations, "already subscribed", resubscribe), so a
+  // sign-up flood can't spend Resend Free's 100 a day that magic links and the digest also need.
+  // Size it as roughly 100 minus active subscribers minus a margin.
+  subscribeSend: { max: Number(process.env.SUBSCRIBE_DAILY_SEND_CAP) || 40, window: '1 d' },
   token: { max: 60, window: '1 h' },
 } as const;
 
@@ -57,6 +64,15 @@ export async function limit(name: LimitName, key: string): Promise<Result> {
   if (!hasUpstash()) return memoryLimit(name, key);
   const r = await upstash(name).limit(key);
   return { success: r.success, reset: r.reset, remaining: r.remaining };
+}
+
+/** Whether `limit(name, key)` would still succeed, without using it up. */
+export async function hasRoom(name: LimitName, key: string, now = Date.now()): Promise<boolean> {
+  if (!hasUpstash()) {
+    const cur = memory.get(`${name}:${key}`);
+    return !cur || cur.reset <= now || cur.count < LIMITS[name].max;
+  }
+  return (await upstash(name).getRemaining(key)).remaining > 0;
 }
 
 /** Test hook. */

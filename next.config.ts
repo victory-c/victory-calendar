@@ -1,7 +1,12 @@
+import { withBotId } from 'botid/next/config';
 import type { NextConfig } from 'next';
 import createNextIntlPlugin from 'next-intl/plugin';
 
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
+
+// Subscriber link pages carry a token in the URL. Their metadata already says noindex; the header
+// also covers the confirm redirect (a Route Handler has no metadata) and non-HTML fetches.
+const TOKEN_PAGES = ['/confirm/:path*', '/zh/confirm/:path*', '/prefs/:path*', '/zh/prefs/:path*', '/unsubscribe', '/zh/unsubscribe'];
 
 const nextConfig: NextConfig = {
   cacheComponents: true,
@@ -35,6 +40,7 @@ const nextConfig: NextConfig = {
         headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
       },
       { source: '/fonts/:sheet.css', headers: [{ key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=604800' }] },
+      ...TOKEN_PAGES.map((source) => ({ source, headers: [{ key: 'X-Robots-Tag', value: 'noindex, nofollow' }] })),
     ];
   },
   async rewrites() {
@@ -49,4 +55,5 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default withNextIntl(nextConfig);
+// withBotId must be outermost: it appends its challenge rewrites and their frame headers last.
+export default withBotId(withNextIntl(nextConfig));

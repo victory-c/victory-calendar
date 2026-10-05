@@ -132,5 +132,85 @@
     "url": "订阅地址",
     "urlHint": "复制到任何支持网址订阅的日历 App。",
     "refresh": "日历 App 按自己的节奏刷新：Apple 15 分钟到几小时，Outlook 3–12 小时，Google 12–24 小时甚至更久。取消和改期也会发邮件通知。"
+  },
+  "Newsletter": {
+    "title": "每周精选，发到你的邮箱",
+    "lead": "每周日晚上一封，只有你选的类别。无付费植入。",
+    "metaDescription": "Victor 每周筛选的湾区 tech 活动，用邮件发给你，中文或英文，只收你选的类别。",
+    "form": {
+      "email": "邮箱",
+      "emailPlaceholder": "you@example.com",
+      "categories": "类别",
+      "categoriesHint": "至少选一个。",
+      "language": "邮件语言",
+      "en": "English",
+      "zh": "中文",
+      "submit": "订阅",
+      "submitting": "提交中…",
+      "privacy": "邮箱只用来发这份周报，每封邮件里都能一键退订。",
+      "honeypot": "这一栏请留空"
+    },
+    "state": {
+      "pending": "还差一步：打开刚发的邮件点确认链接。确认之前不会收到任何周报。",
+      "pendingHint": "几分钟后还没收到？看看垃圾邮件，或者再提交一次。",
+      "invalidEmail": "邮箱格式好像不对。",
+      "noCategory": "至少选一个类别。",
+      "rateLimited": "这个网络提交太频繁了，10 分钟后再试。",
+      "bot": "无法验证这个浏览器，请刷新页面再试。",
+      "error": "出了点问题，过一分钟再试。",
+      "closed": "邮件订阅还没开放。",
+      "busy": "今天暂停接受新订阅，请明天再试。"
+    },
+    "closed": {
+      "title": "邮件周报快开始了",
+      "body": "在那之前可以先订阅日历，会自动更新。"
+    },
+    "link": {
+      "invalid": "这个链接无效，可能已经过期或不完整。",
+      "expired": "确认链接已过期，请重新订阅获取新链接。",
+      "unavailable": "订阅功能暂时不可用，请稍后再试。",
+      "subscribeAgain": "重新订阅",
+      "home": "回到本周精选",
+      "unsubscribeHint": "要停止接收，请用最新一封邮件里的退订链接，或邮件 App 为这份周报显示的「退订」按钮。",
+      "unsubscribeUnavailable": "退订功能暂时不可用，请稍后再试。"
+    },
+    "prefs": {
+      "title": "订阅设置",
+      "welcome": "订阅好了，第一封周日晚上到。",
+      "already": "已经确认过了。",
+      "statusActive": "订阅中",
+      "statusPending": "等待你在邮件里确认",
+      "statusPaused": "暂停到 {date}",
+      "statusUnsubscribed": "已退订，不会再收到邮件。",
+      "statusSuppressed": "发到这个邮箱的邮件被退回或被标为垃圾邮件，所以不能再接收周报。",
+      "save": "保存",
+      "saving": "保存中…",
+      "saved": "已保存。",
+      "pauseTitle": "休息一下",
+      "pause": "暂停 4 周",
+      "paused": "已暂停 4 周。",
+      "resume": "现在恢复",
+      "resumed": "已恢复。",
+      "leaveTitle": "退订",
+      "unsubscribeAll": "全部退订",
+      "unsubscribed": "好了。",
+      "resubscribe": "重新订阅",
+      "resubscribed": "欢迎回来。",
+      "resubscribePending": "请到邮箱确认。",
+      "linkExpired": "这个链接已经失效，请从最新一封邮件重新打开。"
+    },
+    "unsubscribe": {
+      "title": "退订",
+      "lead": "可以只退一个类别，也可以全部退订。",
+      "category": "不再接收「{category}」",
+      "stopped": "好的，不会再收到「{category}」。",
+      "all": "全部退订",
+      "done": "已退订，不会再收到邮件。",
+      "more": "更多设置"
+    },
+    "noscript": {
+      "form": "这个表单需要开启 JavaScript。",
+      "links": "这个页面需要开启 JavaScript。不开的话，也可以用邮件 App 为这份周报显示的「退订」按钮停止接收。"
+    }
   }
 }

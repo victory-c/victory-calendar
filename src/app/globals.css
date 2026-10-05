@@ -157,6 +157,12 @@ h3 {
   .chip-bg-conference { background: color-mix(in oklch, var(--color-cat-conference) 12%, var(--color-paper)); }
   .chip-bg-cycling { background: color-mix(in oklch, var(--color-cat-cycling) 12%, var(--color-paper)); }
   .chip-bg-social { background: color-mix(in oklch, var(--color-cat-social) 12%, var(--color-paper)); }
+  /* Checkbox chips in the subscribe and preferences forms (native inputs, so they work without JS).
+     Only the tint lives here: the border is a utility on the chip (has-[:checked]:border-transparent),
+     since any utility, border-rule included, beats this components layer. */
+  .chip-toggle:has(:checked) {
+    background: color-mix(in oklch, var(--c) 12%, var(--color-paper));
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
