@@ -1,0 +1,11 @@
+Victor's Picks · Week of Oct 12
+
+Nothing in your categories this week that I'd recommend.
+
+You can add categories in your preferences <https://picks.example.com/prefs/__VP_TOKEN__>.
+
+Victor's Picks · Bay Area tech events, picked by Victor · No paid placements.
+
+Victor 精选 · Victor 亲自挑选的湾区 tech 活动 · 无付费植入。
+
+Preferences 订阅设置 <https://picks.example.com/prefs/__VP_TOKEN__> · Unsubscribe 退订 <https://picks.example.com/unsubscribe?t=__VP_TOKEN__> · Switch to Chinese 改收中文版 <https://picks.example.com/zh/prefs/__VP_TOKEN__?lang=zh> · View in browser 网页版 <https://picks.example.com/week/2026-W42>

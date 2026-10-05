@@ -15,7 +15,9 @@ const TABS = [
 export function TabBar() {
   const path = usePathname();
   if (path.startsWith('/admin/add') || path.startsWith('/admin/e/')) return null;
-  const active = (href: string) => (href === '/admin' ? path === '/admin' || path.startsWith('/admin/settings') : path.startsWith(href));
+  // Settings and the digest editor are reached from More, so More stays highlighted there.
+  const active = (href: string) =>
+    href === '/admin' ? path === '/admin' || path.startsWith('/admin/settings') || path.startsWith('/admin/digest') : path.startsWith(href);
   return (
     <nav
       aria-label="Admin"

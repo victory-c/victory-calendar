@@ -6,7 +6,7 @@ import { isCategory } from '@/lib/taxonomy';
 // Cover chain step 3 as an image: /og/template/ai?h=Host&s=1200. Deterministic from its URL,
 // so it is cached for a year; the public site never requests it (it draws the same tile in CSS).
 // Used by OG cards, email thumbnails and anything else that needs a real file.
-const SIZES = new Set([400, 800, 1200, 1600]);
+const SIZES = new Set([192, 400, 800, 1200, 1600]); // 192: email thumbnails (96 px at 2x)
 
 export async function GET(req: Request, { params }: { params: Promise<{ category: string }> }) {
   const { category } = await params;

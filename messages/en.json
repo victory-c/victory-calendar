@@ -197,7 +197,13 @@
       "resubscribe": "Subscribe again",
       "resubscribed": "Welcome back.",
       "resubscribePending": "Check your inbox to confirm.",
-      "linkExpired": "This link no longer works. Reload the page from your latest email."
+      "linkExpired": "This link no longer works. Reload the page from your latest email.",
+      "langNowEn": "You're getting the English edition.",
+      "langNowZh": "You're getting the Chinese edition.",
+      "langSwitchToEn": "Switch to English",
+      "langSwitchToZh": "Switch to Chinese",
+      "langSwitchedEn": "Done. Your next email will be in English.",
+      "langSwitchedZh": "Done. Your next email will be in Chinese."
     },
     "unsubscribe": {
       "title": "Unsubscribe",

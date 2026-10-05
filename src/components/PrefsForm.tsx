@@ -27,6 +27,8 @@ type Messages = Record<PrefsKey, string>;
 type Slot = { state: PrefsState; action: (form: FormData) => void; pending: boolean; onSubmit?: () => void };
 /** The section's button and message, for the parent to put focus back on (see useRefocus). */
 type FocusRefs = { buttonRef: Ref<HTMLButtonElement>; messageRef: Ref<HTMLParagraphElement> };
+/** The email footer's language link (?lang=): the edition it asks for, and the one-tap switch. */
+export type LanguageOffer = { locale: Locale; action: Action; text: { now: string; button: string } };
 
 const primary = 'inline-flex h-11 items-center justify-center rounded-full bg-ink px-6 text-sm text-paper disabled:opacity-50';
 const secondary = 'inline-flex h-11 items-center rounded-full border border-rule px-5 text-sm disabled:opacity-50';
@@ -49,9 +51,10 @@ export function useRefocus(pending: boolean, ...targets: RefObject<HTMLElement |
 
 /**
  * Preference center controls (guide「偏好中心」): language and categories, pause, unsubscribe or
- * resubscribe. Each section is its own form and Server Action (already bound to the link token);
- * the action's refresh() re-renders the page, which swaps the buttons. Suppressed rows get no
- * controls at all; the page shows only their status.
+ * resubscribe, plus a one-tap language switch when the page was opened from an email's language
+ * link. Each section is its own form and Server Action (already bound to the link token); the
+ * action's refresh() re-renders the page, which swaps the buttons. Suppressed rows get no controls
+ * at all; the page shows only their status.
  */
 export function PrefsForm({
   locale,
@@ -61,6 +64,7 @@ export function PrefsForm({
   actions,
   text,
   messages,
+  language,
 }: {
   /** Page language, for the category labels. */
   locale: Locale;
@@ -71,6 +75,8 @@ export function PrefsForm({
   actions: { save: Action; pause: Action; leave: Action };
   text: PrefsText;
   messages: Messages;
+  /** From ?lang=; the page passes it whatever the current edition, so the switch's answer survives the refresh. */
+  language?: LanguageOffer;
 }) {
   // Saving with nothing ticked unsubscribes, and the refresh removes the preferences form along with
   // its answer. So both states live here, and whichever section posted last owns the message: the
@@ -86,9 +92,13 @@ export function PrefsForm({
   useRefocus(leaving, leaveButton, leaveMessage);
   return (
     <div className="mt-8 space-y-8">
+      {language && status !== 'unsubscribed' && (
+        <LanguageSwitch key="language" offer={language} emailLocale={emailLocale} saving={text.saving} messages={messages} />
+      )}
       {status !== 'unsubscribed' && (
         <Preferences
-          key="prefs"
+          // Keyed on the stored language so a one-tap switch re-renders the (uncontrolled) radio.
+          key={`prefs-${emailLocale}`}
           locale={locale}
           emailLocale={emailLocale}
           categories={categories}
@@ -153,6 +163,34 @@ function Preferences({
         <Message ref={messageRef} state={slot.state} messages={messages} />
       </div>
     </form>
+  );
+}
+
+/**
+ * "You're getting the English edition. [Switch to Chinese]": one press saves the other language
+ * (GET never changes anything, since mail scanners fetch links). Once the stored edition matches,
+ * the offer goes and only the answer stays, in the same live region, which then takes focus.
+ */
+function LanguageSwitch({ offer, emailLocale, saving, messages }: { offer: LanguageOffer; emailLocale: Locale; saving: string; messages: Messages }) {
+  const [state, formAction, pending] = useActionState(offer.action, null);
+  const button = useRef<HTMLButtonElement>(null);
+  const message = useRef<HTMLParagraphElement>(null);
+  useRefocus(pending, button, message);
+  const open = offer.locale !== emailLocale;
+  if (!open && !state) return null;
+  return (
+    <section className="rounded-card border border-rule px-4 py-3">
+      {open && (
+        <form action={formAction} className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <input type="hidden" name="locale" value={offer.locale} />
+          <p>{offer.text.now}</p>
+          <button ref={button} className={secondary} disabled={pending}>
+            {pending ? saving : offer.text.button}
+          </button>
+        </form>
+      )}
+      <Message ref={message} state={open && state?.ok ? null : state} messages={messages} />
+    </section>
   );
 }
 

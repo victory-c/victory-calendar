@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { hasVerifiedSender, linksWork, newsletterStatus } from '@/lib/newsletter/status';
+import { digestMode, hasVerifiedSender, linksWork, newsletterStatus } from '@/lib/newsletter/status';
 
 // When the form takes sign-ups (src/lib/newsletter/status.ts). On Vercel the shared resend.dev
 // sender only reaches the account owner, so the form must stay closed until RESEND_FROM is on a
@@ -103,5 +103,25 @@ describe('linksWork', () => {
     expect(linksWork()).toBe(false);
     env({ SUBSCRIBER_LINK_SECRET: '' });
     expect(linksWork()).toBe(false);
+  });
+});
+
+describe('digestMode: the digest send gate', () => {
+  const VERIFIED = "Victor's Picks <hi@mail.example.org>";
+  it.each([
+    // DIGEST_SENDING, VERCEL, RESEND_API_KEY, RESEND_FROM → mode
+    ['0', '1', 're_test', VERIFIED, 'off'], // the documented production stop wins over a verified sender
+    ['0', undefined, undefined, undefined, 'off'],
+    [undefined, '1', 're_test', VERIFIED, 'live'],
+    [undefined, undefined, 're_test', VERIFIED, 'live'],
+    [undefined, '1', 're_test', 'onboarding@resend.dev', 'off'], // shared sender on Vercel: claim nothing
+    [undefined, '1', undefined, undefined, 'off'], // today's production
+    [undefined, undefined, undefined, undefined, 'dev'], // local and CI: log transport
+    ['', undefined, 're_test', 'onboarding@resend.dev', 'dev'],
+    ['false', '1', 're_test', VERIFIED, 'live'], // only the exact value 0 stops it
+  ] as const)('DIGEST_SENDING=%s VERCEL=%s key=%s from=%s → %s', (flag, vercel, key, from, want) => {
+    env({ VERCEL: vercel, RESEND_API_KEY: key, RESEND_FROM: from });
+    vi.stubEnv('DIGEST_SENDING', flag);
+    expect(digestMode()).toBe(want);
   });
 });

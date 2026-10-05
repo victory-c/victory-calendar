@@ -1,12 +1,18 @@
 import { Resend, type WebhookEventPayload } from 'resend';
 import { hasDatabase } from '@/lib/db';
+import { markFailed } from '@/lib/digest/claim';
 import { describeError } from '@/lib/log-safe';
-import { suppressEmails } from '@/lib/subscribers/service';
+import { suppressEmails, suppressSubscriberIds } from '@/lib/subscribers/service';
 
 // Resend delivery events (PRD F06「退信和投诉自动抑制」): complaints, Resend's own suppressions and
 // hard bounces mark the address suppressed for good. Signed with Standard Webhooks (svix-* headers)
-// over the raw body. Delivery is at least once and replayable, so the write is idempotent. Logs
+// over the raw body. Delivery is at least once and replayable, so the writes are idempotent. Logs
 // carry counts, never addresses.
+//
+// Digest emails (week 14) carry tags kind=digest, issue=<dig_…>, sub=<sub_…>. Only we set tags and
+// the payload is signed, so they are trusted: email.failed (accepted, then not delivered, e.g.
+// reached_daily_quota) is recorded on that digest_sends row, and a suppressing event also
+// suppresses the tagged subscriber by id, an exact primary-key match next to the address match.
 
 const text = (body: string, status: number) =>
   new Response(body, { status, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
@@ -29,6 +35,26 @@ function toSuppress(evt: WebhookEventPayload): string[] | null {
       return null;
   }
 }
+
+type DigestTags = { kind: string | null; issue: string | null; sub: string | null };
+
+function digestTags(evt: WebhookEventPayload): DigestTags {
+  const raw = (evt.data as { tags?: unknown } | undefined)?.tags;
+  const tags = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const pick = (k: string, re: RegExp) => {
+    const v = tags[k];
+    return typeof v === 'string' && re.test(v) ? v : null;
+  };
+  return { kind: pick('kind', /^[a-z_]{1,20}$/), issue: pick('issue', /^dig_[0-9a-z]{16}$/), sub: pick('sub', /^sub_[0-9a-z]{16}$/) };
+}
+
+/** Resend's failure reason as a short code ('reached_daily_quota'); anything else is 'other'. */
+function failedReason(evt: WebhookEventPayload) {
+  const reason = (evt.data as { failed?: { reason?: unknown } } | undefined)?.failed?.reason;
+  return typeof reason === 'string' && /^[a-z_]{1,40}$/.test(reason) ? reason : 'other';
+}
+
+const ok = (body: Record<string, unknown>) => Response.json({ ok: true, ...body }, { headers: { 'cache-control': 'no-store' } });
 
 export async function POST(req: Request) {
   const secret = process.env.RESEND_WEBHOOK_SECRET;
@@ -53,18 +79,36 @@ export async function POST(req: Request) {
   // verify() returns whatever JSON was signed (undefined for an empty body).
   if (typeof evt?.type !== 'string') return text('Invalid payload', 400);
 
+  const tags = digestTags(evt);
+  const failed = evt.type === 'email.failed' && tags.kind === 'digest' && tags.issue && tags.sub ? { issue: tags.issue, sub: tags.sub } : null;
   const emails = toSuppress(evt);
-  if (!emails) return Response.json({ ok: true }, { headers: { 'cache-control': 'no-store' } });
+  if (!emails && !failed) return ok({});
   // Fail loudly so Resend retries once the database is back, rather than dropping a complaint.
   if (!hasDatabase()) return text('No database', 503);
+
+  if (failed) {
+    const reason = failedReason(evt);
+    let marked: number;
+    try {
+      marked = await markFailed(failed.issue, failed.sub, reason);
+    } catch (err) {
+      console.error(`[webhook:resend] email.failed: digest update failed: ${describeError(err)}`);
+      return text('Update failed', 503);
+    }
+    console.info(`[webhook:resend] email.failed: ${marked} digest send(s) marked failed:${reason}`);
+    return ok({ failed: marked });
+  }
+
+  const list = emails ?? [];
   let suppressed: number;
   try {
-    suppressed = await suppressEmails(emails);
+    suppressed = await suppressEmails(list);
+    if (tags.sub) suppressed += await suppressSubscriberIds([tags.sub]);
   } catch (err) {
     // The driver's error carries the bound params (the addresses): log the safe summary only.
-    console.error(`[webhook:resend] ${evt.type}: suppress failed for ${emails.length} recipient(s): ${describeError(err)}`);
+    console.error(`[webhook:resend] ${evt.type}: suppress failed for ${list.length} recipient(s): ${describeError(err)}`);
     return text('Suppression failed', 503);
   }
-  console.info(`[webhook:resend] ${evt.type}: ${suppressed} of ${emails.length} recipient(s) suppressed`);
-  return Response.json({ ok: true, suppressed }, { headers: { 'cache-control': 'no-store' } });
+  console.info(`[webhook:resend] ${evt.type}: ${suppressed} of ${list.length} recipient(s) suppressed${tags.sub ? ' (tagged subscriber included)' : ''}`);
+  return ok({ suppressed });
 }

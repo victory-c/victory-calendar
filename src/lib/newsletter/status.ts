@@ -32,3 +32,17 @@ export function hasVerifiedSender() {
 export function linksWork() {
   return hasDatabase() && Boolean(process.env.SUBSCRIBER_LINK_SECRET);
 }
+
+/**
+ * How the digest cron may send. 'live': a verified sender exists. 'dev': off Vercel (local, CI),
+ * batches are logged and marked sent with resend_id 'dev'. 'off': on Vercel without a verified
+ * sender (today's production), the cron claims nothing, so no one is wrongly recorded as sent.
+ * DIGEST_SENDING=0 turns it off anywhere.
+ */
+export type DigestMode = 'live' | 'dev' | 'off';
+
+export function digestMode(): DigestMode {
+  if (process.env.DIGEST_SENDING === '0') return 'off';
+  if (hasVerifiedSender()) return 'live';
+  return process.env.VERCEL ? 'off' : 'dev';
+}

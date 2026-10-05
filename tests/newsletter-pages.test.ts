@@ -38,6 +38,7 @@ vi.mock('@/lib/subscribers/service', () => ({
 vi.mock('@/app/[locale]/subscribe/actions', () => ({ subscribe: async () => ({ status: 'idle' }) }));
 vi.mock('@/app/[locale]/prefs/actions', () => ({
   savePreferences: async () => null,
+  changeLanguage: async () => null,
   changePause: async () => null,
   changeSubscription: async () => null,
   unsubscribeFrom: async () => null,
@@ -210,6 +211,43 @@ describe('/prefs/[token] uses the view helpers', () => {
     expect($.text()).toContain('zh:Newsletter.prefs.statusPaused 2099年6月30日');
     expect($.text()).not.toContain('prefs.welcome');
     expect($('input[name=intent][value=resume]')).toHaveLength(1);
+  });
+
+  it('?lang= from the email footer offers the other edition above the preferences, in the page language', async () => {
+    h.sub = view({ locale: 'en' });
+    h.locale = 'zh';
+    const $ = await html(prefsPage({ lang: 'zh' }));
+    const offer = $('input[name=locale][type=hidden]').closest('form');
+    expect(offer.find('input[name=locale][type=hidden]').attr('value')).toBe('zh');
+    expect(offer.text()).toContain('zh:Newsletter.prefs.langNowEn');
+    expect(offer.text()).toContain('zh:Newsletter.prefs.langSwitchToZh');
+    expect($.html().indexOf('prefs.langNowEn')).toBeLessThan($.html().indexOf('Newsletter.form.language'));
+    // The radio stays on the saved edition: nothing changes until the button is pressed.
+    expect($('input[type=radio][name=locale][value=en]').attr('checked')).toBeDefined();
+    expect($('input[type=radio][name=locale][value=zh]').attr('checked')).toBeUndefined();
+
+    h.sub = view({ locale: 'zh', status: 'pending' });
+    h.locale = 'en';
+    const back = await html(prefsPage({ lang: 'en' }));
+    expect(back.text()).toContain('en:Newsletter.prefs.langNowZh');
+    expect(back.text()).toContain('en:Newsletter.prefs.langSwitchToEn');
+  });
+
+  it('no offer for the current edition, a junk or repeated ?lang=, or a row that is not editable', async () => {
+    const cases: [Partial<View>, Record<string, unknown>][] = [
+      [{ locale: 'en' }, { lang: 'en' }],
+      [{ locale: 'en' }, { lang: 'fr' }],
+      [{ locale: 'en' }, { lang: ['zh'] }],
+      [{ locale: 'en' }, {}],
+      [{ locale: 'en', status: 'unsubscribed' }, { lang: 'zh' }],
+      [{ locale: 'en', status: 'suppressed' }, { lang: 'zh' }],
+    ];
+    for (const [row, sp] of cases) {
+      h.sub = view(row);
+      const $ = await html(prefsPage(sp as Record<string, string>));
+      expect($('input[name=locale][type=hidden]')).toHaveLength(0);
+      expect($.text()).not.toContain('prefs.langNow');
+    }
   });
 
   it('a bad link offers "Subscribe again" and no unsubscribe hint', async () => {

@@ -21,7 +21,8 @@ import { type Category, isCategory } from '@/lib/taxonomy';
 type Common = 'prefs.linkExpired' | 'prefs.statusSuppressed' | 'link.unavailable' | 'state.error';
 /** `Newsletter.*` message keys the preference center can show. */
 export type PrefsKey =
-  | Common | 'prefs.saved' | 'prefs.unsubscribed' | 'prefs.paused' | 'prefs.resumed' | 'prefs.resubscribed' | 'prefs.resubscribePending';
+  | Common | 'prefs.saved' | 'prefs.unsubscribed' | 'prefs.paused' | 'prefs.resumed' | 'prefs.resubscribed' | 'prefs.resubscribePending'
+  | 'prefs.langSwitchedEn' | 'prefs.langSwitchedZh';
 /** `Newsletter.*` message keys the unsubscribe page can show. */
 export type UnsubscribeKey = Common | 'unsubscribe.stopped' | 'unsubscribe.done';
 
@@ -68,6 +69,25 @@ export async function savePreferences(token: string, _prev: PrefsState, form: Fo
     const row = await updatePreferences(sub, { locale, categories });
     refresh();
     return { ok: true, key: row.status === 'unsubscribed' ? 'prefs.unsubscribed' : 'prefs.saved' };
+  });
+}
+
+/**
+ * One-tap language switch, offered when the email footer's language link (?lang=) names the other
+ * edition. Only the language changes: the categories are the row's own, read now, never a stale page's.
+ */
+export async function changeLanguage(token: string, _prev: PrefsState, form: FormData): Promise<PrefsState> {
+  return withSubscriber<PrefsKey>(token, async (sub) => {
+    const locale = form.get('locale');
+    if (locale !== 'en' && locale !== 'zh') return fail('state.error');
+    const categories = cleanCategories(sub.categories);
+    if (!editable(sub.status) || categories.length === 0) {
+      refresh(); // stale page: re-render without the offer
+      return fail('state.error');
+    }
+    await updatePreferences(sub, { locale, categories });
+    refresh();
+    return { ok: true, key: locale === 'zh' ? 'prefs.langSwitchedZh' : 'prefs.langSwitchedEn' };
   });
 }
 
