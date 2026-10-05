@@ -13,7 +13,9 @@ export async function SiteFooter({ locale }: { locale: Locale }) {
         <Link href="/calendar">{t('calendar')}</Link>
         <Link href="/going">{t('going')}</Link>
         <Link href="/archive">{t('archive')}</Link>
+        <Link href="/weekly">{t('weekly')}</Link>
         <Link href="/about">{t('about')}</Link>
+        <Link href="/privacy">{t('privacy')}</Link>
         {newsletterStatus() === 'open' && <Link href="/subscribe">{t('subscribe')}</Link>}
         <a href={feed}>{t('rss')}</a>
         <a href={ics}>{t('ical')}</a>

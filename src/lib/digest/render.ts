@@ -5,6 +5,7 @@ import { COPY, other } from '@/emails/copy';
 import { DigestEmail, EmptyNoticeEmail, MSO_SWAPS } from '@/emails/digest';
 import { linksFor } from '../subscribers/links';
 import type { Locale } from '../taxonomy';
+import { introLines } from './fields';
 import { selectForVariant } from './select';
 import type { DigestLinks, DigestSnapshot, RenderedEmail } from './types';
 import type { Variant } from './variant';
@@ -57,21 +58,18 @@ const count = (haystack: string, needle: string) => haystack.split(needle).lengt
 export function digestLinks(snap: DigestSnapshot, locale: Locale, token: string): DigestLinks {
   const own = linksFor(locale, token, snap.origin);
   const o = other(locale);
+  const prefix = `${snap.origin}${locale === 'zh' ? '/zh' : ''}`;
   return {
     prefs: own.prefs,
     unsubscribe: own.unsubscribe,
     // ?lang= makes the page offer the one-tap switch; opening the link changes nothing (mail scanners fetch links).
     otherLanguage: `${linksFor(o, token, snap.origin).prefs}?lang=${o}`,
-    web: `${snap.origin}${locale === 'zh' ? '/zh' : ''}/week/${snap.isoWeek}`,
+    // The issue's public archive (/weekly, live from the moment the issue starts sending). A
+    // snapshot with no events has no archive page (only empty notices go out): the plain week then.
+    // Depends on the snapshot only, so a retried batch stays byte-identical.
+    web: `${prefix}${snap.events.length ? '/weekly' : '/week'}/${snap.isoWeek}`,
+    privacy: `${prefix}/privacy`,
   };
-}
-
-function introLines(snap: DigestSnapshot, locale: Locale) {
-  const raw = (locale === 'zh' ? snap.introZh : snap.introEn) ?? '';
-  return raw
-    .split(/\r?\n/)
-    .map((s) => s.trim())
-    .filter(Boolean);
 }
 
 function assertSnapshot(snap: DigestSnapshot) {

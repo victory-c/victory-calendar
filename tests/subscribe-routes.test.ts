@@ -470,6 +470,84 @@ describe('POST /api/webhooks/resend', () => {
     expect(logs.length).toBeGreaterThan(0);
     expect(JSON.stringify(logs)).not.toContain('private.person');
   });
+
+  describe('event log (jobs_log email_event)', () => {
+    const ISSUE = 'dig_0123456789abcdef';
+    const rows = async () => (await db().select().from(jobsLog).orderBy(jobsLog.id)).filter((r) => r.job === 'email_event');
+    const withTags = (evt: ReturnType<typeof emailEvent>, tags: Record<string, string>) => ({ ...evt, data: { ...evt.data, tags } });
+
+    it('one row for each bounce (soft too), complaint, suppression and failure: type, tags, bounce type, domain, svix id', async () => {
+      const a = await seed();
+      const b = await seed();
+      const responses = [
+        await post(signed(withTags(bounced([`Reader <${a.email.toUpperCase()}>`], 'Permanent'), { kind: 'digest', issue: ISSUE, sub: a.id }), { id: 'msg_hard' })),
+        await post(signed(bounced(['Someone <someone@Mail.Example.NET>'], 'Transient'), { id: 'msg_soft' })),
+        await post(signed(emailEvent('email.complained', [b.email]), { id: 'msg_complaint' })),
+        await post(signed(emailEvent('email.suppressed', ['x@example.com'], { suppressed: { type: 'OnAccountSuppressionList', message: 'x' } }), { id: 'msg_supp' })),
+        await post(signed(withTags(emailEvent('email.failed', ['inbox.checker@qq.example'], { failed: { reason: 'reached_daily_quota' } }), { kind: 'digest_seed', issue: ISSUE }), { id: 'msg_failed' })),
+      ];
+      // The usual handling is unchanged.
+      expect(await Promise.all(responses.map((r) => r.json()))).toEqual([
+        { ok: true, suppressed: 1 }, { ok: true }, { ok: true, suppressed: 1 }, { ok: true, suppressed: 0 }, { ok: true },
+      ]);
+      expect((await reload(a.id)).status).toBe('suppressed');
+      expect((await reload(b.id)).status).toBe('suppressed');
+      const log = await rows();
+      expect(log.map((r) => [r.ok, r.detail])).toEqual([
+        [false, { type: 'email.bounced', kind: 'digest', issue: ISSUE, bounce: 'Permanent', domain: 'example.org', svix: 'msg_hard' }],
+        [false, { type: 'email.bounced', kind: null, issue: null, bounce: 'Transient', domain: 'mail.example.net', svix: 'msg_soft' }],
+        [false, { type: 'email.complained', kind: null, issue: null, bounce: null, domain: 'example.org', svix: 'msg_complaint' }],
+        [false, { type: 'email.suppressed', kind: null, issue: null, bounce: null, domain: 'example.com', svix: 'msg_supp' }],
+        [false, { type: 'email.failed', kind: 'digest_seed', issue: ISSUE, bounce: null, domain: 'qq.example', svix: 'msg_failed' }],
+      ]);
+      // Never an address, a local part or a subscriber id.
+      const stored = JSON.stringify(log);
+      for (const s of ['@', a.email.split('@')[0], b.email.split('@')[0], 'someone', 'inbox.checker', a.id]) expect(stored).not.toContain(s);
+    });
+
+    it('a seed bounce is logged with its issue and still suppresses the address (there is no sub tag)', async () => {
+      const seedSub = await seed();
+      const res = await post(signed(withTags(bounced([seedSub.email], 'Permanent'), { kind: 'digest_seed', issue: ISSUE }), { id: 'msg_seed' }));
+      expect(await res.json()).toEqual({ ok: true, suppressed: 1 });
+      expect((await reload(seedSub.id)).status).toBe('suppressed');
+      expect((await rows()).map((r) => r.detail)).toEqual([{ type: 'email.bounced', kind: 'digest_seed', issue: ISSUE, bounce: 'Permanent', domain: 'example.org', svix: 'msg_seed' }]);
+    });
+
+    it('a redelivery writes the same svix id again (readers count distinct ids); untrusted tags and odd values are dropped', async () => {
+      const evt = withTags(bounced(['not an address', 'Reader <reader@Example.org>'], '<b>Permanent</b>'), { kind: 'Digest!', issue: "dig_x' or 1=1" });
+      await post(signed(evt, { id: 'msg_again' }));
+      await post(signed(evt, { id: 'msg_again' }));
+      const log = await rows();
+      expect(log).toHaveLength(2);
+      expect(new Set(log.map((r) => (r.detail as { svix: string }).svix))).toEqual(new Set(['msg_again']));
+      expect(log[0].detail).toEqual({ type: 'email.bounced', kind: null, issue: null, bounce: null, domain: 'example.org', svix: 'msg_again' });
+    });
+
+    it('other event types write nothing; no recipient domain is null', async () => {
+      const sub = await seed();
+      for (const type of ['email.delivered', 'email.opened', 'email.delivery_delayed', 'email.sent']) await post(signed(emailEvent(type, [sub.email])));
+      expect(await rows()).toEqual([]);
+      await post(signed(emailEvent('email.complained', ['not an address']), { id: 'msg_nodomain' }));
+      expect((await rows())[0].detail).toMatchObject({ domain: null, svix: 'msg_nodomain' });
+    });
+
+    it('a failed log write is logged without an address and changes neither the response nor the suppression', async () => {
+      const errors: string[] = [];
+      vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => void errors.push(args.map(String).join(' ')));
+      vi.spyOn(console, 'info').mockImplementation(() => {});
+      const sub = await seed({ email: 'private.person@example.org' });
+      await (h.client as PGlite).exec('drop table jobs_log');
+      const res = await post(signed(emailEvent('email.complained', [sub.email])));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, suppressed: 1 });
+      expect((await reload(sub.id)).status).toBe('suppressed');
+      const soft = await post(signed(bounced([sub.email], 'Transient')));
+      expect(soft.status).toBe(200);
+      expect(await soft.json()).toEqual({ ok: true });
+      expect(errors.join('\n')).toContain('[webhook:resend] email.complained: event log write failed');
+      expect(errors.join('\n')).not.toContain('private.person');
+    });
+  });
 });
 
 describe('GET /api/cron/sync: stale pending purge', () => {
@@ -492,7 +570,7 @@ describe('GET /api/cron/sync: stale pending purge', () => {
     const old = await seed({ consentAt: new Date(Date.now() - 60 * DAY) });
     const res = await run();
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, job: 'sync', skipped: 'no_feeds', expired: 0, pending_purged: 1, pending_reverted: 0 });
+    expect(await res.json()).toEqual({ ok: true, job: 'sync', skipped: 'no_feeds', expired: 0, pending_purged: 1, pending_reverted: 0, unsubscribed_purged: 0 });
     expect(await reload(stale.id)).toBeUndefined();
     expect(await reload(fresh.id)).toBeDefined();
     expect(await reload(old.id)).toBeDefined();
@@ -525,7 +603,8 @@ describe('GET /api/cron/sync: stale pending purge', () => {
     await (h.client as PGlite).exec('drop table subscribers cascade');
     const res = await run();
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: false, job: 'sync', skipped: 'no_feeds', expired: 0, pending_purged: null, pending_reverted: null });
+    // The dropped table fails the retention step too: both counts are null, each with its own jobs_log row.
+    expect(await res.json()).toEqual({ ok: false, job: 'sync', skipped: 'no_feeds', expired: 0, pending_purged: null, pending_reverted: null, unsubscribed_purged: null });
     const jobs = await db().select().from(jobsLog).where(eq(jobsLog.job, 'subscribers_purge'));
     expect(jobs).toHaveLength(1);
     expect(jobs[0]).toMatchObject({ ok: false, detail: { error: '42P01' } }); // undefined_table

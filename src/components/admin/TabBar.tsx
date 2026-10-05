@@ -11,13 +11,13 @@ const TABS = [
   { href: '/admin/live', zh: '已发布', en: 'Live', d: 'M4 6h16M4 12h16M4 18h10' },
   { href: '/admin', zh: '更多', en: 'More', d: 'M6 12h.01M12 12h.01M18 12h.01' },
 ] as const;
+/** Screens reached from More (settings, the digest editor, subscribers): More stays highlighted there. */
+const FROM_MORE = ['/admin/settings', '/admin/digest', '/admin/subscribers'];
 
 export function TabBar() {
   const path = usePathname();
   if (path.startsWith('/admin/add') || path.startsWith('/admin/e/')) return null;
-  // Settings and the digest editor are reached from More, so More stays highlighted there.
-  const active = (href: string) =>
-    href === '/admin' ? path === '/admin' || path.startsWith('/admin/settings') || path.startsWith('/admin/digest') : path.startsWith(href);
+  const active = (href: string) => (href === '/admin' ? path === '/admin' || FROM_MORE.some((p) => path.startsWith(p)) : path.startsWith(href));
   return (
     <nav
       aria-label="Admin"

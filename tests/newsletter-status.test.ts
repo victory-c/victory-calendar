@@ -1,13 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { digestMode, hasVerifiedSender, linksWork, newsletterStatus } from '@/lib/newsletter/status';
+import { digestMode, hasVerifiedSender, linksWork, newsletterStatus, privacyContact } from '@/lib/newsletter/status';
 
 // When the form takes sign-ups (src/lib/newsletter/status.ts). On Vercel the shared resend.dev
 // sender only reaches the account owner, so the form must stay closed until RESEND_FROM is on a
-// verified domain, whatever way the address is written.
+// verified domain, whatever way the address is written, and until /privacy has a contact address.
 
-type Env = Partial<Record<'VERCEL' | 'DATABASE_URL' | 'SUBSCRIBER_LINK_SECRET' | 'RESEND_API_KEY' | 'RESEND_FROM' | 'NEWSLETTER_OPEN', string | undefined>>;
+type Env = Partial<
+  Record<
+    'VERCEL' | 'DATABASE_URL' | 'SUBSCRIBER_LINK_SECRET' | 'RESEND_API_KEY' | 'RESEND_FROM' | 'NEWSLETTER_OPEN' | 'PRIVACY_CONTACT_EMAIL' | 'ADMIN_EMAIL',
+    string | undefined
+  >
+>;
 
-/** Production on Vercel with a database, a link secret and a Resend key; `over` changes the rest. */
+/** Production on Vercel with a database, a link secret, a Resend key and a privacy contact; `over` changes the rest. */
 function env(over: Env = {}) {
   const all: Env = {
     VERCEL: '1',
@@ -16,6 +21,8 @@ function env(over: Env = {}) {
     RESEND_API_KEY: 're_test',
     RESEND_FROM: undefined,
     NEWSLETTER_OPEN: undefined,
+    PRIVACY_CONTACT_EMAIL: 'privacy@example.org',
+    ADMIN_EMAIL: undefined,
     ...over,
   };
   for (const [k, v] of Object.entries(all)) vi.stubEnv(k, v);
@@ -43,6 +50,55 @@ describe('newsletterStatus on Vercel: the sender decides', () => {
     env({ RESEND_FROM: "Victor's Picks <hi@mail.example.org>", RESEND_API_KEY: undefined });
     expect(hasVerifiedSender()).toBe(false);
     expect(newsletterStatus()).toBe('closed');
+  });
+});
+
+describe('newsletterStatus on Vercel: the /privacy contact address (D1)', () => {
+  const VERIFIED = "Victor's Picks <hi@mail.example.org>";
+
+  it.each([
+    ['unset', undefined],
+    ['empty', ''],
+    ['blank', '   '],
+    ['not an address', 'privacy team'],
+    ['two addresses', 'a@example.org, b@example.org'],
+    ['an address with a mailto query', 'a@example.org?cc=b@example.org'],
+    ['a display name', 'Victor <privacy@example.org>'],
+  ] as const)('%s keeps a verified sender closed', (_label, contact) => {
+    env({ RESEND_FROM: VERIFIED, PRIVACY_CONTACT_EMAIL: contact });
+    expect(hasVerifiedSender()).toBe(true);
+    expect(privacyContact()).toBeNull();
+    expect(newsletterStatus()).toBe('closed');
+  });
+
+  it('a plain address (spaces trimmed) opens it', () => {
+    env({ RESEND_FROM: VERIFIED, PRIVACY_CONTACT_EMAIL: '  privacy@example.org ' });
+    expect(privacyContact()).toBe('privacy@example.org');
+    expect(newsletterStatus()).toBe('open');
+  });
+
+  it('never falls back to ADMIN_EMAIL (the sign-in address)', () => {
+    env({ RESEND_FROM: VERIFIED, PRIVACY_CONTACT_EMAIL: undefined, ADMIN_EMAIL: 'owner@example.edu' });
+    expect(privacyContact()).toBeNull();
+    expect(newsletterStatus()).toBe('closed');
+  });
+
+  it("NEWSLETTER_OPEN still wins both ways: '1' opens without it, '0' closes with it", () => {
+    env({ NEWSLETTER_OPEN: '1', PRIVACY_CONTACT_EMAIL: undefined });
+    expect(newsletterStatus()).toBe('open');
+    env({ NEWSLETTER_OPEN: '0', RESEND_FROM: VERIFIED });
+    expect(newsletterStatus()).toBe('closed');
+  });
+
+  it('off Vercel (dev, CI, e2e) it is not needed', () => {
+    env({ VERCEL: undefined, PRIVACY_CONTACT_EMAIL: undefined });
+    expect(newsletterStatus()).toBe('open');
+  });
+
+  it('the address gates only sign-ups: emailed links and the digest send gate ignore it', () => {
+    env({ RESEND_FROM: VERIFIED, PRIVACY_CONTACT_EMAIL: undefined });
+    expect(linksWork()).toBe(true);
+    expect(digestMode()).toBe('live');
   });
 });
 

@@ -6,7 +6,8 @@ import { hasDatabase } from '../db';
 // Locally and in CI it is open whenever there is a database and a link secret; sendEmail() writes
 // the confirmation to the server log. NEWSLETTER_OPEN=0 closes it anywhere; =1 opens it on Vercel
 // without a verified sender (owner testing). Read from env, so a change takes a redeploy, which
-// also re-renders the prerendered header link.
+// also re-renders the prerendered header link. On Vercel it also waits for the /privacy contact
+// address (checklist 16 ⑥): nobody is asked for an email before the page says who to write to.
 
 export type NewsletterStatus = 'open' | 'closed';
 
@@ -16,7 +17,20 @@ export function newsletterStatus(): NewsletterStatus {
   if (!hasDatabase() || !process.env.SUBSCRIBER_LINK_SECRET) return 'closed';
   if (flag === '1') return 'open';
   if (!process.env.VERCEL) return 'open';
-  return hasVerifiedSender() ? 'open' : 'closed';
+  return hasVerifiedSender() && privacyContact() ? 'open' : 'closed';
+}
+
+// One address, no spaces or mailto-breaking characters; anything else counts as unset.
+const CONTACT = /^[^\s@<>()[\]",;:?&#%/\\]+@[^\s@<>()[\]",;:?&#%/\\]+\.[a-z][a-z0-9-]+$/i;
+
+/**
+ * The contact address /privacy prints (PRIVACY_CONTACT_EMAIL), or null when it is unset or not a
+ * plain address. Never ADMIN_EMAIL: that is the sign-in whitelist, and publishing it tells an
+ * attacker which inbox to target. Kept out of messages/*.json because the repo is public.
+ */
+export function privacyContact(): string | null {
+  const v = process.env.PRIVACY_CONTACT_EMAIL?.trim() ?? '';
+  return CONTACT.test(v) ? v : null;
 }
 
 /** A Resend key plus a From address on our own domain (not the shared resend.dev sender). */

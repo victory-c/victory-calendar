@@ -64,8 +64,10 @@ export type DigestLinks = {
   unsubscribe: string;
   /** The same preferences page in the other language ("switch language"). */
   otherLanguage: string;
-  /** The covered week on the site (/week/yyyy-Www in the email's language). */
+  /** "View in browser": the issue's archive (/weekly/yyyy-Www), or /week/yyyy-Www when the snapshot has no events. */
   web: string;
+  /** /privacy in the email's language. */
+  privacy: string;
 };
 
 export type RenderedEmail = {

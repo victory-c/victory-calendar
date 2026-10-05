@@ -369,8 +369,8 @@ describe('CategoryCheckboxes', () => {
 describe('SubscribeForm before any answer', () => {
   const copy = {
     email: 'Email', emailPlaceholder: 'you@example.com', categories: 'Categories', categoriesHint: 'Pick at least one.',
-    language: 'Email language', submit: 'Subscribe', submitting: 'Sending…', privacy: 'Privacy line', honeypot: 'Leave this field empty',
-    pending: 'Check your inbox', pendingHint: 'Hint', again: 'Subscribe again',
+    language: 'Email language', submit: 'Subscribe', submitting: 'Sending…', privacy: 'Privacy line', privacyLink: 'How I handle your data',
+    honeypot: 'Leave this field empty', pending: 'Check your inbox', pendingHint: 'Hint', again: 'Subscribe again',
     errors: { invalid_email: 'bad email', no_category: 'pick one', bot: 'bot', server: 'server', rate_limited: 'slow down', closed: 'closed', busy: 'busy' },
   };
 
@@ -380,5 +380,20 @@ describe('SubscribeForm before any answer', () => {
     expect($('input[name=email]').attr('aria-describedby')).toBeUndefined();
     expect($('#subscribe-status').attr()).toMatchObject({ role: 'status', 'aria-live': 'polite', tabindex: '-1' });
     expect($('#category-hint').text()).toBe('Pick at least one.');
+  });
+
+  it('the privacy line links to /privacy in the page language, before anyone consents', () => {
+    const link = (locale: 'en' | 'zh') => {
+      const $ = load(renderToStaticMarkup(createElement(SubscribeForm, { locale, categories: ['ai'], copy })));
+      const a = $('a[href$="/privacy"]');
+      expect(a).toHaveLength(1);
+      // Below the button, in the same small print as the privacy line.
+      expect(a.parent().text()).toContain('Privacy line');
+      expect($('button[type=submit]').nextAll('p').find('a').attr('href')).toBe(a.attr('href'));
+      return { href: a.attr('href'), text: a.text(), line: a.parent().text() };
+    };
+    expect(link('en')).toEqual({ href: '/privacy', text: 'How I handle your data', line: 'Privacy line How I handle your data' });
+    // Chinese runs on without a space.
+    expect(link('zh')).toEqual({ href: '/zh/privacy', text: 'How I handle your data', line: 'Privacy lineHow I handle your data' });
   });
 });

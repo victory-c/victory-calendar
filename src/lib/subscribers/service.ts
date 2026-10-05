@@ -2,7 +2,7 @@ import 'server-only';
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db as defaultDb, type DB } from '../db';
-import { digestSends, subscribers } from '../db/schema';
+import { digestSends, jobsLog, subscribers } from '../db/schema';
 import { newId } from '../ids';
 import { type Category, CATEGORY_SLUGS, type Locale } from '../taxonomy';
 import { tokenId, verifyToken } from './token';
@@ -14,6 +14,7 @@ import { tokenId, verifyToken } from './token';
 //      │                   │ ╲──pause──────▶ │
 //      └──── unsubscribe ──┴──────────────────┴──▶ unsubscribed ──resubscribe──▶ active / pending
 //   any ──bounce or complaint──▶ suppressed (terminal: never mailed again)
+//   unsubscribed ──365 days──▶ deleted (retention cron); any ──admin Delete──▶ deleted (week 15)
 //
 // unsubscribed_at is the time of the last opt-out and survives a later return (form + confirm, or
 // "Subscribe again"); status says whether they are opted out now. consent_* is the latest consent.
@@ -302,4 +303,93 @@ export async function suppressSubscriberIds(ids: readonly string[], opts: Opts =
     .where(and(inArray(subscribers.id, list), sql`${subscribers.status} <> 'suppressed'`))
     .returning({ id: subscribers.id });
   return rows.length;
+}
+
+const resultRows = <T>(r: unknown): T[] => (r as { rows: T[] }).rows;
+const ts = (d: Date) => sql`${d.toISOString()}::timestamptz`;
+/** The row (alias `s`) has a claim not yet resolved: the digest may be sending to it right now (claim.ts). */
+const IN_FLIGHT = sql`exists (select 1 from ${digestSends} d where d.subscriber_id = s.id and d.resend_id is null and d.error is null)`;
+
+/** The pg error code of a driver error, or of the one a Drizzle error wraps ('23503' = foreign key). */
+function pgCode(e: unknown): string | null {
+  const code = (e as { cause?: { code?: unknown } })?.cause?.code ?? (e as { code?: unknown })?.code;
+  return typeof code === 'string' ? code : null;
+}
+
+export type DeleteResult = {
+  result: 'deleted' | 'not_found' | 'in_flight' | 'suppressed';
+  /** digest_sends rows deleted with the subscriber. */
+  sends: number;
+};
+
+/**
+ * /admin/subscribers「Delete」(DESIGN D2): the subscriber row, its digest_sends history and the
+ * `admin_delete` audit row (id only), in ONE statement. The subscriber goes first and its sends are
+ * deleted from that delete's RETURNING, so a row that stays keeps its history; the digest_sends
+ * foreign key is NO ACTION, checked at the end of the statement, once both deletes are done.
+ * Refused while a claim is in flight (the digest may be mailing them right now) and, unless
+ * `allowSuppressed`, for a suppressed row, since deleting it drops the do-not-send block too. A
+ * claim that lands between the snapshot and the delete fails the foreign key: also "in flight".
+ */
+export async function deleteSubscriber(id: string, opts: Opts & { allowSuppressed?: boolean } = {}): Promise<DeleteResult> {
+  const db = opts.db ?? defaultDb;
+  const now = opts.now ?? new Date();
+  if (typeof id !== 'string' || !SUBSCRIBER_ID.test(id)) return { result: 'not_found', sends: 0 };
+  const allow = opts.allowSuppressed === true;
+  let out: { deleted: number; sends: number } | undefined;
+  try {
+    [out] = resultRows<{ deleted: number; sends: number }>(
+      await db.execute(sql`
+        with gone as (
+          delete from ${subscribers} s
+          where s.id = ${id} ${allow ? sql`` : sql`and s.status <> 'suppressed'`} and not ${IN_FLIGHT}
+          returning s.id
+        ),
+        sends as (delete from ${digestSends} where subscriber_id in (select id from gone) returning 1),
+        audit as (
+          insert into ${jobsLog} (job, started_at, finished_at, ok, detail)
+          select 'admin_delete', ${ts(now)}, ${ts(now)}, true, jsonb_build_object('id', id) from gone
+          returning 1
+        )
+        select (select count(*) from gone)::int as deleted, (select count(*) from sends)::int as sends`),
+    );
+  } catch (e) {
+    if (pgCode(e) === '23503') return { result: 'in_flight', sends: 0 };
+    throw e;
+  }
+  if (out && Number(out.deleted) > 0) return { result: 'deleted', sends: Number(out.sends) };
+  // Nothing deleted: say why (a read, so it needn't be part of the statement above).
+  const [why] = resultRows<{ status: Subscriber['status']; busy: boolean }>(
+    await db.execute(sql`select s.status, ${IN_FLIGHT} as busy from ${subscribers} s where s.id = ${id}`),
+  );
+  if (!why) return { result: 'not_found', sends: 0 };
+  if (why.status === 'suppressed' && !allow && !why.busy) return { result: 'suppressed', sends: 0 };
+  return { result: 'in_flight', sends: 0 };
+}
+
+/** DESIGN D3: an unsubscribed row is kept for a year after the opt-out, then deleted with its history. */
+export const UNSUBSCRIBED_TTL_MS = 365 * DAY;
+
+/**
+ * Daily cron (DESIGN D3 retention): rows still unsubscribed more than 365 days after
+ * unsubscribed_at are deleted with their digest_sends, in one statement shaped like
+ * deleteSubscriber. Suppressed rows are the do-not-send list and stay indefinitely; pending,
+ * active and paused rows are never touched. A row with a claim in flight waits for the next run.
+ * The conditions sit on the DELETE itself, so a row resubscribed while this runs is re-checked
+ * under its row lock and left alone, history included.
+ */
+export async function purgeOldUnsubscribed(opts: Opts = {}): Promise<{ deleted: number }> {
+  const db = opts.db ?? defaultDb;
+  const now = opts.now ?? new Date();
+  const [out] = resultRows<{ deleted: number }>(
+    await db.execute(sql`
+      with gone as (
+        delete from ${subscribers} s
+        where s.status = 'unsubscribed' and s.unsubscribed_at < ${ts(new Date(now.getTime() - UNSUBSCRIBED_TTL_MS))} and not ${IN_FLIGHT}
+        returning s.id
+      ),
+      sends as (delete from ${digestSends} where subscriber_id in (select id from gone) returning 1)
+      select (select count(*) from gone)::int as deleted`),
+  );
+  return { deleted: Number(out?.deleted ?? 0) };
 }

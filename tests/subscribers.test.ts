@@ -2,13 +2,13 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clientIp } from '@/lib/client-ip';
 import type { DB } from '@/lib/db';
-import { digestIssues, digestSends, subscribers } from '@/lib/db/schema';
+import { digestIssues, digestSends, jobsLog, subscribers } from '@/lib/db/schema';
 import { newId } from '@/lib/ids';
 import { subscriberLinks } from '@/lib/subscribers/links';
 import {
-  cleanCategories, confirmSubscription, inboxKey, normalizeEmail, PAUSE_MS, PENDING_TTL_MS, pauseSubscription, purgeStalePending,
-  requestSubscription, resubscribe, resumeSubscription, subscriberFromToken, suppressEmails, unsubscribeAll,
-  unsubscribeCategory, updatePreferences, viewOf, type Consent, type SubscribeInput, type Subscriber,
+  cleanCategories, confirmSubscription, deleteSubscriber, inboxKey, normalizeEmail, PAUSE_MS, PENDING_TTL_MS, pauseSubscription,
+  purgeOldUnsubscribed, purgeStalePending, requestSubscription, resubscribe, resumeSubscription, subscriberFromToken, suppressEmails,
+  UNSUBSCRIBED_TTL_MS, unsubscribeAll, unsubscribeCategory, updatePreferences, viewOf, type Consent, type SubscribeInput, type Subscriber,
 } from '@/lib/subscribers/service';
 import { linkToken, tokenId, verifyToken } from '@/lib/subscribers/token';
 import { CATEGORY_SLUGS } from '@/lib/taxonomy';
@@ -636,5 +636,149 @@ describe('viewOf', () => {
     expect(view).toEqual({ status: 'paused', locale: 'zh', categories: ['ai', 'vc'], pausedUntil: until.toISOString() });
     expect(JSON.stringify(view)).not.toContain('@');
     expect(viewOf(await seed()).pausedUntil).toBeNull();
+  });
+});
+
+// ---- week 15: admin Delete (DESIGN D2) and retention (D3) ---------------------------------------
+
+let issueWeek = 0;
+/** A digest_sends row for `sub` in a new sent issue; `inFlight` leaves it claimed but unresolved. */
+async function sendRow(sub: Subscriber, state: 'sent' | 'failed' | 'inFlight' = 'sent') {
+  const [issue] = await db
+    .insert(digestIssues)
+    .values({ id: newId('dig'), isoWeek: `2025-W${String(10 + ++issueWeek).padStart(2, '0')}`, status: state === 'inFlight' ? 'sending' : 'sent' })
+    .returning();
+  await db.insert(digestSends).values({
+    issueId: issue.id, subscriberId: sub.id, variantKey: 'en:ai', claimedAt: ago(DAY),
+    resendId: state === 'sent' ? 're_1' : null, sentAt: state === 'sent' ? ago(DAY) : null, error: state === 'failed' ? 'failed:bounced' : null,
+  });
+  return issue;
+}
+const sendsOf = async (id: string) => db.select().from(digestSends).where(eq(digestSends.subscriberId, id));
+const audits = async (job: string) => db.select().from(jobsLog).where(eq(jobsLog.job, job));
+
+describe('deleteSubscriber', () => {
+  it('deletes the row and its send history in one statement, with an id-only audit row', async () => {
+    const sub = await seed({ consentIp: '203.0.113.9', consentUa: 'Mozilla/5.0 (audit)' });
+    const other = await seed();
+    await sendRow(sub, 'sent');
+    await sendRow(sub, 'failed');
+    await sendRow(other, 'sent');
+    expect(await deleteSubscriber(sub.id, opts())).toEqual({ result: 'deleted', sends: 2 });
+    expect(await reload(sub.id)).toBeUndefined();
+    expect(await sendsOf(sub.id)).toEqual([]);
+    expect(await sendsOf(other.id)).toHaveLength(1);
+    expect(await reload(other.id)).toBeDefined();
+    const [audit, ...more] = await audits('admin_delete');
+    expect(more).toEqual([]);
+    expect(audit).toMatchObject({ ok: true, detail: { id: sub.id }, startedAt: NOW, finishedAt: NOW });
+    expect(JSON.stringify(audit)).not.toMatch(/@|203\.0\.113\.9|Mozilla/);
+    // Idempotent: the second press finds nothing and writes no second audit row.
+    expect(await deleteSubscriber(sub.id, opts())).toEqual({ result: 'not_found', sends: 0 });
+    expect(await audits('admin_delete')).toHaveLength(1);
+  });
+
+  it('passes the NO ACTION foreign key only because both deletes share one statement', async () => {
+    const sub = await seed();
+    await sendRow(sub);
+    // A plain DELETE still trips the foreign key: the constraint is there and enforced.
+    await expect(db.delete(subscribers).where(eq(subscribers.id, sub.id))).rejects.toMatchObject({ cause: { code: '23503' } });
+    expect(await deleteSubscriber(sub.id, opts())).toEqual({ result: 'deleted', sends: 1 });
+  });
+
+  it('a subscriber with no history is deleted too', async () => {
+    const sub = await seed({ status: 'pending', confirmedAt: null });
+    expect(await deleteSubscriber(sub.id, opts())).toEqual({ result: 'deleted', sends: 0 });
+    expect(await reload(sub.id)).toBeUndefined();
+  });
+
+  it('is refused while a claim is in flight, and works once the send resolves', async () => {
+    const sub = await seed();
+    await sendRow(sub, 'sent');
+    const issue = await sendRow(sub, 'inFlight');
+    expect(await deleteSubscriber(sub.id, opts())).toEqual({ result: 'in_flight', sends: 0 });
+    expect(await reload(sub.id)).toBeDefined();
+    expect(await sendsOf(sub.id)).toHaveLength(2);
+    expect(await audits('admin_delete')).toEqual([]);
+    await db.update(digestSends).set({ resendId: 're_2', sentAt: NOW }).where(eq(digestSends.issueId, issue.id));
+    expect(await deleteSubscriber(sub.id, opts())).toEqual({ result: 'deleted', sends: 2 });
+  });
+
+  it('a suppressed row needs allowSuppressed: deleting it drops the do-not-send block', async () => {
+    const sub = await seed({ status: 'suppressed' });
+    await sendRow(sub);
+    expect(await deleteSubscriber(sub.id, opts())).toEqual({ result: 'suppressed', sends: 0 });
+    expect(await reload(sub.id)).toMatchObject({ status: 'suppressed' });
+    expect(await deleteSubscriber(sub.id, { ...opts(), allowSuppressed: true })).toEqual({ result: 'deleted', sends: 1 });
+    expect(await reload(sub.id)).toBeUndefined();
+  });
+
+  it('in flight wins over suppressed, so the message is the one that can be acted on', async () => {
+    const sub = await seed({ status: 'suppressed' });
+    await sendRow(sub, 'inFlight');
+    expect((await deleteSubscriber(sub.id, opts())).result).toBe('in_flight');
+    expect((await deleteSubscriber(sub.id, { ...opts(), allowSuppressed: true })).result).toBe('in_flight');
+  });
+
+  it('unknown or malformed ids touch nothing', async () => {
+    const sub = await seed();
+    for (const id of ['sub_0000000000000000', 'nope', sub.email, `${sub.id}' or '1'='1`]) {
+      expect(await deleteSubscriber(id, opts())).toEqual({ result: 'not_found', sends: 0 });
+    }
+    expect(await reload(sub.id)).toBeDefined();
+  });
+
+  it('a claim that lands mid-statement (foreign key violation) reads as in flight', async () => {
+    const sub = await seed();
+    const fk = Object.assign(new Error('Failed query'), { cause: Object.assign(new Error('violates foreign key constraint'), { code: '23503' }) });
+    const racing = new Proxy(db, { get: (t, p) => (p === 'execute' ? async () => { throw fk; } : Reflect.get(t, p)) });
+    expect(await deleteSubscriber(sub.id, { db: racing, now: NOW })).toEqual({ result: 'in_flight', sends: 0 });
+    const other = Object.assign(new Error('boom'), { code: '57014' });
+    const failing = new Proxy(db, { get: (t, p) => (p === 'execute' ? async () => { throw other; } : Reflect.get(t, p)) });
+    await expect(deleteSubscriber(sub.id, { db: failing, now: NOW })).rejects.toBe(other);
+  });
+});
+
+describe('purgeOldUnsubscribed', () => {
+  it('deletes rows unsubscribed more than 365 days ago with their history; the boundary row stays', async () => {
+    const old = await seed({ status: 'unsubscribed', unsubscribedAt: ago(UNSUBSCRIBED_TTL_MS + 1) });
+    const ancient = await seed({ status: 'unsubscribed', unsubscribedAt: ago(3 * UNSUBSCRIBED_TTL_MS), confirmedAt: null });
+    const edge = await seed({ status: 'unsubscribed', unsubscribedAt: ago(UNSUBSCRIBED_TTL_MS) });
+    const recent = await seed({ status: 'unsubscribed', unsubscribedAt: ago(30 * DAY) });
+    await sendRow(old);
+    await sendRow(old, 'failed');
+    await sendRow(edge);
+    expect(await purgeOldUnsubscribed(opts())).toEqual({ deleted: 2 });
+    expect(await reload(old.id)).toBeUndefined();
+    expect(await reload(ancient.id)).toBeUndefined();
+    expect(await sendsOf(old.id)).toEqual([]);
+    expect(await reload(edge.id)).toBeDefined();
+    expect(await sendsOf(edge.id)).toHaveLength(1);
+    expect(await reload(recent.id)).toBeDefined();
+    expect(await purgeOldUnsubscribed(opts())).toEqual({ deleted: 0 });
+  });
+
+  it('keeps suppressed rows (the do-not-send list) and everyone subscribed now, however old the opt-out', async () => {
+    const longAgo = ago(2 * UNSUBSCRIBED_TTL_MS);
+    const kept = await Promise.all(
+      (['suppressed', 'active', 'paused', 'pending'] as const).map((status) => seed({ status, unsubscribedAt: longAgo })),
+    );
+    const never = await seed({ status: 'unsubscribed', unsubscribedAt: null }); // legacy row with no date: not provably old
+    await sendRow(kept[0]);
+    expect(await purgeOldUnsubscribed(opts())).toEqual({ deleted: 0 });
+    for (const r of [...kept, never]) expect(await reload(r.id)).toBeDefined();
+    expect(await sendsOf(kept[0].id)).toHaveLength(1);
+  });
+
+  it('a row with a claim in flight waits for the next run, and does not block the others', async () => {
+    const busy = await seed({ status: 'unsubscribed', unsubscribedAt: ago(UNSUBSCRIBED_TTL_MS + DAY) });
+    const idle = await seed({ status: 'unsubscribed', unsubscribedAt: ago(UNSUBSCRIBED_TTL_MS + DAY) });
+    const issue = await sendRow(busy, 'inFlight');
+    expect(await purgeOldUnsubscribed(opts())).toEqual({ deleted: 1 });
+    expect(await reload(busy.id)).toBeDefined();
+    expect(await reload(idle.id)).toBeUndefined();
+    await db.update(digestSends).set({ error: 'ineligible' }).where(eq(digestSends.issueId, issue.id));
+    expect(await purgeOldUnsubscribed(opts())).toEqual({ deleted: 1 });
+    expect(await reload(busy.id)).toBeUndefined();
   });
 });

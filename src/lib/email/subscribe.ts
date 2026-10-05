@@ -1,3 +1,4 @@
+import { publicOrigin } from '../host';
 import { subscriberLinks } from '../subscribers/links';
 import { CATEGORIES, type Category, type Locale } from '../taxonomy';
 import { sendEmail } from './send';
@@ -17,12 +18,16 @@ const labels = (cats: string[], l: Locale) =>
 
 type Block = { lead: string; button: string; after: string[] };
 
+/** /privacy in the subscriber's language, last in every subscription email (as in the digest footer). */
+const privacy = (l: Locale) => ({
+  url: `${publicOrigin()}${l === 'zh' ? '/zh' : ''}/privacy`,
+  label: l === 'zh' ? '隐私 Privacy' : 'Privacy 隐私',
+});
+
 function render(sub: Sub, url: string, blocks: Record<Locale, Block>) {
   const order: Locale[] = sub.locale === 'zh' ? ['zh', 'en'] : ['en', 'zh'];
-  const text = order
-    .flatMap((l) => [blocks[l].lead, url, ...blocks[l].after, ''])
-    .join('\n')
-    .trim();
+  const pv = privacy(sub.locale);
+  const text = [...order.flatMap((l) => [blocks[l].lead, url, ...blocks[l].after, '']), `${pv.label}: ${pv.url}`].join('\n').trim();
   const section = (l: Locale) => `<div lang="${l === 'zh' ? 'zh-Hans' : 'en'}" style="margin:0 0 24px">
 <p style="margin:0 0 12px">${esc(blocks[l].lead)}</p>
 <p style="margin:0 0 12px"><a href="${esc(url)}" style="display:inline-block;padding:10px 18px;border-radius:999px;background:#1a1a1a;color:#fafaf7;text-decoration:none">${esc(blocks[l].button)}</a></p>
@@ -31,6 +36,7 @@ ${blocks[l].after.map((p) => `<p style="margin:0 0 8px;color:#6b7280;font-size:1
   const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei',sans-serif;font-size:16px;line-height:1.5;color:#1a1a1a;max-width:560px">
 ${order.map(section).join('\n<hr style="border:none;border-top:1px solid #e5e5e0;margin:0 0 24px">\n')}
 <p style="color:#6b7280;font-size:12px;word-break:break-all">${esc(url)}</p>
+<p style="margin:0;color:#6b7280;font-size:12px"><a href="${esc(pv.url)}" style="color:#6b7280">${esc(pv.label)}</a></p>
 </div>`;
   return { html, text };
 }

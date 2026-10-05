@@ -14,6 +14,8 @@ export type SubscribeCopy = {
   submit: string;
   submitting: string;
   privacy: string;
+  /** Link text to /privacy, after the privacy line: read before consenting. */
+  privacyLink: string;
   honeypot: string;
   pending: string;
   pendingHint: string;
@@ -201,7 +203,14 @@ export function SubscribeForm({ locale, categories, copy }: { locale: Locale; ca
         >
           {message}
         </p>
-        <p className="mt-1 text-xs text-muted">{copy.privacy}</p>
+        <p className="mt-1 text-xs text-muted">
+          {copy.privacy}
+          {locale === 'zh' ? '' : ' '}
+          {/* Plain <a>: a full load is fine for this one link, and the form stays free of the intl router. */}
+          <a href={locale === 'zh' ? '/zh/privacy' : '/privacy'} className="underline underline-offset-2">
+            {copy.privacyLink}
+          </a>
+        </p>
       </div>
     </form>
   );

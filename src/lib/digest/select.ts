@@ -30,7 +30,8 @@ export type VariantSelection = {
   picks: number;
 };
 
-const byStart = (a: DigestEvent, b: DigestEvent) =>
+/** Start time, then id: the one event order every digest surface uses. */
+export const byStart = (a: DigestEvent, b: DigestEvent) =>
   Date.parse(a.startAt) - Date.parse(b.startAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
 function unique(list: DigestEvent[]) {

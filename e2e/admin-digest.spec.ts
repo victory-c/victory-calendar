@@ -95,7 +95,8 @@ test('write the intros, preview them, schedule and unschedule', async ({ page })
 
     const en = page.getByLabel(/English intro/);
     const zh = page.getByLabel(/中文开场白/);
-    const message = page.getByRole('status');
+    // The editor's own status line, not the WeChat panel's copy status below it.
+    const message = page.getByRole('status').and(page.locator('p'));
 
     // Schedule saves first, then refuses: both intros are required.
     await en.fill('');

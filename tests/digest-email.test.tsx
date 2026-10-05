@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { pretty } from 'react-email';
 import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ev, O, snap } from './helpers/digest-fixtures';
 import { testDb } from './helpers/pglite';
 
 // Weekly digest template and render (M3 week 14, builder A): selection rules (F06 "only your
@@ -34,32 +35,15 @@ vi.mock('@/lib/ingest/safe-fetch', async (orig) => ({
 const { DigestTooLargeError, MAX_HTML_BYTES, TOKEN, digestLinks, personalize, renderEmptyNotice, renderVariant } = await import('@/lib/digest/render');
 const { categoriesWithPicks, isEmptyFor, selectForVariant } = await import('@/lib/digest/select');
 const { parseVariantKey } = await import('@/lib/digest/variant');
-const { clip, NOTE_MAX } = await import('@/emails/digest');
+const { clip, NOTE_MAX } = await import('@/lib/digest/fields');
 const { covers } = await import('@/lib/db/schema');
 type DigestEvent = import('@/lib/digest/types').DigestEvent;
 type DigestSnapshot = import('@/lib/digest/types').DigestSnapshot;
 type RenderedEmail = import('@/lib/digest/types').RenderedEmail;
 
-const O = 'https://picks.example.com';
 const REAL_TOKEN = `sub_0123456789abcdef.${'Ab3_-'.repeat(8)}Ab3`; // the shape linkToken() returns: 64 chars
 
-let n = 0;
-const ev = (over: Partial<DigestEvent> = {}): DigestEvent => {
-  const id = over.id ?? `evt_${String(++n).padStart(16, '0')}`;
-  return {
-    id, slug: `event-${id.slice(-6)}`, category: 'ai', startAt: '2026-10-14T01:30:00.000Z', endAt: '2026-10-14T04:00:00.000Z',
-    tz: 'America/Los_Angeles', allDay: false, format: 'in_person', titleEn: 'Bay Area AI Builders Night', titleZh: '湾区 AI 开发者之夜',
-    noteEn: null, noteZh: null, place: 'SoMa', priceText: null, access: 'open', sourceUrl: `https://luma.com/${id}`, platform: 'Luma',
-    coverUrl: `${O}/og/template/ai?s=192`, coverCredit: null, seal: null, featured: false, ...over,
-  };
-};
-const snap = (over: Partial<DigestSnapshot> = {}): DigestSnapshot => ({
-  version: 1, issueId: 'dig_0000000000000001', isoWeek: '2026-W42', from: '2026-10-12T07:00:00.000Z', to: '2026-10-19T07:00:00.000Z',
-  previewWeek: '2026-W43', sendAfter: '2026-10-12T00:00:00.000Z', origin: O,
-  introEn: 'A heavy AI week, and a hackathon I am hosting.\nSee you there.', introZh: '这周 AI 活动扎堆，还有一场我主办的黑客松。\n现场见。',
-  showAttendance: true, events: [], preview: [], ...over,
-});
-const v = (key: string) => {
+const v =(key: string) => {
   const parsed = parseVariantKey(key);
   if (!parsed) throw new Error(`bad key ${key}`);
   return parsed;
@@ -433,11 +417,13 @@ describe('renderVariant: content', () => {
     expect(zh.text).toContain(`退订 Unsubscribe <${O}/zh/unsubscribe?t=${TOKEN}>`);
     // The switch opens the other-language page with ?lang=, which offers the one-tap change.
     expect(zh.text).toContain(`改收英文版 Switch to English <${O}/prefs/${TOKEN}?lang=en>`);
-    expect(zh.text).toContain(`网页版 View in browser <${O}/zh/week/2026-W42>`);
+    expect(zh.text).toContain(`网页版 View in browser <${O}/zh/weekly/2026-W42>`);
+    expect(zh.text).toContain(`隐私 Privacy <${O}/zh/privacy>`);
     const en = await must(renderVariant(fixture(), VARIANT('en')));
     expect(en.text).toMatch(/^Victor's Picks · Week of Oct 12/);
     expect(en.text).toContain(`Switch to Chinese 改收中文版 <${O}/zh/prefs/${TOKEN}?lang=zh>`);
-    expect(en.text).toContain(`View in browser 网页版 <${O}/week/2026-W42>`);
+    expect(en.text).toContain(`View in browser 网页版 <${O}/weekly/2026-W42>`);
+    expect(en.text).toContain(`Privacy 隐私 <${O}/privacy>`);
     for (const e of [zh, en]) expectTextLinksDelimited(e.text);
     expect(en.html).not.toMatch(/mailing address|PO Box/i);
   });
@@ -595,14 +581,21 @@ describe('digestLinks', () => {
       prefs: `${O}/zh/prefs/TKN`,
       unsubscribe: `${O}/zh/unsubscribe?t=TKN`,
       otherLanguage: `${O}/prefs/TKN?lang=en`,
-      web: `${O}/zh/week/2026-W42`,
+      web: `${O}/zh/weekly/2026-W42`,
+      privacy: `${O}/zh/privacy`,
     });
     expect(digestLinks(fixture({ origin: 'https://other.example' }), 'en', 'TKN')).toEqual({
       prefs: 'https://other.example/prefs/TKN',
       unsubscribe: 'https://other.example/unsubscribe?t=TKN',
       otherLanguage: 'https://other.example/zh/prefs/TKN?lang=zh',
-      web: 'https://other.example/week/2026-W42',
+      web: 'https://other.example/weekly/2026-W42',
+      privacy: 'https://other.example/privacy',
     });
+  });
+
+  it('a snapshot without events (empty notices only) has no archive page, so "view in browser" opens the week', () => {
+    expect(digestLinks(snap(), 'zh', 'TKN').web).toBe(`${O}/zh/week/2026-W42`);
+    expect(digestLinks(snap(), 'en', 'TKN').web).toBe(`${O}/week/2026-W42`);
   });
 });
 

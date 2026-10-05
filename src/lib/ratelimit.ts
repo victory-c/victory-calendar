@@ -15,6 +15,8 @@ export const LIMITS = {
   token: { max: 60, window: '1 h' },
   // Digest test sends from /admin/digest (always to ADMIN_EMAIL); they spend the same Resend budget.
   digestTest: { max: 10, window: '1 d' },
+  // Seed rounds (one batch to DIGEST_SEED_EMAILS, at most 10 addresses): 4 a day, ≤ 40 emails.
+  digestSeed: { max: 4, window: '1 d' },
 } as const;
 
 type LimitName = keyof typeof LIMITS;

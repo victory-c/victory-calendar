@@ -4,6 +4,7 @@ import { db as defaultDb, type DB } from '../db';
 import { digestIssues, digestSends, events, subscribers } from '../db/schema';
 import { newId } from '../ids';
 import { CATEGORY_SLUGS } from '../taxonomy';
+import { archivable } from './archive-sql';
 import { parseVariantKey, type Variant, variantKey } from './variant';
 import { coverage, LATE_LIMIT_MS, sendAfterFor } from './week';
 
@@ -70,6 +71,11 @@ export type IssueSummary = Omit<DigestIssue, 'snapshot'> & {
    * still pending.
    */
   counts: { sent: number; failed: number; claimed: number };
+  /**
+   * The stored snapshot would give a /weekly page (archive-sql.ts, the archive's own predicate):
+   * with status 'sending' or 'sent', the issue is public there. False for a week with no events.
+   */
+  archivable: boolean;
 };
 
 /** The most recent issues by covered week, newest first, with their send counts. */
@@ -82,15 +88,18 @@ export async function listIssues(limit = 8, opts: Opts = {}): Promise<IssueSumma
       sent: sql<number>`count(*) filter (where ${digestSends.resendId} is not null and ${digestSends.error} is null)`,
       failed: sql<number>`count(*) filter (where ${digestSends.error} is not null)`,
       claimed: sql<number>`count(${digestSends.subscriberId})`,
+      // Grouped by the primary key, so this may read the snapshot; the snapshot itself stays out of the result.
+      archivable: sql<boolean>`coalesce(${archivable}, false)`,
     })
     .from(digestIssues)
     .leftJoin(digestSends, eq(digestSends.issueId, digestIssues.id))
     .groupBy(digestIssues.id)
     .orderBy(desc(digestIssues.isoWeek))
     .limit(Math.max(1, Math.min(52, Math.trunc(limit) || 8)));
-  return rows.map(({ sent, failed, claimed, ...issue }) => ({
+  return rows.map(({ sent, failed, claimed, archivable: hasPage, ...issue }) => ({
     ...issue,
     counts: { sent: Number(sent), failed: Number(failed), claimed: Number(claimed) },
+    archivable: hasPage === true,
   }));
 }
 

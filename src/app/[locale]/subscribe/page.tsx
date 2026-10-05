@@ -88,6 +88,7 @@ async function Body({ locale, open, searchParams }: { locale: Locale; open: bool
     submit: t('form.submit'),
     submitting: t('form.submitting'),
     privacy: t('form.privacy'),
+    privacyLink: t('form.privacyLink'),
     honeypot: t('form.honeypot'),
     pending: t('state.pending'),
     pendingHint: t('state.pendingHint'),

@@ -17,6 +17,12 @@ async function More() {
           </Link>
         </li>
         <li>
+          <Link href="/admin/subscribers" className="flex h-12 items-center justify-between">
+            <span>Subscribers · 订阅者</span>
+            <span aria-hidden>→</span>
+          </Link>
+        </li>
+        <li>
           <Link href="/admin/settings" className="flex h-12 items-center justify-between">
             <span>Settings, tokens, shortcuts · 设置、令牌、快捷指令</span>
             <span aria-hidden>→</span>

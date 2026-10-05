@@ -1,3 +1,4 @@
+import { revalidateTag } from 'next/cache';
 import { isAuthorizedCron } from '@/lib/cron';
 import { db, hasDatabase } from '@/lib/db';
 import { jobsLog } from '@/lib/db/schema';
@@ -28,8 +29,14 @@ export async function GET(req: Request) {
   if (!hasDatabase()) return Response.json({ ok: true, job: 'digest', skipped: 'no_database' });
   const startedAt = new Date();
   let result: RunResult;
+  // The /weekly archive, its index and the sitemap follow an issue's status and snapshot: refresh
+  // them when this run froze, worked on, finished or closed one (an idle run changes nothing). A
+  // run that throws may already have frozen or closed one, so it refreshes too (as "Send now" does);
+  // a throw before that only costs a cache miss.
+  let touched = true;
   try {
     result = await runDigest();
+    touched = Boolean(result.issue || result.closed?.length);
   } catch (e) {
     // Claims made before the failure stay; the next run retries them after 10 minutes.
     console.error(`[cron] digest failed: ${describeError(e)}`);
@@ -37,6 +44,7 @@ export async function GET(req: Request) {
       ok: false, reason: errorCode(e), claimed: 0, sent: 0, replayed: 0, failed: 0, emptyNotices: 0, skippedEmpty: 0, batches: 0, htmlMaxBytes: 0,
     };
   }
+  if (touched) revalidateTag('digest', { expire: 0 });
   if (worthLogging(result)) {
     await db
       .insert(jobsLog)
