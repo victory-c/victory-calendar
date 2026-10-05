@@ -52,8 +52,11 @@ export async function subscribe(_prev: SubscribeState, formData: FormData): Prom
 
     const h = await headers();
     const ip = clientIp(h);
-    if (!(await limit('subscribeIp', ip ?? 'unknown')).success) return { status: 'rate_limited' };
-    if (!(await limit('subscribeIpDay', ip ?? 'unknown')).success) return { status: 'rate_limited' };
+    // Hashed like the inbox key below, so raw IPs never sit in Redis (/privacy says so). Visitors
+    // without a usable address share one bucket.
+    const ipKey = ip ? hashToken(ip) : 'unknown';
+    if (!(await limit('subscribeIp', ipKey)).success) return { status: 'rate_limited' };
+    if (!(await limit('subscribeIpDay', ipKey)).success) return { status: 'rate_limited' };
 
     const email = normalizeEmail(formData.get('email'));
     if (!email) return { status: 'error', code: 'invalid_email', field: 'email' };

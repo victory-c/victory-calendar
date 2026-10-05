@@ -16,14 +16,15 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 | 6 | Luma：Settings → Calendar Syncing → Add iCal Subscription，复制 URL 到 Vercel env `LUMA_PERSONAL_ICS_URL` | M2 第 11 周 | ⬜ |
 | 7 | Partiful：桌面版 Calendar sync → Copy Link，存到 Vercel env `PARTIFUL_ICS_URL` | M2 第 11 周 | ⬜ |
 | 8 | Vercel AI Gateway：团队设置里绑定支付方式（约 $0.5–2/月） | M2 第 7 周 | ⬜ |
-| 9 | Vercel env：`ADMIN_EMAIL`（victorchun@berkeley.edu）已设；`BETTER_AUTH_SECRET`、`CRON_SECRET`、`SUBSCRIBER_LINK_SECRET` 由你运行命令随机生成并直接写入生产环境（值不经过对话）。预览环境还没加，只影响分支预览站的后台 | M0 第 2 周 | ✅ 生产 · ⏳ 预览 |
+| 9 | Vercel env：`ADMIN_EMAIL`（你的 berkeley.edu 地址）已设；`BETTER_AUTH_SECRET`、`CRON_SECRET`、`SUBSCRIBER_LINK_SECRET` 由你运行命令随机生成并直接写入生产环境（值不经过对话）。预览环境还没加，只影响分支预览站的后台 | M0 第 2 周 | ✅ 生产 · ⏳ 预览 |
 | 10 | 首次登录 /admin/sign-in：还没有 Resend，登录链接写在 Vercel Logs 里（搜 `email:dev`），5 分钟内打开；然后在 iPhone（Face ID）和 Mac（Touch ID）各注册一个 passkey（G0 门槛） | M0 第 2 周部署后 | ✅ 2026-09-30 生产登录成功 · passkey 两台设备待确认 |
 | 11 | 安装两个 iOS 快捷指令（Add to Picks、Add & Publish）。iCloud 链接我生成不了，步骤写在后台「设置」页底部；令牌也在设置页生成（只显示一次） | M2 第 10 周；生产上要先完成第 2、9 项 | ⬜ |
 | 12 | 批准把 `m0-foundations` 和 `m1-public-site` 合并进 `main` | G1 验证前 | ✅ 2026-09-28 已合并（#1、#2，以及修正 #3），生产站 `https://victor-picks.vercel.app` 公开可访问 |
 | 13 | G1 实测：iPhone「设置 → 日历 → 账户 → 添加已订阅的日历」填 `webcal://victor-picks.vercel.app/calendar.ics?lang=zh`，Google Calendar 用「通过网址添加」填同一地址的 https 版；看活动时间是否是本地时间、改期后是否更新 | 第 12 项之后 | ✅ 2026-09-30 你已订阅，没有问题 |
 | 14 | 给我 20 场你真的想推荐的活动（链接 + 一句点评即可），替换示例数据。M2 的后台做好后也可以自己录 | M1 第 6 周 | ⬜ |
 | 15 | weekly-events skill 推送到收件箱：后台「设置」生成令牌，名字写 `weekly-events-skill`、只勾 candidates；把令牌存进本机文件 `~/.config/victor-picks/skill-token`（`chmod 600`）。没有这个文件时 skill 的第 5 步自动跳过 | M2 第 11 周 | ⬜ |
-| 16 | 订阅表单开放前（域名和 Resend 就绪后）：① Vercel env 设 `RESEND_API_KEY`、`RESEND_FROM`（必须是自有域名地址，例如 `Victor's Picks <picks@mail.<domain>>`）、`RESEND_WEBHOOK_SECRET`；② Resend 控制台建 webhook 指向 `/api/webhooks/resend`，勾 email.bounced、email.complained、email.suppressed；③ Resend 关闭打开与点击追踪；④ Vercel Firewall 加一条规则：POST `/subscribe` 与 `/zh/subscribe` 限速；⑤ 确认项目 Settings → Security 里 OIDC Federation 是开启的（BotID 需要）；⑥ 第 15 周的 /privacy 上线后再开。都齐了之后重新部署，表单自动打开（`NEWSLETTER_OPEN=0` 可随时关） | M3 首发前 | ⬜ |
+| 16 | 订阅表单开放前（域名和 Resend 就绪后）：① Vercel env 设 `RESEND_API_KEY`、`RESEND_FROM`（必须是自有域名地址，例如 `Victor's Picks <picks@mail.<domain>>`）、`RESEND_WEBHOOK_SECRET`；② Resend 控制台建 webhook 指向 `/api/webhooks/resend`，勾 email.bounced、email.complained、email.suppressed、email.failed；③ Resend 关闭打开与点击追踪；④ Vercel Firewall 加一条规则：POST `/subscribe` 与 `/zh/subscribe` 限速；⑤ 确认项目 Settings → Security 里 OIDC Federation 是开启的（BotID 需要）；⑥ Vercel env 设 `PRIVACY_CONTACT_EMAIL`：`/privacy` 上公开的联系邮箱（数据请求、下架），**不要用登录后台的 `ADMIN_EMAIL`**，可以是一个别名；没设时 Vercel 上表单保持关闭。都齐了之后重新部署，表单自动打开（`NEWSLETTER_OPEN=0` 可随时关） | M3 首发前 | ⬜ |
+| 17 | G3 前的种子邮箱：准备 gmail.com、icloud.com、outlook.com、qq.com、163.com 各一个你能登录的邮箱，逗号分隔写进 Vercel env `DIGEST_SEED_EMAILS`（标成 Sensitive）。每期排期后在 `/admin/digest` 点「发种子邮件」，中文、英文各一次，挨个看是否进了收件箱而不是垃圾箱。另外：把 gmail 那个用正式表单订阅，等周报到了点 Gmail 自带的「退订」，再到 `/admin/subscribers` 搜一下确认变成已退订；把微信文字粘到「文件传输助手」点一下链接，看 `*.vercel.app` 会不会被拦 | M3 首发前（需要第 16 项） | ⬜ |
 
 ## 当前状态
 
@@ -31,7 +32,7 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 - 生产站：`https://victor-picks.vercel.app`，2026-09-30 起接真实数据库（Neon），示例数据横幅已去掉；后台登录已验证。首页在录入活动前显示「精选正在路上」
 - 里程碑：M0 代码完成，G0 差 passkey 真机登录（checklist 2、9、10）和 DKIM/DMARC（随域名推迟到 M3 前）；**M1 完成，G1 于 2026-09-30 全部通过**，可以进 M2
 - M2：第 7–8 周（ingest，#6）、审查修正（#8）、第 9 周（封面，#7）都已合并；第 10 周后台 PWA（#9）、第 11 周候选收件箱（#13）已合并；收件箱要真正有内容还差 checklist 4–7 和 15。G2 门槛（手机实测）还没做，等你有空
-- M3：第 13 周订阅流程（#14）已合并；第 14 周周报在分支 `feat/digest`，PR 待你审。合并后要在生产库跑一次迁移 `0003_digest_send`（只加列和索引）。生产上订阅表单和周报发送都保持关闭，等域名和 Resend 发信域名（checklist 1、3、16）
+- M3：第 13 周订阅流程（#14）、第 14 周周报（#15）已合并；2026-10-05 已在生产库跑过迁移 `0003_digest_send` 并抽查。第 15 周（隐私页、`/weekly` 存档、订阅者后台、微信文字、种子邮件）在分支 `feat/week15`，PR 待你审，没有新迁移。生产上订阅表单和周报发送都保持关闭，等域名和 Resend 发信域名（checklist 1、3、16、17）
 - 域名：2026-09-30 决定暂不买，继续用 `*.vercel.app`。影响见「待确认」里的域名一条
 
 - Vercel 项目：`victor-picks`（victory-c-8190s-projects），已连 GitHub，推送分支自动出预览
@@ -262,8 +263,51 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 
 检查结果：typecheck、lint、build 通过；Vitest 831 个通过；Playwright 接本地数据库 64 个通过，按 CI 方式 101 个通过。我在本地用真实 Postgres 跑了一次：3 个订阅者 1 批发完，只选骑行的那位收到「本周没有推荐」，再跑一次没有重复；在编辑器里用手机尺寸看了邮件（封面、印章、点评、双语页脚）。开发方式和第 13 周相同：5 个并行调研、我写核心与约定、4 个并行任务、6 个角度对抗审查（31 个代理，确认 22 条），3 个并行修复，再核验一轮（又补了 4 个小问题：可能已送达的重试行继续计入「每月一封」、改收语言后单选框跟着更新、编辑器在有版本渲染失败或接近 90 KB 时提醒、`DIGEST_SENDING=0` 的端到端测试）。审查里抓到一个我自己引入的严重回归（拆分活动查询时让 `getEventBySlug` 带上了日期过滤，有数据库时所有活动页都会 404），已修复并补了测试。
 
+### M3 第 15 周（2026-10-05）：隐私页、周报存档、订阅者后台、微信文字
+
+做了什么
+- **`/privacy` 与 `/zh/privacy`**：第一人称、静态页面，每一条都对照代码写的。内容包括：
+  - 存了什么、为什么存；唯一的 cookie（换语言时的 `NEXT_LOCALE`）；
+  - 没有统计、广告和第三方脚本；不追踪打开与点击；
+  - 四个服务商（Vercel、Neon、Upstash、Resend）及其隐私政策链接；
+  - 各类数据保留多久；怎么查看或删除；主办方下架（24 小时，只管网站和之后的邮件）；
+  - 「请勿追踪」与 GPC、13 岁以下、适用范围；最后更新日期。
+  - 联系邮箱读 `PRIVACY_CONTACT_EMAIL`（不写进公开仓库），没设时页面写「开放订阅前会补上」。页脚、订阅表单、确认邮件和周报页脚都加了隐私链接，`/privacy` 进了 sitemap。
+- **改掉一句不实的文案**：活动页和订阅页说「取消和改期也会发邮件通知」，实际没有这种邮件。现在写的是实情：日历订阅下次刷新时同步，取消的活动标成「已取消」留在订阅里。
+- **`/weekly` 公开存档**：每期发出后（从开始发送那一刻）有一个公开网页版，邮件里的「网页版」链接指向它（没有活动、只发了「本周没有推荐」的那期仍指向 `/week/`）。
+  - 哪些活动、什么顺序、导语，按冻结的内容；每场活动的样子按现在的数据。所以下架的活动会消失，取消的划掉，关掉「显示我去不去」后印章也跟着消失。
+  - `/weekly` 列出全部往期，页脚和 sitemap 都有。发送任务结束或出错时都会刷新缓存。
+- **`/admin/subscribers`**（后台「更多」里）：
+  - 各状态 × 语言的人数；本周日会收到周报的人按类别 × 语言统计。
+  - G3 门槛卡：确认订阅人数 / 50；最近两期发了多少、是否准时、是否连续两周；退信率、投诉率、种子退信。
+  - 双重确认的转化率（近似值）。
+  - 精确搜索（邮箱、订阅者 id 或贴一条偏好页链接）：只用 POST，邮箱不会出现在网址里。
+  - 手动抑制，删除（一条 SQL 删掉订阅者和发送记录，正在发送时拒绝）。
+  - 导出 CSV（只限登录的管理员，不含 IP 和浏览器信息）。
+- **保留期限**：退订满 12 个月的记录连同发送记录在每天的定时任务里删除；退信、投诉和手动抑制的保留，作为不再发送的名单。限速计数器里的 IP 改成存哈希。
+- **微信文字**：`/admin/digest` 里一键复制中文纯文本：
+  - 编号、按天分组、北美太平洋时间（线上活动加北京时间）、一句点评、下周预告。
+  - 只有一个链接 `/zh/week/W`，订阅开放后再加订阅链接；没有 emoji，没有任何个人链接。
+  - 已发出的那期也按现在的数据导出：关掉「显示我去不去」后没有 [会去]，下架的活动去掉，取消的标「已取消」且不计数。
+- **种子邮件**：`/admin/digest` 的「发种子邮件」把当前预览的版本发给 `DIGEST_SEED_EMAILS` 里的地址（最多 10 个，每天最多 4 轮）。
+  - 必须有验证过的发信域名才能用。
+  - 界面和日志只显示域名，不显示地址；标签是 `digest_seed`，不会误伤订阅者。
+- **退信日志**：Resend webhook 的退信、投诉、抑制、发送失败都记一行到 `jobs_log`（`email_event`，只有类型、期号、域名，没有地址），订阅者后台据此算退信率和种子退信。
+
+检查结果：
+- typecheck、lint、build 通过；Vitest 1014 个通过（新增约 180 个）。
+- Playwright 按 CI 方式 111 个通过；接本地数据库 74 个通过。
+- 本地用手机尺寸看了 `/zh/privacy`、`/zh/weekly` 和一期临时造的存档页（看完已删掉）。
+
+开发方式：
+- 4 个并行调研，我写核心与约定，4 个并行任务。
+- 6 个角度对抗审查：12 个代理，确认 20 条、驳回 4 条。其中中等的两条：
+  - 已发出那期的微信文字不看现在的「显示我去不去」开关；
+  - 隐私页说删掉被抑制的地址就能重新订阅，但 Resend 自己还有一份抑制名单。
+- 3 组并行修复，各自核验一轮，我又补了一个读屏器把相邻文字连读的小问题。
+
 下一步
-- 第 15 周：中英双语 `/privacy`、五个种子邮箱测试、微信文本导出、`/weekly` 公开存档。
+- 第 16 周（G3）：要等域名和 Resend（checklist 1、3、16、17）。之后是：微信群软启动；连续两期准时发给 ≥ 50 人；种子 0 退信；Gmail 一键退订实测。
 
 ## 门槛
 
@@ -362,6 +406,19 @@ Lighthouse 说明：本机测量时 Chrome 找得到苹方，所以中文正文�
 - **本地 API 令牌脚本叫 `pnpm api-token`**（pnpm 保留了 `token` 这个命令名）。
 - **`victorchun-site` 升级到 16.3.7 暂缓**：npm 上 next 最新仍是 16.3.6（今天 9/28，指南说 9/30 之后发布）。它在另一个仓库，发布后单独处理。
 
+- **`/privacy` 的联系邮箱用 env `PRIVACY_CONTACT_EMAIL`**，不写进公开仓库，也不回退到 `ADMIN_EMAIL`（那是后台登录白名单，公开它等于告诉别人该攻击哪个邮箱）。Vercel 上没设时订阅表单保持关闭（`NEWSLETTER_OPEN=1` 仍可强开）。
+- **数据删除**：只能由你在 `/admin/subscribers` 操作，访客发邮件申请。被抑制的地址删除时要输入 DELETE 确认，并提醒你到 Resend 后台 → Suppressions 一起删，否则新订阅会被 Resend 再次抑制（Resend SDK 有删除接口，但我没自动调用）。
+- **保留期限**：未确认 7 天删除（已有）；退订满 12 个月连同发送记录删除；退信、投诉和手动抑制的保留，作为不再发送的名单。指南没写退订后的保留期，12 个月是我定的，可以改。
+- **订阅记录只保留最近一次申请**：别人用你的地址再提交一次（没确认），记录里的 IP 和浏览器信息会被覆盖。隐私页如实写成「最近一次订阅申请，不论是否确认」。要保留每次同意的历史需要加列和迁移，先不做。
+- **限速计数器存 IP 的哈希**，不存原始 IP。
+- **`/weekly` 从开始发送时公开**，不是等全部发完：邮件在发送时渲染，「网页版」链接只能在那时确定；超过每天 60 封上限时其余的第二天才发，等发完会让先收到的人打开 404。`/weekly` 列表和 sitemap 只列已发完的。
+- **存档按现在的数据显示活动**：标题、时间、点评改了会跟着变，下架会消失。代价是存档不完全等于当时的邮件。
+- **微信文字只有一个链接 `/zh/week/W`**，不放每场活动的链接；订阅开放后加订阅链接。按北美太平洋时间，线上活动加北京时间。已发出的那期按现在的开关和活动状态导出，但时间和标题仍按冻结的内容（改期了要手动改）。
+- **种子邮件用真实标题**（不加「[测试]」），因为要看的是进收件箱还是垃圾箱；幂等键按分钟，修改后同一小时内重发不会被当成重复。
+- **CSV 导出不含 IP 和浏览器信息**（数据最小化）。要拿它当同意证据的话告诉我，我加回去。
+- **退信率的分母包括「本周没有推荐」那种邮件**，G3 的「发给 ≥ 50 人」只算正式周报。
+- **G3 卡上的种子退信包括退信、抑制和发送失败**；Gmail 一键退订、进收件箱还是垃圾箱只能手动看（checklist 17）。
+
 ## 文档冲突记录（按实现指南执行）
 
 1. **代码仓库**：指南写独立仓库 `victory-c/victor-picks`；你已决定放在本仓库 `victory-c/victory-calendar`。按你的决定。
@@ -388,3 +445,9 @@ Lighthouse 说明：本机测量时 Chrome 找得到苹方，所以中文正文�
 22. **周报的数据模型**：指南没有的三列和一个索引（迁移 `0003_digest_send`）：`digest_issues.auto_fields`（模型起草、待确认的导语）、`keep_cover_ids`（这期保留的 Luma 官方封面）、`snapshot`（冻结的内容）；`digest_sends.kind`（digest / empty）、`batch_key`、`error`。
 23. **周报的锁**：指南写 Upstash 锁，改用 `sync_state` 的条件 UPDATE 租约（同第 17 条）。
 24. **周报每批**：指南每个变体一批，改为跨变体混装，每批最多 100 人（见待确认）。
+25. **`/weekly` 何时公开**：spec 第 33 条写「status = 'sent' 才显示，之前『网页版』链到 `/week/`」。改为从开始发送时公开、邮件直接链到 `/weekly/`（见待确认）。
+26. **网站统计**：指南计划用 Vercel Web Analytics，现在没有装，隐私页写的是「没有统计」。以后要装的话先改隐私页。
+27. **取消的活动保留 14 天**：指南写取消的条目在订阅里保留 14 天，代码里没有单独实现（`getWindow` 的注释曾这样写，已改正）：取消的活动在它的日期还在订阅时间窗内时一直显示「已取消」。文案按实际写。
+28. **订阅者 CSV**：M4 计划把每月的订阅者 CSV 存到 Blob，但我们的 Blob 是公开的，会把邮箱公开出去。第 15 周改成后台直接下载，M4 做的时候不要放进公开 Blob。
+29. **姓名**：指南的隐私条目写「可选姓名」，订阅表单没有姓名字段，隐私页也不提。
+30. **大陆读者引导**（指南 PIPL 一条：引导大陆读者用 ICS 和微信）：按 2026-09-30 的决定不考虑大陆，隐私页只写一句适用范围。

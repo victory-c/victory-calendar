@@ -22,6 +22,25 @@ test('first visit with zh Accept-Language goes to /zh', async ({ browser }) => {
   await ctx.close();
 });
 
+for (const [path, lang, title] of [
+  ['/privacy', 'en', 'Privacy'],
+  ['/zh/privacy', 'zh-Hans', '隐私'],
+] as const) {
+  test(`${path} renders with lang="${lang}", one h1, linked from the footer, no sideways scroll at 375 px`, async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    const res = await page.goto(path);
+    expect(res?.status()).toBe(200);
+    await expect(page.locator('html')).toHaveAttribute('lang', lang);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
+    expect(await page.getByRole('heading', { level: 2 }).count()).toBe(13);
+    await expect(page.getByRole('contentinfo').getByRole('link', { name: title, exact: true })).toHaveAttribute('href', path);
+    // Policy links are English pages and say so.
+    await expect(page.getByRole('link', { name: lang === 'en' ? 'Resend privacy policy' : 'Resend 隐私政策（英文）' })).toHaveAttribute('hreflang', 'en');
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+  });
+}
+
 test('no horizontal scroll', async ({ page }) => {
   await page.goto('/');
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);

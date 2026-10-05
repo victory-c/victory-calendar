@@ -224,6 +224,16 @@ describe('subscribe action: a real sign-up', () => {
     expect(h.sent[0].subject).toBe("确认订阅 · Confirm your subscription · Victor's Picks");
   });
 
+  it('the confirmation ends with a /privacy link in the subscriber\'s language', async () => {
+    await run();
+    expect(h.sent[0].text.split('\n').at(-1)).toBe('Privacy 隐私: https://picks.test/privacy');
+    expect(h.sent[0].html).toContain('<a href="https://picks.test/privacy" style="color:#6b7280">Privacy 隐私</a>');
+    fromIp('198.51.100.40');
+    await run(form({ email: 'zh-reader@example.com', locale: 'zh', source: 'zh/subscribe' }));
+    expect(h.sent[1].text.split('\n').at(-1)).toBe('隐私 Privacy: https://picks.test/zh/privacy');
+    expect(h.sent[1].html).toContain('href="https://picks.test/zh/privacy"');
+  });
+
   it('the email language is the radio choice, independent of the page it was sent from', async () => {
     await run(form({ locale: 'en', source: 'zh/subscribe' }));
     expect((await rows())[0]).toMatchObject({ locale: 'en', consentSource: 'zh/subscribe' });
@@ -340,6 +350,22 @@ describe('subscribe action: limits', () => {
     expect(await rows()).toHaveLength(5);
   });
 
+  it('per-IP keys are sha256 hashes, never the raw address (/privacy says so)', async () => {
+    h.headers = new Headers({ 'x-forwarded-for': '203.0.113.7, 10.0.0.1', 'user-agent': 'vitest' });
+    await run();
+    const ipCalls = vi.mocked(limit).mock.calls.filter(([name]) => name === 'subscribeIp' || name === 'subscribeIpDay');
+    expect(ipCalls).toEqual([
+      ['subscribeIp', hashToken('203.0.113.7')],
+      ['subscribeIpDay', hashToken('203.0.113.7')],
+    ]);
+    expect(JSON.stringify(vi.mocked(limit).mock.calls)).not.toContain('203.0.113');
+    // IPv4-mapped IPv6 is the same visitor: clientIp() normalises before hashing.
+    fromIp('::ffff:203.0.113.7');
+    vi.mocked(limit).mockClear();
+    await run(form({ email: 'mapped@example.com' }));
+    expect(vi.mocked(limit).mock.calls[0]).toEqual(['subscribeIp', hashToken('203.0.113.7')]);
+  });
+
   it('visitors without a usable IP share one bucket', async () => {
     fromIp(null);
     for (let i = 0; i < 5; i++) await run(form({ email: `n${i}@example.com` }));
@@ -425,7 +451,7 @@ describe('subscribe action: daily send budget', () => {
   });
 
   it('one IP gets at most 10 tries a day, so it cannot spend the whole budget alone', async () => {
-    for (let i = 0; i < 10; i++) await limit('subscribeIpDay', '203.0.113.7');
+    for (let i = 0; i < 10; i++) await limit('subscribeIpDay', hashToken('203.0.113.7'));
     expect(await run(form({ email: 'eleventh@example.com' }))).toEqual({ status: 'rate_limited' });
     await expectUntouched();
   });
@@ -567,7 +593,8 @@ describe('subscribe-state', () => {
 
 const copy = {
   email: 'Email', emailPlaceholder: 'you@example.com', categories: 'Categories', categoriesHint: 'Pick at least one.',
-  language: 'Email language', submit: 'Subscribe', submitting: 'Sending…', privacy: 'Privacy line', honeypot: 'Leave this field empty',
+  language: 'Email language', submit: 'Subscribe', submitting: 'Sending…', privacy: 'Privacy line', privacyLink: 'How I handle your data',
+  honeypot: 'Leave this field empty',
   pending: 'Check your inbox', pendingHint: 'Hint', again: 'Subscribe again',
   errors: { invalid_email: 'bad email', no_category: 'pick one', bot: 'bot', server: 'server', rate_limited: 'slow down', closed: 'closed', busy: 'busy' },
 };

@@ -28,6 +28,24 @@ export type DigestEditorProps = {
   /** The variant on preview; Send test sends exactly that. */
   test: { locale: 'en' | 'zh'; categories: string; label: string };
   adminEmail: string | null;
+  /** Seed inboxes (DIGEST_SEED_EMAILS) by domain only, never an address; `reason` says why sending is off. */
+  seed: SeedInfo;
+  /**
+   * The snapshot a test email renders has events, so its "view in browser" link is the issue's
+   * /weekly page (render.ts digestLinks); without events it is the plain /week page, which never 404s.
+   */
+  weeklyLink: boolean;
+};
+
+export type SeedInfo = {
+  /** Unique domains of the seed addresses, and which of the guide's five have none. */
+  domains: string[];
+  missing: string[];
+  count: number;
+  /** Entries left out: not an address, or past the 10-address cap. */
+  ignored: number;
+  ready: boolean;
+  reason: string | null;
 };
 
 const FORM_ID = 'digest-editor';
@@ -141,6 +159,9 @@ export function DigestEditor(p: DigestEditorProps) {
             </p>
           )}
           {draft && !p.aiReady && <p className="text-sm text-muted">AI is not set up: write both languages · AI 还没配置，请手写两种语言</p>}
+          <p className="text-sm text-muted">
+            Intros are public: they appear on the /weekly archive once the issue sends · 开场白会公开在 /weekly 存档里
+          </p>
           <div className="grid gap-4 md:grid-cols-2">
             {intro('en')}
             {intro('zh')}
@@ -250,6 +271,28 @@ export function DigestEditor(p: DigestEditorProps) {
             {p.test.label} → {p.adminEmail ?? 'ADMIN_EMAIL is not set · 没有配置 ADMIN_EMAIL'}（≤10/天）
           </span>
         </div>
+        {(draft || p.status === 'scheduled') && p.weeklyLink && (
+          <p className="mt-1 text-xs text-muted">
+            The test email&apos;s &ldquo;view in browser&rdquo; link opens this issue&apos;s /weekly page, which 404s until the issue starts sending · 测试邮件里的「网页版」链接指向 /weekly 存档页，这一期开始发送前会 404
+          </p>
+        )}
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+          <button type="submit" form={FORM_ID} name="_op" value="seed" disabled={pending || !p.seed.ready} className={`${btn.small} h-11`}>
+            Send to seed inboxes · 发种子邮件
+          </button>
+          {p.seed.ready ? (
+            <span className="text-muted">
+              {p.test.label} → {p.seed.count} inbox(es) · 个收件箱：{p.seed.domains.join(' · ')}（≤4 轮/天）
+            </span>
+          ) : (
+            <span className="text-seal-text">{p.seed.reason}</span>
+          )}
+        </div>
+        <p className="mt-1 text-xs text-muted">
+          {p.seed.missing.length > 0 && `No seed at ${p.seed.missing.join(', ')} · 还缺这些邮箱的种子 · `}
+          {p.seed.ignored > 0 && `${p.seed.ignored} DIGEST_SEED_EMAILS entr(ies) ignored (invalid or over 10) · ${p.seed.ignored} 个无效或超出 10 个的地址已忽略 · `}
+          Seed once the content is final (after Schedule), once in 中文 and once in EN, then check each landed in the inbox, not spam · 排期后中英文各发一轮，逐个确认进了收件箱而不是垃圾箱
+        </p>
       </section>
     </div>
   );

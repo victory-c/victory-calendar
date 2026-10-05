@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import { getTranslations } from 'next-intl/server';
 import { Link } from '@/i18n/navigation';
 import { titles, note, place } from '@/lib/events/display';
@@ -9,10 +10,21 @@ import { CategoryLabel } from './CategoryLabel';
 import { CoverImage } from './CoverImage';
 import { CuratorNote } from './CuratorNote';
 
-type Props = { event: PublicEvent; locale: Locale; going: GoingDisplay; priority?: boolean };
+type Props = {
+  event: PublicEvent;
+  locale: Locale;
+  going: GoingDisplay;
+  priority?: boolean;
+  /** Title heading level, one below the day header above it: h3 on day lists, h4 on /weekly/[week]. */
+  titleAs?: 'h3' | 'h4';
+};
+
+// globals.css gives h1–h3 the heading face (weight, leading, wrapping, zh tracking); an h4 title
+// borrows the same so the card looks identical at either level.
+const H4_LOOK = 'font-semibold leading-heading wrap-anywhere [font-synthesis-weight:none] [&:lang(zh-Hans)]:tracking-[0.02em]';
 
 /** Ledger row: TimeBadge | 1:1 cover | title, meta, chip — note spans under cover + text. */
-export async function EventCard({ event: e, locale, going, priority }: Props) {
+export async function EventCard({ event: e, locale, going, priority, titleAs: Title = 'h3' }: Props) {
   const t = await getTranslations({ locale, namespace: 'Event' });
   const { primary, primaryLang, secondary, secondaryLang } = titles(e, locale);
   const n = note(e, locale);
@@ -61,7 +73,7 @@ export async function EventCard({ event: e, locale, going, priority }: Props) {
       </Link>
 
       <div className="min-w-0">
-        <h3 className="text-h3 font-display">
+        <Title className={Title === 'h4' ? `text-h3 font-display ${H4_LOOK}` : 'text-h3 font-display'}>
           <Link
             href={`/events/${e.slug}`}
             lang={primaryLang}
@@ -69,7 +81,7 @@ export async function EventCard({ event: e, locale, going, priority }: Props) {
           >
             {primary}
           </Link>
-        </h3>
+        </Title>
         {secondary && (
           <p lang={secondaryLang} className="mt-0.5 line-clamp-1 text-[0.8125rem] text-muted">
             {secondary}
@@ -77,14 +89,14 @@ export async function EventCard({ event: e, locale, going, priority }: Props) {
         )}
         <p className="mt-1.5 font-mono text-xs leading-relaxed text-muted">
           {meta.map((m, i) => (
-            <span key={i} lang={m.lang}>
-              {i > 0 && <span aria-hidden> · </span>}
-              {m.text}
-            </span>
+            <Fragment key={i}>
+              {i > 0 && <>{' '}<span aria-hidden>·</span>{' '}</>}
+              <span lang={m.lang}>{m.text}</span>
+            </Fragment>
           ))}
           {going.kind === 'interested' && (
             <span>
-              {meta.length > 0 && <span aria-hidden> · </span>}
+              {meta.length > 0 && <>{' '}<span aria-hidden>·</span>{' '}</>}
               {t('interested')}
             </span>
           )}

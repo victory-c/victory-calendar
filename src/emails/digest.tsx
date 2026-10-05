@@ -1,10 +1,11 @@
 /* eslint-disable @next/next/no-img-element -- email markup rendered to a string, not a Next page */
 import { type CSSProperties, Fragment, type ReactNode } from 'react';
 import { Head, Html } from 'react-email';
+import { ALT_TITLE_MAX, chips, clip, dayLabel, NOTE_MAX, when, where } from '@/lib/digest/fields';
 import { isDigestSeal, type VariantSelection } from '@/lib/digest/select';
 import type { DigestEvent, DigestLinks, DigestSnapshot } from '@/lib/digest/types';
 import { note, titles } from '@/lib/events/display';
-import { dayKey, fmtDayHeader, fmtRange, PT } from '@/lib/format/date';
+import { fmtDayHeader, PT } from '@/lib/format/date';
 import { CATEGORIES, type Locale } from '@/lib/taxonomy';
 import { COPY, htmlLang, other, sealAlt } from './copy';
 import { C, categoryHex, DARK_CSS, FONT, OUTLOOK_DARK_CSS } from './tokens';
@@ -41,23 +42,6 @@ export type DigestEmailProps = {
 
 export type EmptyNoticeProps = Omit<DigestEmailProps, 'intro' | 'selection'>;
 
-/**
- * Victor's note is meant to be 1–2 lines (the site clamps it to two). In the email a longer one is
- * cut at about three lines' worth and read in full on the event page; this also bounds the size.
- * The grey other-language title is supplementary and gets the same treatment.
- */
-export const NOTE_MAX = { en: 180, 'zh-Hans': 80 } as const;
-const ALT_TITLE_MAX = { en: 120, 'zh-Hans': 60 } as const;
-
-export function clip(text: string, max: number) {
-  const t = text.trim().replace(/\s+/g, ' ');
-  const chars = [...t];
-  if (chars.length <= max) return t;
-  const cut = chars.slice(0, max).join('');
-  const space = cut.lastIndexOf(' ');
-  return `${(space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[\s\p{P}]+$/u, '')}…`;
-}
-
 const hidden = { display: 'none', msoHide: 'all' } as CSSProperties;
 
 function styles(l: Locale) {
@@ -90,51 +74,11 @@ function Table({ children, style }: { children: ReactNode; style?: CSSProperties
 
 const eventUrl = (origin: string, l: Locale, slug: string) => `${origin}${l === 'zh' ? '/zh' : ''}/events/${encodeURIComponent(slug)}`;
 const sealUrl = (origin: string, l: Locale, seal: string) => `${origin}/og/seal/${seal}?l=${l}`;
-/** "10月14日周三" / "Wed, Oct 14": the going list's day, never a clock time. */
-const dayLabel = (d: Date, l: Locale) => {
-  const { date, weekday } = fmtDayHeader(d, l, PT);
-  return l === 'zh' ? `${date}${weekday}` : `${weekday}, ${date}`;
-};
 /** Only tag text whose language differs from the email's. */
 const langIf = (lang: string, l: Locale) => (lang === htmlLang(l) ? undefined : lang);
 
-/**
- * fmtRange in PT; all-day events say so, with the day span when they run over several days. A
- * single all-day day says only 全天 / All day under a day header (Item); `dated` adds the day for
- * rows without one (the next-week preview).
- */
-function when(e: DigestEvent, l: Locale, dated = false) {
-  const start = new Date(e.startAt);
-  if (e.allDay) {
-    // An all-day end is exclusive (next midnight), so the last day is the instant before it.
-    const last = e.endAt ? new Date(Date.parse(e.endAt) - 1) : null;
-    if (!last || last <= start || dayKey(last, PT) === dayKey(start, PT)) {
-      return dated ? `${dayLabel(start, l)} · ${COPY[l].allDay}` : COPY[l].allDay;
-    }
-    return `${COPY[l].allDay} · ${dayLabel(start, l)}${l === 'zh' ? '–' : '\u2009–\u2009'}${dayLabel(last, l)}`;
-  }
-  return fmtRange(start, e.endAt ? new Date(e.endAt) : null, l, PT);
-}
-
 /** Only http(s) links leave the email; anything else falls back to our own page. */
 const httpOr = (url: string, fallback: string) => (/^https?:\/\//i.test(url) ? url : fallback);
-
-/** Neighbourhood or city (never an address), or 线上 / Online; hybrid adds the hybrid label. */
-function where(e: DigestEvent, l: Locale) {
-  if (e.format === 'online') return [COPY[l].online];
-  const out = e.place ? [e.place] : [];
-  if (e.format === 'hybrid') out.push(COPY[l].hybrid);
-  return out;
-}
-
-/** Price ("Free" → 免费 / Free, anything else verbatim) and access (apply / waitlist / sold out). */
-function chips(e: DigestEvent, l: Locale) {
-  const out: { text: string; lang?: string }[] = [];
-  const price = e.priceText?.trim();
-  if (price) out.push(/^free$/i.test(price) ? { text: COPY[l].free } : { text: price, lang: l === 'zh' ? 'en' : undefined });
-  if (e.access === 'apply' || e.access === 'waitlist' || e.access === 'sold_out') out.push({ text: COPY[l].access[e.access] });
-  return out;
-}
 
 /** Hosted 96 px PNG shown at 48 px, one language per seal; the alt is styled for blocked images. */
 function SealImg({ e, l, origin }: { e: DigestEvent; l: Locale; origin: string }) {
@@ -284,6 +228,7 @@ function Footer({ l, s, links }: { l: Locale; s: S; links: DigestLinks }) {
     [both((c) => c.unsubscribe), links.unsubscribe],
     [`${COPY[l].switchLang[l]} ${COPY[o].switchLang[l]}`, links.otherLanguage],
     [both((c) => c.web), links.web],
+    [both((c) => c.privacy), links.privacy],
   ];
   return (
     <Table style={{ marginTop: '28px' }}>

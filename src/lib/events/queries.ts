@@ -45,8 +45,9 @@ export type Window = { now: string; events: PublicEvent[]; showAttendance: boole
 
 /**
  * Feeds and calendars: published + cancelled events whose start falls in [today + fromDays,
- * today + toDays). Cancelled rows stay visible for 14 days after cancellation via their start
- * date window (guide: STATUS:CANCELLED kept 14 days).
+ * today + toDays). A cancelled event stays (STATUS:CANCELLED, struck through) for as long as its
+ * start is inside that window, so a subscribed calendar sees the cancellation at its next refresh.
+ * The guide's "kept 14 days after cancellation" is not implemented separately.
  */
 export async function getWindow(fromDays: number, toDays: number): Promise<Window> {
   'use cache';

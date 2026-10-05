@@ -26,6 +26,10 @@ vi.mock('@/i18n/navigation', () => ({
 }));
 vi.mock('@/components/LangSwitch', () => ({ LangSwitch: () => null, LangSwitchFallback: () => null }));
 vi.mock('@/lib/events/queries', () => ({ getWindow: async () => ({ events: [] }) }));
+// The sitemap's sent digest issues (the real query would need a database).
+vi.mock('@/lib/digest/archive-queries', () => ({
+  listSentIssues: async () => [{ isoWeek: '2026-W42', sentAt: new Date('2026-10-12T01:05:00Z'), introEn: 'Hi', introZh: '你好' }],
+}));
 vi.mock('botid/client/core', () => ({ initBotId: vi.fn() }));
 
 const BOTID = '/149e9513-01fa-4fb0-aad4-566afd725d1b/2d206a39-8ed7-437e-a3be-862e0f06eea3';
@@ -37,13 +41,16 @@ afterEach(() => {
 });
 
 /** The env newsletterStatus() reads, for each state the entry points care about. */
-function gate(state: 'open' | 'flag-closed' | 'no-db' | 'vercel-unverified' | 'vercel-verified') {
+function gate(state: 'open' | 'flag-closed' | 'no-db' | 'vercel-unverified' | 'vercel-verified' | 'vercel-no-contact') {
   vi.stubEnv('DATABASE_URL', state === 'no-db' ? undefined : 'postgres://localhost:5432/never_connected');
   vi.stubEnv('SUBSCRIBER_LINK_SECRET', 'test-secret-wiring');
   vi.stubEnv('NEWSLETTER_OPEN', state === 'flag-closed' ? '0' : undefined);
   vi.stubEnv('VERCEL', state.startsWith('vercel') ? '1' : undefined);
-  vi.stubEnv('RESEND_API_KEY', state === 'vercel-verified' ? 're_test' : undefined);
-  vi.stubEnv('RESEND_FROM', state === 'vercel-verified' ? "Victor's Picks <picks@mail.example.org>" : 'onboarding@resend.dev');
+  const verified = state === 'vercel-verified' || state === 'vercel-no-contact';
+  vi.stubEnv('RESEND_API_KEY', verified ? 're_test' : undefined);
+  vi.stubEnv('RESEND_FROM', verified ? "Victor's Picks <picks@mail.example.org>" : 'onboarding@resend.dev');
+  // On Vercel the form also waits for the /privacy contact address (D1).
+  vi.stubEnv('PRIVACY_CONTACT_EMAIL', state === 'vercel-no-contact' ? undefined : 'privacy@example.org');
   vi.stubEnv('PUBLIC_HOST', 'picks.example.org');
 }
 
@@ -170,7 +177,7 @@ describe('next.config', () => {
     },
   );
 
-  it.each(['/', '/zh', '/subscribe', '/zh/subscribe', '/about', '/events/x', '/confirmations'])('%s stays indexable', async (path) => {
+  it.each(['/', '/zh', '/subscribe', '/zh/subscribe', '/about', '/privacy', '/zh/privacy', '/events/x', '/confirmations'])('%s stays indexable', async (path) => {
     const { effective } = await load();
     expect(effective(path)['x-robots-tag']).toBeUndefined();
   });
@@ -285,7 +292,7 @@ describe('Subscribe entry points follow newsletterStatus()', () => {
     });
   });
 
-  describe.each(['flag-closed', 'no-db', 'vercel-unverified'] as const)('closed (%s)', (state) => {
+  describe.each(['flag-closed', 'no-db', 'vercel-unverified', 'vercel-no-contact'] as const)('closed (%s)', (state) => {
     it('no Subscribe link in header, footer or calendar menu', async () => {
       gate(state);
       expect(subscribeLinks(await header())).toEqual([]);
@@ -300,6 +307,22 @@ describe('Subscribe entry points follow newsletterStatus()', () => {
       const urls = await sitemapUrls();
       expect(urls).toContain('https://picks.example.org/about');
       expect(urls.some((u) => u.endsWith('/subscribe'))).toBe(false);
+    });
+  });
+});
+
+describe('sitemap: the /weekly digest archive (week 15)', () => {
+  it('lists /weekly, /privacy and each sent issue with its zh alternate and send time', async () => {
+    gate('flag-closed');
+    const entries = await (await import('@/app/sitemap')).default();
+    const urls = entries.map((e) => e.url);
+    expect(urls).toEqual(expect.arrayContaining(['https://picks.example.org/weekly', 'https://picks.example.org/privacy']));
+    const issue = entries.find((e) => e.url === 'https://picks.example.org/weekly/2026-W42');
+    expect(issue?.lastModified).toEqual(new Date('2026-10-12T01:05:00Z'));
+    expect(issue?.alternates?.languages).toEqual({
+      en: 'https://picks.example.org/weekly/2026-W42',
+      'zh-Hans': 'https://picks.example.org/zh/weekly/2026-W42',
+      'x-default': 'https://picks.example.org/weekly/2026-W42',
     });
   });
 });

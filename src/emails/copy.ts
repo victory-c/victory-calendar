@@ -33,6 +33,7 @@ type Copy = {
   prefs: string;
   unsubscribe: string;
   web: string;
+  privacy: string;
   /** Label for the "other language" link of an email in `key` language, written in this language. */
   switchLang: Record<Locale, string>;
 };
@@ -62,6 +63,7 @@ export const COPY: Record<Locale, Copy> = {
     prefs: '订阅设置',
     unsubscribe: '退订',
     web: '网页版',
+    privacy: '隐私',
     switchLang: { zh: '改收英文版', en: '改收中文版' },
   },
   en: {
@@ -91,6 +93,7 @@ export const COPY: Record<Locale, Copy> = {
     prefs: 'Preferences',
     unsubscribe: 'Unsubscribe',
     web: 'View in browser',
+    privacy: 'Privacy',
     switchLang: { zh: 'Switch to English', en: 'Switch to Chinese' },
   },
 };

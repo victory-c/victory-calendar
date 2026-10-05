@@ -1,5 +1,6 @@
 import { Resend, type WebhookEventPayload } from 'resend';
-import { hasDatabase } from '@/lib/db';
+import { db, hasDatabase } from '@/lib/db';
+import { jobsLog } from '@/lib/db/schema';
 import { markFailed } from '@/lib/digest/claim';
 import { describeError } from '@/lib/log-safe';
 import { suppressEmails, suppressSubscriberIds } from '@/lib/subscribers/service';
@@ -13,6 +14,12 @@ import { suppressEmails, suppressSubscriberIds } from '@/lib/subscribers/service
 // the payload is signed, so they are trusted: email.failed (accepted, then not delivered, e.g.
 // reached_daily_quota) is recorded on that digest_sends row, and a suppressing event also
 // suppresses the tagged subscriber by id, an exact primary-key match next to the address match.
+//
+// Every bounce (soft ones too), complaint, suppression and failure also leaves one jobs_log row
+// (job 'email_event', week 15) before that handling, for per-issue bounce and complaint rates and
+// the G3 "zero seed bounces" check: type, trusted tags, bounce type, recipient domain and the svix
+// id. Never an address. Delivery is at least once (and a 503 below is retried), so readers count
+// distinct svix ids. The row is best effort: a failed insert is logged and changes nothing else.
 
 const text = (body: string, status: number) =>
   new Response(body, { status, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
@@ -56,6 +63,37 @@ function failedReason(evt: WebhookEventPayload) {
 
 const ok = (body: Record<string, unknown>) => Response.json({ ok: true, ...body }, { headers: { 'cache-control': 'no-store' } });
 
+const LOGGED: ReadonlySet<string> = new Set(['email.bounced', 'email.complained', 'email.suppressed', 'email.failed']);
+
+/** The first recipient's domain, lowercased, or null: the event log's only trace of who it was. */
+function recipientDomain(to: unknown): string | null {
+  for (const raw of recipients(to)) {
+    const email = raw.trim();
+    const at = email.lastIndexOf('@');
+    const domain = email.slice(at + 1).toLowerCase();
+    if (at > 0 && /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain) && domain.length <= 253) return domain;
+  }
+  return null;
+}
+
+/** One jobs_log row per delivery problem; failures are logged and swallowed (the response never depends on it). */
+async function logEvent(evt: WebhookEventPayload, tags: DigestTags, svix: string | null) {
+  const bounce = (evt.data as { bounce?: { type?: unknown } } | undefined)?.bounce?.type;
+  const detail = {
+    type: evt.type,
+    kind: tags.kind,
+    issue: tags.issue,
+    bounce: typeof bounce === 'string' && /^[A-Za-z]{1,20}$/.test(bounce) ? bounce : null,
+    domain: recipientDomain((evt.data as { to?: unknown } | undefined)?.to),
+    svix,
+  };
+  try {
+    await db.insert(jobsLog).values({ job: 'email_event', ok: false, finishedAt: new Date(), detail });
+  } catch (err) {
+    console.error(`[webhook:resend] ${evt.type}: event log write failed: ${describeError(err)}`);
+  }
+}
+
 export async function POST(req: Request) {
   const secret = process.env.RESEND_WEBHOOK_SECRET;
   if (!secret) return text('Webhook secret not configured', 503);
@@ -80,6 +118,8 @@ export async function POST(req: Request) {
   if (typeof evt?.type !== 'string') return text('Invalid payload', 400);
 
   const tags = digestTags(evt);
+  // Without a database there is nowhere to write; the handling below answers 503 or 200 as before.
+  if (LOGGED.has(evt.type) && hasDatabase()) await logEvent(evt, tags, req.headers.get('svix-id')?.slice(0, 100) || null);
   const failed = evt.type === 'email.failed' && tags.kind === 'digest' && tags.issue && tags.sub ? { issue: tags.issue, sub: tags.sub } : null;
   const emails = toSuppress(evt);
   if (!emails && !failed) return ok({});
