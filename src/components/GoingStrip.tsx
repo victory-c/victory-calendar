@@ -21,7 +21,7 @@ export async function GoingStrip({ items, locale }: { items: Item[]; locale: Loc
       <ul className="rail -mx-4 mt-3 flex gap-5 overflow-x-auto px-4 pt-2 pb-2 md:mx-0 md:px-0">
         {items.map(({ event: e, seal }) => {
           const { primary, primaryLang } = titles(e, locale);
-          const day = fmtDayHeader(e.startAt, locale, e.tz);
+          const day = fmtDayHeader(e.startAt, locale);
           return (
             <li key={e.id} className="flex w-[232px] shrink-0 items-center gap-3">
               <CoverImage cover={e.cover} category={e.category} hostName={null} alt="" size={64} seal={seal} sealSize="sm" locale={locale} className="going-strip-cover shrink-0" />
@@ -30,7 +30,7 @@ export async function GoingStrip({ items, locale }: { items: Item[]; locale: Loc
                   {primary}
                 </Link>
                 <p className="tnum mt-0.5 font-mono text-xs text-muted">
-                  {day.weekday} {fmtTime(e.startAt, locale, e.tz)}
+                  {day.weekday} {fmtTime(e.startAt, locale)}
                 </p>
               </div>
             </li>

@@ -83,7 +83,7 @@ export function selectForVariant(snap: DigestSnapshot, categories: readonly stri
       category,
       days: [...days.entries()].map(([key, events]) => {
         const first = new Date(events[0].startAt);
-        return { key, labels: { en: fmtDayHeader(first, 'en', PT), zh: fmtDayHeader(first, 'zh', PT) }, events };
+        return { key, labels: { en: fmtDayHeader(first, 'en'), zh: fmtDayHeader(first, 'zh') }, events };
       }),
     });
   }

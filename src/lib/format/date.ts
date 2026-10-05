@@ -1,4 +1,7 @@
 // Store UTC + IANA tz, render with Intl (guide「日期时间」). Never numeric-only dates.
+// Text a person reads is always on the Pacific clock (PRD「日期格式」), so the display helpers
+// take no zone: passing an event's own tz would show its local time next to the "PT" label.
+// Only dayKey and isoWithOffset accept one (JSON-LD offsets, the editor's wall-time inputs).
 import type { Locale } from '../taxonomy';
 
 export const PT = 'America/Los_Angeles';
@@ -7,12 +10,12 @@ const hourCycle = (locale: Locale) => (locale === 'zh' ? 'h23' : 'h12');
 
 // Note: the guide's snippet uses month:'numeric' for zh, but current ICU renders that as
 // "10/7周三". month:'short' yields the PRD F08 acceptance string "10月7日周三".
-function dayFmt(locale: Locale, tz: string) {
-  return new Intl.DateTimeFormat(tag(locale), { timeZone: tz, month: 'short', day: 'numeric', weekday: 'short' });
+function dayFmt(locale: Locale) {
+  return new Intl.DateTimeFormat(tag(locale), { timeZone: PT, month: 'short', day: 'numeric', weekday: 'short' });
 }
-function timeFmt(locale: Locale, tz: string) {
+function timeFmt(locale: Locale) {
   return new Intl.DateTimeFormat(tag(locale), {
-    timeZone: tz,
+    timeZone: PT,
     hour: 'numeric',
     minute: '2-digit',
     hourCycle: hourCycle(locale),
@@ -37,12 +40,12 @@ export function normalizeSpaces(s: string, locale: Locale = 'en') {
  * Multi-day: zh → 10月2日周五 9:00 – 10月3日周六 19:00 北美太平洋时间
  *            en → Fri, Oct 2 · 9:00 AM – Sat, Oct 3 · 7:00 PM PT
  */
-export function fmtRange(start: Date, end: Date | null, locale: Locale, tz = PT) {
-  const day = dayFmt(locale, tz);
-  const time = timeFmt(locale, tz);
+export function fmtRange(start: Date, end: Date | null, locale: Locale) {
+  const day = dayFmt(locale);
+  const time = timeFmt(locale);
   const sep = locale === 'zh' ? ' ' : ' · ';
   const zone = zoneLabel(locale);
-  if (end && dayKey(start, tz) !== dayKey(end, tz) && end > start) {
+  if (end && dayKey(start) !== dayKey(end) && end > start) {
     const a = `${day.format(start)}${sep}${normalizeSpaces(time.format(start), locale)}`;
     const b = `${day.format(end)}${sep}${normalizeSpaces(time.format(end), locale)}`;
     return `${a}\u2009–\u2009${b} ${zone}`;
@@ -52,9 +55,9 @@ export function fmtRange(start: Date, end: Date | null, locale: Locale, tz = PT)
 }
 
 /** Full date for headings: 2026年10月7日星期三 / Wednesday, October 7, 2026 */
-export function fmtLongDate(d: Date, locale: Locale, tz = PT) {
+export function fmtLongDate(d: Date, locale: Locale) {
   return new Intl.DateTimeFormat(tag(locale), {
-    timeZone: tz,
+    timeZone: PT,
     year: 'numeric',
     month: 'long',
     day: 'numeric',
@@ -63,21 +66,21 @@ export function fmtLongDate(d: Date, locale: Locale, tz = PT) {
 }
 
 /** Day header parts: { date: "10月7日" | "Oct 7", weekday: "周三" | "Wed" } */
-export function fmtDayHeader(d: Date, locale: Locale, tz = PT) {
-  const date = new Intl.DateTimeFormat(tag(locale), { timeZone: tz, month: 'short', day: 'numeric' }).format(d);
-  const weekday = new Intl.DateTimeFormat(tag(locale), { timeZone: tz, weekday: 'short' }).format(d);
+export function fmtDayHeader(d: Date, locale: Locale) {
+  const date = new Intl.DateTimeFormat(tag(locale), { timeZone: PT, month: 'short', day: 'numeric' }).format(d);
+  const weekday = new Intl.DateTimeFormat(tag(locale), { timeZone: PT, weekday: 'short' }).format(d);
   return { date, weekday };
 }
 
 /** TimeBadge: "18:30" (zh) / "6:30 PM" (en) */
-export function fmtTime(d: Date, locale: Locale, tz = PT) {
-  return normalizeSpaces(timeFmt(locale, tz).format(d), locale);
+export function fmtTime(d: Date, locale: Locale) {
+  return normalizeSpaces(timeFmt(locale).format(d), locale);
 }
 
 /** DateBadge for ungrouped contexts: { day: "07", weekday: "周三" | "Wed" } */
-export function fmtDateBadge(d: Date, locale: Locale, tz = PT) {
-  const day = new Intl.DateTimeFormat('en-US', { timeZone: tz, day: '2-digit' }).format(d);
-  const weekday = new Intl.DateTimeFormat(tag(locale), { timeZone: tz, weekday: 'short' }).format(d);
+export function fmtDateBadge(d: Date, locale: Locale) {
+  const day = new Intl.DateTimeFormat('en-US', { timeZone: PT, day: '2-digit' }).format(d);
+  const weekday = new Intl.DateTimeFormat(tag(locale), { timeZone: PT, weekday: 'short' }).format(d);
   return { day, weekday };
 }
 
@@ -135,8 +138,8 @@ export function isoWithOffset(d: Date, tz = PT) {
 }
 
 /** TimeBadge parts: zh { time: "18:30" }, en { time: "6:30", period: "PM" } */
-export function fmtTimeParts(d: Date, locale: Locale, tz = PT) {
-  const parts = timeFmt(locale, tz).formatToParts(d);
+export function fmtTimeParts(d: Date, locale: Locale) {
+  const parts = timeFmt(locale).formatToParts(d);
   const period = parts.find((p) => p.type === 'dayPeriod')?.value ?? null;
   const time = parts
     .filter((p) => p.type === 'hour' || p.type === 'minute' || (p.type === 'literal' && p.value.includes(':')))

@@ -15,7 +15,7 @@ export function buildRss({ events, locale, origin, now }: { events: PublicEvent[
     .map((e) => {
       const { primary } = titles(e, locale);
       const n = note(e, locale);
-      const when = fmtRange(e.startAt, e.endAt, locale, e.tz);
+      const when = fmtRange(e.startAt, e.endAt, locale);
       const prefix = e.status === 'cancelled' ? (zh ? '[已取消] ' : '[Cancelled] ') : '';
       const body = [when, n?.text, `RSVP: ${e.sourceUrl}`].filter(Boolean).join('\n');
       return `<item>

@@ -8,7 +8,7 @@ export function CalendarGrid({ ym, events, todayKey, locale }: { ym: string; eve
   const weeks = monthGrid(ym, locale);
   const byDay = new Map<string, Category[]>();
   for (const e of events) {
-    const k = dayKey(e.startAt, e.tz);
+    const k = dayKey(e.startAt); // Pacific day, like the grid's own day keys
     const list = byDay.get(k) ?? [];
     if (!list.includes(e.category)) list.push(e.category);
     byDay.set(k, list);

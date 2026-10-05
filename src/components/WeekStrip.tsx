@@ -9,7 +9,7 @@ export function WeekStrip({ events, todayKey, locale }: { events: PublicEvent[];
   const wd = new Intl.DateTimeFormat(tag, { weekday: 'short', timeZone: 'America/Los_Angeles' });
   const byDay = new Map<string, Category[]>();
   for (const e of events) {
-    const k = dayKey(e.startAt, e.tz);
+    const k = dayKey(e.startAt); // Pacific day, like the strip's own day keys
     const list = byDay.get(k) ?? [];
     if (!list.includes(e.category)) list.push(e.category);
     byDay.set(k, list);

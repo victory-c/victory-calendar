@@ -92,7 +92,7 @@ const eventUrl = (origin: string, l: Locale, slug: string) => `${origin}${l === 
 const sealUrl = (origin: string, l: Locale, seal: string) => `${origin}/og/seal/${seal}?l=${l}`;
 /** "10月14日周三" / "Wed, Oct 14": the going list's day, never a clock time. */
 const dayLabel = (d: Date, l: Locale) => {
-  const { date, weekday } = fmtDayHeader(d, l, PT);
+  const { date, weekday } = fmtDayHeader(d, l);
   return l === 'zh' ? `${date}${weekday}` : `${weekday}, ${date}`;
 };
 /** Only tag text whose language differs from the email's. */
@@ -113,7 +113,7 @@ function when(e: DigestEvent, l: Locale, dated = false) {
     }
     return `${COPY[l].allDay} · ${dayLabel(start, l)}${l === 'zh' ? '–' : '\u2009–\u2009'}${dayLabel(last, l)}`;
   }
-  return fmtRange(start, e.endAt ? new Date(e.endAt) : null, l, PT);
+  return fmtRange(start, e.endAt ? new Date(e.endAt) : null, l);
 }
 
 /** Only http(s) links leave the email; anything else falls back to our own page. */
@@ -354,7 +354,7 @@ function Shell({ locale: l, snap, subject, preheader, links, children }: EmptyNo
   const s = styles(l);
   const lang = htmlLang(l);
   // The covered week's Monday at noon PT, always the right calendar day whatever the DST offset.
-  const monday = fmtDayHeader(new Date(Date.parse(snap.from) + 12 * 3600_000), l, PT).date;
+  const monday = fmtDayHeader(new Date(Date.parse(snap.from) + 12 * 3600_000), l).date;
   return (
     <Html lang={lang} dir="ltr" {...OFFICE_NS}>
       <Head>

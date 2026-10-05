@@ -61,7 +61,7 @@ async function Editor({ params, searchParams }: PageProps<'/admin/e/[id]'>) {
         values={values}
         autoFields={e.autoFields}
         heading={e.titleZh || e.titleEn || platformName(e.sourceUrl) || 'Untitled'}
-        when={e.startAt ? fmtRange(e.startAt, e.endAt, 'zh', e.tz) : null}
+        when={e.startAt ? fmtRange(e.startAt, e.endAt, 'zh') : null}
         publicHref={e.status === 'published' || e.status === 'cancelled' ? `/events/${e.slug}` : null}
         cover={<CoverPanel id={e.id} preview={preview} kind={e.cover?.kind ?? null} letterboxed={e.cover?.letterboxed ?? false} attribution={e.cover?.attribution ?? null} blobReady={blobConfigured()} hasCategory={isCategory(e.category)} />}
         going={<GoingForm id={e.id} going={e.going} visibility={e.goingVisibility} />}

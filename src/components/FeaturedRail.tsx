@@ -24,7 +24,7 @@ export async function FeaturedRail({ items, locale }: { items: Item[]; locale: L
         {items.map(({ event: e, going }, i) => {
           const { primary, primaryLang, secondary, secondaryLang } = titles(e, locale);
           const n = note(e, locale);
-          const badge = fmtDateBadge(e.startAt, locale, e.tz);
+          const badge = fmtDateBadge(e.startAt, locale);
           return (
             <li key={e.id} className="w-[260px] shrink-0 snap-start rounded-card border border-rule p-4 md:w-auto">
               <Link href={`/events/${e.slug}`} tabIndex={-1} aria-hidden className="block">
@@ -42,10 +42,10 @@ export async function FeaturedRail({ items, locale }: { items: Item[]; locale: L
                 />
               </Link>
               <div className="mt-3 flex gap-3">
-                <time dateTime={isoWithOffset(e.startAt, e.tz)} className="shrink-0 text-center font-mono leading-none">
+                <time dateTime={isoWithOffset(e.startAt)} className="shrink-0 text-center font-mono leading-none">
                   <span className="tnum block text-h3">{badge.day}</span>
                   <span className="mt-1 block text-xs text-muted">{badge.weekday}</span>
-                  <span className="tnum mt-1 block text-xs text-muted">{fmtTime(e.startAt, locale, e.tz)}</span>
+                  <span className="tnum mt-1 block text-xs text-muted">{fmtTime(e.startAt, locale)}</span>
                 </time>
                 <div className="min-w-0">
                   <h3 className="text-[1.0625rem] font-display">

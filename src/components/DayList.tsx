@@ -22,7 +22,7 @@ export async function DayList({ events, locale, now, todayKey, showAttendance, l
   const t = await getTranslations({ locale, namespace: 'Home' });
   const days = new Map<string, PublicEvent[]>();
   for (const e of events) {
-    const k = dayKey(e.startAt, e.tz);
+    const k = dayKey(e.startAt); // Pacific day, the same day DayHeader prints
     days.set(k, [...(days.get(k) ?? []), e]);
   }
   const tomorrowKey = addDaysKey(todayKey, 1);

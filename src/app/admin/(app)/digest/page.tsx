@@ -62,7 +62,7 @@ const eventTitle = (e: Pick<PublicEvent, 'titleEn' | 'titleZh'>) => {
   return t.secondary ? `${t.primary} · ${t.secondary}` : t.primary;
 };
 const editorEvent = (e: PublicEvent): DigestEditorEvent & { tag: string } => ({
-  id: e.id, title: eventTitle(e), when: fmtRange(e.startAt, e.endAt, 'zh', PT), tag: CATEGORIES[e.category].zh,
+  id: e.id, title: eventTitle(e), when: fmtRange(e.startAt, e.endAt, 'zh'), tag: CATEGORIES[e.category].zh,
 });
 
 function previewVariant(sp: Search): Variant {
@@ -252,7 +252,7 @@ async function Digest({ searchParams }: { searchParams: Promise<Search> }) {
         autoFields={issue.autoFields}
         featured={nextEvents.map((e) => ({ ...editorEvent(e), onSite: e.featured, checked: issue.featuredIds.includes(e.id) }))}
         staleFeatured={issue.featuredIds.filter((id) => !nextIds.has(id)).length}
-        luma={lumaCovers.map((c) => ({ id: c.id, title: eventTitle(c), when: fmtRange(new Date(c.startAt), null, 'zh', PT), kept: c.kept }))}
+        luma={lumaCovers.map((c) => ({ id: c.id, title: eventTitle(c), when: fmtRange(new Date(c.startAt), null, 'zh'), kept: c.kept }))}
         allToTemplate={allToTemplate}
         canSendNow={canSendNow}
         modeOff={mode === 'off'}

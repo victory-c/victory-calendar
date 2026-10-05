@@ -1,10 +1,11 @@
 import { fmtRange, isoWithOffset } from '@/lib/format/date';
 import type { Locale } from '@/lib/taxonomy';
 
-export function DateTime({ start, end, locale, tz, className }: { start: Date; end: Date | null; locale: Locale; tz: string; className?: string }) {
+/** Event time line, always on the Pacific clock (no tz prop: see lib/format/date.ts). */
+export function DateTime({ start, end, locale, className }: { start: Date; end: Date | null; locale: Locale; className?: string }) {
   return (
-    <time dateTime={isoWithOffset(start, tz)} className={className}>
-      {fmtRange(start, end, locale, tz)}
+    <time dateTime={isoWithOffset(start)} className={className}>
+      {fmtRange(start, end, locale)}
     </time>
   );
 }

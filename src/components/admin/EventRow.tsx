@@ -30,7 +30,7 @@ export function EventRow({ e, actions, chips }: { e: AdminEvent; actions?: React
           {title}
         </Link>
         <p className="mt-0.5 truncate text-sm text-muted">
-          {e.startAt ? fmtRange(e.startAt, e.endAt, 'zh', e.tz) : '没有时间 · no date'}
+          {e.startAt ? fmtRange(e.startAt, e.endAt, 'zh') : '没有时间 · no date'}
         </p>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           {isCategory(e.category) && <Chip>{CATEGORIES[e.category].zh}</Chip>}

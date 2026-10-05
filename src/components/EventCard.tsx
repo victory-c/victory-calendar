@@ -16,7 +16,7 @@ export async function EventCard({ event: e, locale, going, priority }: Props) {
   const t = await getTranslations({ locale, namespace: 'Event' });
   const { primary, primaryLang, secondary, secondaryLang } = titles(e, locale);
   const n = note(e, locale);
-  const { time, period } = fmtTimeParts(e.startAt, locale, e.tz);
+  const { time, period } = fmtTimeParts(e.startAt, locale);
   const duration = e.allDay ? t('allDay') : fmtDuration(e.startAt, e.endAt, locale);
   const cancelled = e.status === 'cancelled';
   const seal = going.kind === 'seal' ? going.seal : null;
@@ -25,7 +25,7 @@ export async function EventCard({ event: e, locale, going, priority }: Props) {
   return (
     <article data-cat={e.category} className="event-card grid grid-cols-[3.5rem_7rem_minmax(0,1fr)] gap-x-3 gap-y-3 py-5 md:grid-cols-[4.5rem_9rem_minmax(0,1fr)] md:gap-x-5">
       <div className="pt-0.5 font-mono">
-        <time dateTime={isoWithOffset(e.startAt, e.tz)} className="tnum block text-[1.125rem] leading-none md:text-h3">
+        <time dateTime={isoWithOffset(e.startAt)} className="tnum block text-[1.125rem] leading-none md:text-h3">
           {e.allDay ? '—' : time}
         </time>
         {/* en: AM/PM rides on the second line so "12:00" fits the 56 px column. */}
