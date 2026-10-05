@@ -13,6 +13,8 @@ export const LIMITS = {
   // Size it as roughly 100 minus active subscribers minus a margin.
   subscribeSend: { max: Number(process.env.SUBSCRIBE_DAILY_SEND_CAP) || 40, window: '1 d' },
   token: { max: 60, window: '1 h' },
+  // Digest test sends from /admin/digest (always to ADMIN_EMAIL); they spend the same Resend budget.
+  digestTest: { max: 10, window: '1 d' },
 } as const;
 
 type LimitName = keyof typeof LIMITS;

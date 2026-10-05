@@ -30,7 +30,7 @@ vi.mock('@/lib/email/send', async (orig) => ({
   },
 }));
 
-const { changePause, changeSubscription, savePreferences, unsubscribeFrom } = await import('@/app/[locale]/prefs/actions');
+const { changeLanguage, changePause, changeSubscription, savePreferences, unsubscribeFrom } = await import('@/app/[locale]/prefs/actions');
 const { PrefsForm } = await import('@/components/PrefsForm');
 const { UnsubscribeButtons } = await import('@/components/UnsubscribeButtons');
 const { hashToken } = await import('@/lib/api/token-hash');
@@ -91,6 +91,7 @@ function form(fields: Record<string, string | string[]> = {}) {
 /** One valid call per action, for the checks every action shares. */
 const calls = {
   savePreferences: (t: string) => savePreferences(t, null, form({ locale: 'zh', c: 'ai' })),
+  changeLanguage: (t: string) => changeLanguage(t, null, form({ locale: 'zh' })),
   changePause: (t: string) => changePause(t, null, form({ intent: 'pause' })),
   changeSubscription: (t: string) => changeSubscription(t, null, form({ intent: 'unsubscribe' })),
   unsubscribeFrom: (t: string) => unsubscribeFrom(t, null, form({ c: 'all' })),
@@ -205,6 +206,48 @@ describe('savePreferences', () => {
     expect(await savePreferences(token, null, form({ locale: 'en', c: 'ai' }))).toEqual({ ok: false, key: 'state.error' });
     expect(await get(row.id)).toEqual(row);
     expect(h.refreshes).toBe(1); // re-render shows "Subscribe again" instead
+  });
+});
+
+describe('changeLanguage', () => {
+  it('switches only the edition language; categories come from the row, not the post', async () => {
+    const { row, token } = await seed();
+    expect(await changeLanguage(token, null, form({ locale: 'zh', c: 'social' }))).toEqual({ ok: true, key: 'prefs.langSwitchedZh' });
+    expect(h.refreshes).toBe(1);
+    const after = await get(row.id);
+    expect(after).toMatchObject({ status: 'active', locale: 'zh', categories: ['ai', 'hackathon', 'cycling'] });
+    expect(after.tokenVersion).toBe(row.tokenVersion);
+    // Pressing it again (double click, a second tab) is still a success.
+    expect(await changeLanguage(token, null, form({ locale: 'zh' }))).toEqual({ ok: true, key: 'prefs.langSwitchedZh' });
+    expect(await changeLanguage(token, null, form({ locale: 'en' }))).toEqual({ ok: true, key: 'prefs.langSwitchedEn' });
+    expect((await get(row.id)).locale).toBe('en');
+  });
+
+  it('works for pending and paused rows without changing their status', async () => {
+    const until = new Date(Date.now() + 5 * 864e5);
+    const pending = await seed({ status: 'pending', confirmedAt: null });
+    const paused = await seed({ email: 'paused@example.com', status: 'paused', pausedUntil: until });
+    expect(await changeLanguage(pending.token, null, form({ locale: 'zh' }))).toMatchObject({ ok: true });
+    expect(await changeLanguage(paused.token, null, form({ locale: 'zh' }))).toMatchObject({ ok: true });
+    expect(await get(pending.row.id)).toMatchObject({ status: 'pending', locale: 'zh' });
+    expect(await get(paused.row.id)).toMatchObject({ status: 'paused', pausedUntil: until, locale: 'zh' });
+  });
+
+  it.each([[{}], [{ locale: 'fr' }], [{ locale: 'ZH' }]])('rejects a missing or unknown language %j', async (fields: Record<string, string>) => {
+    const { row, token } = await seed();
+    expect(await changeLanguage(token, null, form(fields))).toEqual({ ok: false, key: 'state.error' });
+    expect(await get(row.id)).toEqual(row);
+    expect(h.refreshes).toBe(0);
+  });
+
+  it('a stale page cannot change an unsubscribed row, and never unsubscribes a row without categories', async () => {
+    const gone = await seed({ status: 'unsubscribed', unsubscribedAt: new Date() });
+    expect(await changeLanguage(gone.token, null, form({ locale: 'zh' }))).toEqual({ ok: false, key: 'state.error' });
+    expect(await get(gone.row.id)).toEqual(gone.row);
+    const empty = await seed({ email: 'empty@example.com', categories: [] });
+    expect(await changeLanguage(empty.token, null, form({ locale: 'zh' }))).toEqual({ ok: false, key: 'state.error' });
+    expect(await get(empty.row.id)).toEqual(empty.row);
+    expect(h.refreshes).toBe(2); // re-render without the offer
   });
 });
 
@@ -427,6 +470,7 @@ describe('privacy', () => {
     const results = [
       await changeSubscription(token, null, form({ intent: 'resubscribe' })),
       await savePreferences(token, null, form({ locale: 'zh', c: ['ai', 'vc'] })),
+      await changeLanguage(token, null, form({ locale: 'en' })),
       await unsubscribeFrom(token, null, form({ c: 'vc' })),
       await changeSubscription(token, null, form({ intent: 'unsubscribe' })),
       await changePause(`${token}x`, null, form({ intent: 'pause' })),
@@ -454,15 +498,40 @@ describe('markup', () => {
     unsubscribeAll: 'Unsubscribe from everything', resubscribe: 'Subscribe again',
   };
   const messages = Object.fromEntries(
-    ['prefs.saved', 'prefs.unsubscribed', 'prefs.paused', 'prefs.resumed', 'prefs.resubscribed', 'prefs.resubscribePending', 'prefs.linkExpired', 'prefs.statusSuppressed', 'link.unavailable', 'state.error'].map((k) => [k, k]),
+    ['prefs.saved', 'prefs.unsubscribed', 'prefs.paused', 'prefs.resumed', 'prefs.resubscribed', 'prefs.resubscribePending', 'prefs.linkExpired', 'prefs.statusSuppressed', 'link.unavailable', 'state.error', 'prefs.langSwitchedEn', 'prefs.langSwitchedZh'].map((k) => [k, k]),
   ) as Parameters<typeof PrefsForm>[0]['messages'];
-  const prefs = (status: Parameters<typeof PrefsForm>[0]['status']) =>
+  type Props = Parameters<typeof PrefsForm>[0];
+  const prefs = (status: Props['status'], language?: Props['language']) =>
     renderToStaticMarkup(
       createElement(PrefsForm, {
         locale: 'en', status, emailLocale: 'zh', categories: ['ai', 'cycling'],
-        actions: { save: noop, pause: noop, leave: noop }, text, messages,
+        actions: { save: noop, pause: noop, leave: noop }, text, messages, language,
       }),
     );
+  const offer = (locale: 'en' | 'zh'): Props['language'] => ({
+    locale, action: noop, text: { now: "You're getting the Chinese edition.", button: 'Switch to English' },
+  });
+
+  it('?lang= naming the other edition offers a one-tap switch above the preferences', () => {
+    const html = prefs('active', offer('en'));
+    const at = html.indexOf('You&#x27;re getting the Chinese edition.');
+    expect(at).toBeGreaterThan(-1);
+    expect(at).toBeLessThan(html.indexOf('Email language'));
+    const form = html.match(/<form[^>]*>[\s\S]*?<\/form>/)![0];
+    expect(form).toContain('<input type="hidden" name="locale" value="en"/>');
+    expect(form).toContain('Switch to English');
+    // The preferences keep showing the saved language, not the one the link asks for.
+    expect(checked(html, 'locale', 'zh')).toBe(true);
+  });
+
+  it('no offer when the link names the current edition, or once unsubscribed', () => {
+    for (const html of [prefs('active', offer('zh')), prefs('unsubscribed', offer('en')), prefs('active')]) {
+      expect(html).not.toContain('getting the Chinese edition');
+      expect(html).not.toContain('Switch to English');
+    }
+    expect(prefs('pending', offer('en'))).toContain('Switch to English');
+    expect(prefs('paused', offer('en'))).toContain('Switch to English');
+  });
 
   it('an active row gets preferences, pause and unsubscribe; values come from the row', () => {
     const html = prefs('active');

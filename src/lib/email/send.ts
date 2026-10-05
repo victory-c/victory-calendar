@@ -1,6 +1,15 @@
 import { Resend } from 'resend';
 
-export type OutgoingEmail = { to: string; subject: string; html: string; text: string };
+export type OutgoingEmail = {
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+  /** Extra headers, e.g. List-Unsubscribe on a digest test send. */
+  headers?: Record<string, string>;
+  /** Resend tags (name and value: [A-Za-z0-9_-] only). */
+  tags?: { name: string; value: string }[];
+};
 
 /** Until the mail.<domain> sender is verified, Resend's shared sender only reaches the account owner. */
 const DEFAULT_FROM = "Victor's Picks <onboarding@resend.dev>";
@@ -22,6 +31,8 @@ export async function sendEmail(msg: OutgoingEmail) {
     subject: msg.subject,
     html: msg.html,
     text: msg.text,
+    ...(msg.headers ? { headers: msg.headers } : {}),
+    ...(msg.tags ? { tags: msg.tags } : {}),
   });
   if (error) throw new Error(`resend: ${error.name}: ${error.message}`);
   return { id: data?.id ?? '' };

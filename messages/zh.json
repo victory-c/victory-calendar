@@ -197,7 +197,13 @@
       "resubscribe": "重新订阅",
       "resubscribed": "欢迎回来。",
       "resubscribePending": "请到邮箱确认。",
-      "linkExpired": "这个链接已经失效，请从最新一封邮件重新打开。"
+      "linkExpired": "这个链接已经失效，请从最新一封邮件重新打开。",
+      "langNowEn": "你现在收的是英文版。",
+      "langNowZh": "你现在收的是中文版。",
+      "langSwitchToEn": "改收英文版",
+      "langSwitchToZh": "改收中文版",
+      "langSwitchedEn": "好了，从下一封起收英文版。",
+      "langSwitchedZh": "好了，从下一封起收中文版。"
     },
     "unsubscribe": {
       "title": "退订",

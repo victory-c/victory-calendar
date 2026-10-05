@@ -9,6 +9,8 @@ const RULES = {
   title: 'This is an event title. Keep official English names and brand names as they are; translate only descriptive words. No emoji, no quotes.',
   summary: 'This is a one or two sentence event summary in Victor\'s plain, first-person-adjacent voice. Keep the tone; do not add facts.',
   note: 'This is Victor\'s personal recommendation note. Keep his tone and any wordplay as far as possible; do not add facts.',
+  // Weekly digest (week 14): /admin/digest drafts the other language's intro; Victor approves it.
+  intro: 'This is the 2–4 line intro of Victor\'s weekly newsletter, in his own voice. Keep the line breaks, names, numbers and tone; add no facts, events, links, greetings or sign-off. No emoji.',
 } as const;
 
 export async function retranslate(

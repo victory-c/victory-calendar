@@ -1,15 +1,13 @@
 import 'server-only';
-import { and, asc, eq, gte, inArray, lt } from 'drizzle-orm';
 import { cacheLife, cacheTag } from 'next/cache';
-import { db, hasDatabase } from '../db';
-import { covers, eventsPublic } from '../db/schema';
+import { hasDatabase } from '../db';
 import { startOfKey } from '../format/calendar';
 import { dayKey, PT } from '../format/date';
 import { showAttendance } from '../settings';
-import { isCategory } from '../taxonomy';
-import { redactForPublic } from './redact';
 import { seedEvents } from './seed';
-import type { PublicCover, PublicEvent } from './types';
+import { publicEvents } from './public-rows';
+import { redactForPublic } from './redact';
+import type { PublicEvent } from './types';
 
 export type Upcoming = {
   /** ISO instant the list was computed at; use it for going/ended decisions on the page. */
@@ -22,43 +20,11 @@ export type Upcoming = {
 
 const startOfDayPT = (now: Date, addDays = 0) => startOfKey(dayKey(now, PT), addDays);
 
-const PUBLIC_STATUSES = ['published', 'cancelled'] as const;
-
-async function fromDb(from: Date, to: Date, slug?: string): Promise<PublicEvent[]> {
-  const rows = await db
-    .select()
-    .from(eventsPublic)
-    .leftJoin(covers, eq(covers.id, eventsPublic.coverId))
-    .where(
-      slug
-        ? and(inArray(eventsPublic.status, [...PUBLIC_STATUSES]), eq(eventsPublic.slug, slug))
-        : and(inArray(eventsPublic.status, [...PUBLIC_STATUSES]), gte(eventsPublic.startAt, from), lt(eventsPublic.startAt, to)),
-    )
-    .orderBy(asc(eventsPublic.startAt));
-  return rows.flatMap(({ events_public: e, covers: c }): PublicEvent[] => {
-    if (!e.startAt || !isCategory(e.category)) return [];
-    const cover: PublicCover | null = c
-      ? {
-          kind: c.kind, url400: c.url400, url800: c.url800, url1600: c.url1600, thumbhash: c.thumbhash,
-          dominant: c.dominant, letterboxed: c.letterboxed, attribution: c.attribution, license: c.license,
-          sourcePageUrl: c.sourcePageUrl,
-        }
-      : null;
-    return [
-      {
-        id: e.id, slug: e.slug, status: e.status === 'cancelled' ? 'cancelled' : 'published',
-        titleEn: e.titleEn ?? e.titleZh ?? '', titleZh: e.titleZh ?? e.titleEn ?? '',
-        summaryEn: e.summaryEn, summaryZh: e.summaryZh, noteEn: e.noteEn, noteZh: e.noteZh,
-        category: e.category, tags: e.tags, eventLanguage: e.eventLanguage, startAt: e.startAt, endAt: e.endAt,
-        tz: e.tz, allDay: e.allDay, format: e.format, venueName: e.venueName, city: e.city,
-        neighborhood: e.neighborhood, region: e.region, address: e.address, privateVenue: e.privateVenue,
-        priceText: e.priceText, access: e.access, hostName: e.hostName, hostUrl: e.hostUrl, sourceUrl: e.sourceUrl,
-        going: e.going, goingVisibility: e.goingVisibility, featured: e.featured, sequence: e.sequence,
-        publishedAt: e.publishedAt, cover,
-      } satisfies PublicEvent,
-    ].map(redactForPublic);
-  });
-}
+// The site shows published and cancelled events (struck through); the DB read lives in
+// public-rows.ts so the digest can use it uncached.
+const fromDb = (from: Date, to: Date) => publicEvents({ from, to });
+/** One event by slug, whenever it starts (detail pages, OG cards, per-event ICS). */
+const bySlug = (slug: string) => publicEvents({ slug });
 
 /** Today (PT) plus the next `days - 1` days. Cached and tagged; publishing invalidates 'events'. */
 export async function getUpcoming(days = 7): Promise<Upcoming> {
@@ -102,7 +68,7 @@ export async function getEventBySlug(slug: string): Promise<(Window & { event: P
   cacheLife({ stale: 300, revalidate: 900, expire: 86_400 });
   const now = new Date();
   const sample = !hasDatabase();
-  const events = sample ? seedEvents(now).map(redactForPublic).filter((e) => e.slug === slug) : await fromDb(now, now, slug);
+  const events = sample ? seedEvents(now).map(redactForPublic).filter((e) => e.slug === slug) : await bySlug(slug);
   return { now: now.toISOString(), events, event: events[0] ?? null, showAttendance: await showAttendance(), sample };
 }
 

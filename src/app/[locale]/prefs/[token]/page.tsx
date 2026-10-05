@@ -9,11 +9,12 @@ import { effectiveStatus, longDate, welcomeBanner } from '@/lib/newsletter/prefs
 import { linksWork } from '@/lib/newsletter/status';
 import { type Subscriber, subscriberFromToken, viewOf } from '@/lib/subscribers/service';
 import type { Locale } from '@/lib/taxonomy';
-import { changePause, changeSubscription, type PrefsKey, savePreferences } from '../actions';
+import { changeLanguage, changePause, changeSubscription, type PrefsKey, savePreferences } from '../actions';
 
 // Preference center, opened from a link in an email. No login: the HMAC token is the credential.
 // Request-time only (no generateStaticParams, uncached reads after connection()); nothing changes
-// on load, only on a button press, because mail scanners fetch every link.
+// on load, only on a button press, because mail scanners fetch every link. The digest footer's
+// language link adds ?lang=<other edition>, which offers a one-tap switch above the preferences.
 
 type Props = {
   params: Promise<{ token: string }>;
@@ -70,6 +71,8 @@ async function Prefs({ locale, params, searchParams }: Props & { locale: Locale 
   // An expired pause shows as active (it already counts as active for the digest).
   const { status, pausedUntil } = effectiveStatus(view);
   const banner = welcomeBanner(sp.welcome, status);
+  const lang: Locale | null = sp.lang === 'en' || sp.lang === 'zh' ? sp.lang : null;
+  const editable = status === 'pending' || status === 'active' || status === 'paused';
 
   const line = {
     active: t('prefs.statusActive'),
@@ -86,6 +89,8 @@ async function Prefs({ locale, params, searchParams }: Props & { locale: Locale 
     'prefs.resumed': t('prefs.resumed'),
     'prefs.resubscribed': t('prefs.resubscribed'),
     'prefs.resubscribePending': t('prefs.resubscribePending'),
+    'prefs.langSwitchedEn': t('prefs.langSwitchedEn'),
+    'prefs.langSwitchedZh': t('prefs.langSwitchedZh'),
     'prefs.linkExpired': t('prefs.linkExpired'),
     'prefs.statusSuppressed': t('prefs.statusSuppressed'),
     'link.unavailable': t('link.unavailable'),
@@ -129,6 +134,18 @@ async function Prefs({ locale, params, searchParams }: Props & { locale: Locale 
             resubscribe: t('prefs.resubscribe'),
           }}
           messages={messages}
+          language={
+            lang && editable
+              ? {
+                  locale: lang,
+                  action: changeLanguage.bind(null, token),
+                  text: {
+                    now: t(view.locale === 'zh' ? 'prefs.langNowZh' : 'prefs.langNowEn'),
+                    button: t(lang === 'zh' ? 'prefs.langSwitchToZh' : 'prefs.langSwitchToEn'),
+                  },
+                }
+              : undefined
+          }
         />
       )}
     </>

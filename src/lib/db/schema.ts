@@ -188,6 +188,12 @@ export const digestIssues = pgTable(
     sendAfter: tstz('send_after'),
     sentAt: tstz('sent_at'),
     createdAt: tstz('created_at').notNull().defaultNow(),
+    // Week 14 (PROGRESS 文档冲突): which intro the model drafted and Victor hasn't approved yet;
+    // Luma official covers Victor chose to keep in this issue (otherwise the email uses the template);
+    // the assembled content frozen at scheduled → sending, so a retry renders byte-identical mail.
+    autoFields: text('auto_fields').array().notNull().default(sql`'{}'`),
+    keepCoverIds: text('keep_cover_ids').array().notNull().default(sql`'{}'`),
+    snapshot: jsonb('snapshot'),
   },
   () => [check('digest_issues_status_check', inList('status', ['draft', 'scheduled', 'sending', 'sent']))],
 );
@@ -205,8 +211,19 @@ export const digestSends = pgTable(
     claimedAt: tstz('claimed_at').notNull().defaultNow(),
     resendId: text('resend_id'),
     sentAt: tstz('sent_at'),
+    // 'empty' = the at-most-monthly "nothing I'd recommend this week" notice.
+    kind: text('kind', { enum: ['digest', 'empty'] }).notNull().default('digest'),
+    // Rows claimed together are retried together, so the Resend idempotency key repeats.
+    batchKey: text('batch_key'),
+    // Final, never retried: invalid | ineligible | idem_conflict | id_mismatch | expired | window_closed |
+    // render_failed | too_large | no_picks (replay_… on a replay) | failed:<reason>.
+    error: text('error'),
   },
-  (t) => [primaryKey({ columns: [t.issueId, t.subscriberId] })],
+  (t) => [
+    primaryKey({ columns: [t.issueId, t.subscriberId] }),
+    check('digest_sends_kind_check', inList('kind', ['digest', 'empty'])),
+    index('digest_sends_pending').on(t.issueId, t.batchKey).where(sql`${t.resendId} is null and ${t.error} is null`),
+  ],
 );
 
 export const settings = pgTable('settings', {

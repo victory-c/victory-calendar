@@ -285,3 +285,21 @@ export function viewOf(sub: Subscriber): SubscriberView {
     pausedUntil: sub.pausedUntil?.toISOString() ?? null,
   };
 }
+
+const SUBSCRIBER_ID = /^sub_[0-9a-z]{16}$/;
+
+/**
+ * Resend webhook, digest emails: the same suppression by subscriber id (the email's `sub` tag),
+ * an exact primary-key match that doesn't depend on how the provider spells the address.
+ */
+export async function suppressSubscriberIds(ids: readonly string[], opts: Opts = {}) {
+  const db = opts.db ?? defaultDb;
+  const list = [...new Set(ids.filter((id) => typeof id === 'string' && SUBSCRIBER_ID.test(id)))];
+  if (list.length === 0) return 0;
+  const rows = await db
+    .update(subscribers)
+    .set({ status: 'suppressed', pausedUntil: null })
+    .where(and(inArray(subscribers.id, list), sql`${subscribers.status} <> 'suppressed'`))
+    .returning({ id: subscribers.id });
+  return rows.length;
+}
