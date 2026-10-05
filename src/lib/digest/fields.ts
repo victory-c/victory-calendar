@@ -25,7 +25,7 @@ export function clip(text: string, max: number) {
 
 /** "10月14日周三" / "Wed, Oct 14": the going list's day, never a clock time. */
 export const dayLabel = (d: Date, l: Locale) => {
-  const { date, weekday } = fmtDayHeader(d, l, PT);
+  const { date, weekday } = fmtDayHeader(d, l);
   return l === 'zh' ? `${date}${weekday}` : `${weekday}, ${date}`;
 };
 /**
@@ -43,7 +43,7 @@ export function when(e: DigestEvent, l: Locale, dated = false) {
     }
     return `${COPY[l].allDay} · ${dayLabel(start, l)}${l === 'zh' ? '–' : '\u2009–\u2009'}${dayLabel(last, l)}`;
   }
-  return fmtRange(start, e.endAt ? new Date(e.endAt) : null, l, PT);
+  return fmtRange(start, e.endAt ? new Date(e.endAt) : null, l);
 }
 
 /** Neighbourhood or city (never an address), or 线上 / Online; hybrid adds the hybrid label. */

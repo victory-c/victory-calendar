@@ -5,9 +5,9 @@ import { type ArchiveView, weekDate } from '@/lib/digest/archive';
 import { dayLabel } from '@/lib/digest/fields';
 import { place, titles } from '@/lib/events/display';
 import type { PublicEvent } from '@/lib/events/types';
+import { fmtRange, isoWithOffset } from '@/lib/format/date';
 import { CATEGORIES, type Locale } from '@/lib/taxonomy';
 import { CoverImage } from './CoverImage';
-import { DateTime } from './DateTime';
 import { DayHeader } from './DayHeader';
 import { EmptyState } from './EmptyState';
 import { EventCard } from './EventCard';
@@ -139,7 +139,8 @@ export async function DigestArchive({ view, locale }: { view: ArchiveView; local
                         {te('allDay')}
                       </>
                     ) : (
-                      <DateTime start={e.startAt} end={e.endAt} locale={locale} tz={e.tz} />
+                      // Pacific clock like every time on the site, whatever zone the event is in.
+                      <time dateTime={isoWithOffset(e.startAt)}>{fmtRange(e.startAt, e.endAt, locale)}</time>
                     )}
                     {w && (
                       <>

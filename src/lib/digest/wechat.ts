@@ -121,7 +121,7 @@ export function wechatText(snap: DigestSnapshot, o: WeChatOptions): WeChatText |
   const going = snap.showAttendance ? sel.going.filter((e) => !cancelled.has(e.id)).length : 0;
   const origin = o.origin.replace(/\/+$/, '');
   // The covered week's Monday at noon PT, always the right calendar day (as the email masthead).
-  const monday = fmtDayHeader(new Date(Date.parse(snap.from) + 12 * 3600_000), 'zh', PT).date;
+  const monday = fmtDayHeader(new Date(Date.parse(snap.from) + 12 * 3600_000), 'zh').date;
 
   // Blocks are separated by a blank line; a day header opens the block of that day's first item.
   const blocks: string[][] = [[`${c.site} · ${c.weekOf(monday)}`, c.subject(picks, going)]];

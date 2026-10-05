@@ -5,7 +5,7 @@ import { ALT_TITLE_MAX, chips, clip, dayLabel, NOTE_MAX, when, where } from '@/l
 import { isDigestSeal, type VariantSelection } from '@/lib/digest/select';
 import type { DigestEvent, DigestLinks, DigestSnapshot } from '@/lib/digest/types';
 import { note, titles } from '@/lib/events/display';
-import { fmtDayHeader, PT } from '@/lib/format/date';
+import { fmtDayHeader } from '@/lib/format/date';
 import { CATEGORIES, type Locale } from '@/lib/taxonomy';
 import { COPY, htmlLang, other, sealAlt } from './copy';
 import { C, categoryHex, DARK_CSS, FONT, OUTLOOK_DARK_CSS } from './tokens';
@@ -299,7 +299,7 @@ function Shell({ locale: l, snap, subject, preheader, links, children }: EmptyNo
   const s = styles(l);
   const lang = htmlLang(l);
   // The covered week's Monday at noon PT, always the right calendar day whatever the DST offset.
-  const monday = fmtDayHeader(new Date(Date.parse(snap.from) + 12 * 3600_000), l, PT).date;
+  const monday = fmtDayHeader(new Date(Date.parse(snap.from) + 12 * 3600_000), l).date;
   return (
     <Html lang={lang} dir="ltr" {...OFFICE_NS}>
       <Head>
