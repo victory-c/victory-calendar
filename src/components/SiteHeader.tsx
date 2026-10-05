@@ -1,6 +1,7 @@
 import { getTranslations } from 'next-intl/server';
 import { Suspense } from 'react';
 import { Link } from '@/i18n/navigation';
+import { newsletterStatus } from '@/lib/newsletter/status';
 import type { Locale } from '@/lib/taxonomy';
 import { LangSwitch, LangSwitchFallback } from './LangSwitch';
 import { Wordmark } from './Wordmark';
@@ -21,7 +22,16 @@ export async function SiteHeader({ locale, path = '/' }: { locale: Locale; path?
         <Suspense fallback={<LangSwitchFallback label={t('langSwitch')} pathname={path} />}>
           <LangSwitch label={t('langSwitch')} />
         </Suspense>
-        {/* Newsletter "Subscribe" returns in M3 with /subscribe; calendar subscriptions live on each list page. */}
+        {/* Email newsletter only (calendar subscriptions live on each list page); hidden while the form
+            is closed. Shown on phones too: it fits at 390 px, and the ::after strip makes it a 44 px target. */}
+        {newsletterStatus() === 'open' && (
+          <Link
+            href="/subscribe"
+            className="relative inline-flex h-9 shrink-0 items-center whitespace-nowrap rounded-full border border-rule px-3.5 text-sm after:absolute after:inset-x-0 after:-inset-y-1"
+          >
+            {t('subscribe')}
+          </Link>
+        )}
       </div>
     </header>
   );

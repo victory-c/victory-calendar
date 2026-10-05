@@ -132,5 +132,85 @@
     "url": "Feed URL",
     "urlHint": "Paste into any calendar app that accepts a URL.",
     "refresh": "Calendar apps refresh on their own schedule: Apple in 15 minutes to a few hours, Outlook in 3–12 hours, Google in 12–24 hours or longer. Cancellations also go out by email."
+  },
+  "Newsletter": {
+    "title": "Get the picks by email",
+    "lead": "One email on Sunday evening, only the categories you pick. No paid placements.",
+    "metaDescription": "Victor's weekly Bay Area tech event picks by email, in English or Chinese, only the categories you choose.",
+    "form": {
+      "email": "Email",
+      "emailPlaceholder": "you@example.com",
+      "categories": "Categories",
+      "categoriesHint": "Pick at least one.",
+      "language": "Email language",
+      "en": "English",
+      "zh": "中文",
+      "submit": "Subscribe",
+      "submitting": "Sending…",
+      "privacy": "I only use your email to send this newsletter. Every email has a one-click unsubscribe.",
+      "honeypot": "Leave this field empty"
+    },
+    "state": {
+      "pending": "Almost done: open the email I just sent and click the link. Nothing arrives until you do.",
+      "pendingHint": "Not there in a few minutes? Check spam, or submit again.",
+      "invalidEmail": "That doesn't look like an email address.",
+      "noCategory": "Pick at least one category.",
+      "rateLimited": "Too many tries from this network. Try again in 10 minutes.",
+      "bot": "Couldn't verify this browser. Reload the page and try again.",
+      "error": "Something went wrong. Try again in a minute.",
+      "closed": "Email subscriptions aren't open yet.",
+      "busy": "Sign-ups are paused for the rest of today. Please try again tomorrow."
+    },
+    "closed": {
+      "title": "The email newsletter starts soon",
+      "body": "Until then, subscribe by calendar. It updates on its own."
+    },
+    "link": {
+      "invalid": "This link doesn't work. It may be old or incomplete.",
+      "expired": "This confirmation link has expired. Subscribe again to get a new one.",
+      "unavailable": "Subscriptions are unavailable right now. Try again later.",
+      "subscribeAgain": "Subscribe again",
+      "home": "Back to this week's picks",
+      "unsubscribeHint": "To stop the emails, use the unsubscribe link in your latest email, or the Unsubscribe button your mail app shows for this newsletter.",
+      "unsubscribeUnavailable": "Unsubscribing isn't available right now. Try again later."
+    },
+    "prefs": {
+      "title": "Your subscription",
+      "welcome": "You're in. The first email arrives Sunday evening.",
+      "already": "Already confirmed.",
+      "statusActive": "Subscribed",
+      "statusPending": "Waiting for you to confirm by email",
+      "statusPaused": "Paused until {date}",
+      "statusUnsubscribed": "Unsubscribed. No more emails.",
+      "statusSuppressed": "Emails to this address bounced or were marked as spam, so it can't receive the newsletter.",
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "Saved.",
+      "pauseTitle": "Take a break",
+      "pause": "Pause for 4 weeks",
+      "paused": "Paused for 4 weeks.",
+      "resume": "Resume now",
+      "resumed": "Resumed.",
+      "leaveTitle": "Unsubscribe",
+      "unsubscribeAll": "Unsubscribe from everything",
+      "unsubscribed": "Done.",
+      "resubscribe": "Subscribe again",
+      "resubscribed": "Welcome back.",
+      "resubscribePending": "Check your inbox to confirm.",
+      "linkExpired": "This link no longer works. Reload the page from your latest email."
+    },
+    "unsubscribe": {
+      "title": "Unsubscribe",
+      "lead": "Stop one category, or everything.",
+      "category": "Stop {category}",
+      "stopped": "Done. No more {category}.",
+      "all": "Unsubscribe from everything",
+      "done": "You're unsubscribed. No more emails.",
+      "more": "More options"
+    },
+    "noscript": {
+      "form": "This form needs JavaScript.",
+      "links": "This page needs JavaScript. Without it, you can still stop the emails with the Unsubscribe button your mail app shows for this newsletter."
+    }
   }
 }

@@ -35,5 +35,16 @@ export default function proxy(req: NextRequest) {
   return intl(new NextRequest(req.url, { headers, method: req.method }));
 }
 
-// Anchored exclusions: /api, /ics and /og are skipped only as whole first segments.
-export const config = { matcher: ['/((?!(?:api|ics|og|_next|_vercel)(?:/|$)|.*\\..*).*)'] };
+// Anchored exclusions: /api, /ics and /og are skipped only as whole first segments, and so is the
+// BotID prefix (botid/next/config rewrites it to Vercel; a locale rewrite would 404 the challenge).
+// Paths with a dot are files, except subscriber link tokens (`sub_….<sig>`): the confirm and prefs
+// entries send those through next-intl too, or /confirm/<token> would never reach [locale].
+export const config = {
+  matcher: [
+    '/((?!(?:api|ics|og|_next|_vercel|149e9513-01fa-4fb0-aad4-566afd725d1b)(?:/|$)|.*\\..*).*)',
+    '/confirm/:path*',
+    '/zh/confirm/:path*',
+    '/prefs/:path*',
+    '/zh/prefs/:path*',
+  ],
+};
