@@ -32,7 +32,8 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 - 生产站：`https://victor-picks.vercel.app`，2026-09-30 起接真实数据库（Neon），示例数据横幅已去掉；后台登录已验证。首页在录入活动前显示「精选正在路上」
 - 里程碑：M0 代码完成，G0 差 passkey 真机登录（checklist 2、9、10）和 DKIM/DMARC（随域名推迟到 M3 前）；**M1 完成，G1 于 2026-09-30 全部通过**，可以进 M2
 - M2：第 7–8 周（ingest，#6）、审查修正（#8）、第 9 周（封面，#7）都已合并；第 10 周后台 PWA（#9）、第 11 周候选收件箱（#13）已合并；收件箱要真正有内容还差 checklist 4–7 和 15。G2 门槛（手机实测）还没做，等你有空
-- M3：第 13 周订阅流程（#14）、第 14 周周报（#15）已合并；2026-10-05 已在生产库跑过迁移 `0003_digest_send` 并抽查。第 15 周（隐私页、`/weekly` 存档、订阅者后台、微信文字、种子邮件）在分支 `feat/week15`，PR 待你审，没有新迁移。生产上订阅表单和周报发送都保持关闭，等域名和 Resend 发信域名（checklist 1、3、16、17）
+- M3：第 13 周订阅流程（#14）、第 14 周周报（#15）已合并；2026-10-05 已在生产库跑过迁移 `0003_digest_send` 并抽查。第 15 周（隐私页、`/weekly` 存档、订阅者后台、微信文字、种子邮件，#16）2026-10-05 已合并，没有新迁移。**M3 的代码部分已经完成**，第 16 周（软发布与 G3 门槛）要等域名和 Resend。生产上订阅表单和周报发送都保持关闭，等域名和 Resend 发信域名（checklist 1、3、16、17）
+- 另一个分支 `claude/fervent-hawking-99mi50`（把所有显示的时间统一成太平洋时间）合并 #16 后只有 `src/emails/digest.tsx` 一处冲突：保留 main 的版本即可（`dayLabel`、`when` 已挪到 `src/lib/digest/fields.ts`，并且已经不再传时区参数）。我在临时工作区试合并过：类型检查通过，相关测试 190 个通过（含它新增的 `public-times` 测试）
 - 域名：2026-09-30 决定暂不买，继续用 `*.vercel.app`。影响见「待确认」里的域名一条
 
 - Vercel 项目：`victor-picks`（victory-c-8190s-projects），已连 GitHub，推送分支自动出预览
