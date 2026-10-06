@@ -13,7 +13,7 @@ import { maskEmail } from '@/lib/email/send';
 import { sendAlreadySubscribedEmail, sendConfirmEmail } from '@/lib/email/subscribe';
 import { isEvLang } from '@/lib/events/facets';
 import { describeError } from '@/lib/log-safe';
-import { newsletterStatus } from '@/lib/newsletter/status';
+import { alertsMode, newsletterStatus } from '@/lib/newsletter/status';
 import { MIN_FILL_MS, type SubscribeState } from '@/lib/newsletter/subscribe-state';
 import { hasRoom, limit } from '@/lib/ratelimit';
 import { cleanCategories, inboxKey, normalizeEmail, requestSubscription } from '@/lib/subscribers/service';
@@ -67,6 +67,9 @@ export async function subscribe(_prev: SubscribeState, formData: FormData): Prom
     // URL itself, an unknown value just means no facet.
     const evLang = formData.get('ev_lang');
     const facets = { evLang: isEvLang(evLang) ? evLang : null, onlineOnly: formData.get('online') === '1' };
+    // F20: the form shows the going-alerts box only while alerts can be sent. While they can't, the
+    // field is ignored (a stale page can't opt anyone in) and a re-armed row keeps its stored choice.
+    const goingAlerts = alertsMode() === 'off' ? undefined : formData.get('alerts') === '1';
     who = maskEmail(email);
 
     // The day's budget for all subscription email: look first without spending, so a "busy" answer
@@ -83,6 +86,7 @@ export async function subscribe(_prev: SubscribeState, formData: FormData): Prom
       locale,
       categories,
       facets,
+      goingAlerts,
       ip,
       ua: h.get('user-agent'),
       source: formData.get('source') === 'zh/subscribe' ? 'zh/subscribe' : 'subscribe',

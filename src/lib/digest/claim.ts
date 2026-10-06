@@ -100,9 +100,9 @@ function hasPicks(cells: readonly PickCell[]): SQL {
  * The digest's audience rule, on alias `s` = subscribers: active, or paused with the pause over
  * (or never dated), with at least one known category. An expired pause counts as active
  * (prefs-view.ts). Requiring a known slug (not just cardinality > 0) keeps a corrupt row from
- * getting a variant key with no sections.
+ * getting a variant key with no sections. Going alerts (alerts/claim.ts) use the same rule.
  */
-function eligible(now: Date): SQL {
+export function eligible(now: Date): SQL {
   return sql`(s.status = 'active' or (s.status = 'paused' and (s.paused_until is null or s.paused_until <= ${ts(now)}))) and s.categories && ${KNOWN()}`;
 }
 
@@ -112,9 +112,14 @@ function eligible(now: Date): SQL {
  * row still uses up the month's notice, so a reader never gets two in one month: in flight, sent, or
  * an outcome Resend may have delivered (expired, window_closed, id_mismatch, idem_conflict, and the
  * replay-only ineligible / replay_render_failed / replay_too_large / replay_no_picks, whose first
- * attempt may have gone out).
+ * attempt may have gone out). On a digest_sends alias; going alerts (alerts/claim.ts) use it to tell
+ * which digests a reader may have seen.
  */
-const UNDELIVERED = sql`(e.error like 'failed:%' or e.error in ('render_failed', 'too_large', 'no_picks', 'invalid'))`;
+export function undeliveredDigest(alias: 'e' | 'd'): SQL {
+  const a = sql.raw(alias);
+  return sql`(${a}.error like 'failed:%' or ${a}.error in ('render_failed', 'too_large', 'no_picks', 'invalid'))`;
+}
+const UNDELIVERED = undeliveredDigest('e');
 
 /** On alias `s`: the subscriber already had (or may have had) an empty notice since monthStart. */
 function hadEmptyNotice(monthStart: Date): SQL {
@@ -272,17 +277,29 @@ export async function markError(issueId: string, target: ErrorTarget, error: str
   return r.length;
 }
 
+/** 00:00 UTC of `now`'s day: the Resend quota day the daily caps count in. */
+export const utcDayStart = (now: Date) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
 /**
- * Digest mail committed today (UTC day, the Resend quota day): rows sent since 00:00 UTC plus
- * claims made since then that are still waiting to be sent or replayed. Counting the waiting ones
- * keeps a run from claiming more on top of a group that a later run will retry.
+ * On a send table (digest_sends or alert_sends, unaliased): rows sent since `day` plus claims made
+ * since then that are still waiting to be sent or replayed. Counting the waiting ones keeps a run
+ * from claiming more on top of a group that a later run will retry.
+ */
+export function committedSince(day: Date): SQL {
+  return sql`(sent_at >= ${ts(day)} or (resend_id is null and error is null and claimed_at >= ${ts(day)}))`;
+}
+
+/**
+ * Newsletter mail committed today (UTC day, the Resend quota day): digest emails and F20 going
+ * alerts together, so both stay inside the one DIGEST_DAILY_CAP. The digest runs first in the UTC
+ * day (01:00) and alerts later (15:00), so the digest has priority and alerts get what is left.
  */
 export async function sentTodayCount(now: Date, db: DB = defaultDb): Promise<number> {
-  const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const day = utcDayStart(now);
   const [r] = rows<{ n: number }>(
     await db.execute(sql`
-      select count(*)::int as n from digest_sends
-      where sent_at >= ${ts(day)} or (resend_id is null and error is null and claimed_at >= ${ts(day)})`),
+      select ((select count(*) from digest_sends where ${committedSince(day)})
+        + (select count(*) from alert_sends where ${committedSince(day)}))::int as n`),
   );
   return Number(r?.n ?? 0);
 }

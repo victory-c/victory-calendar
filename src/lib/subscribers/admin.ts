@@ -1,10 +1,14 @@
 import 'server-only';
-import { and, asc, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, lt, type SQL, sql } from 'drizzle-orm';
+import { alertPool } from '../alerts/pool';
 import { db as defaultDb, type DB } from '../db';
-import { digestIssues, digestSends, jobsLog, SUBSCRIBER_STATUS, subscribers } from '../db/schema';
+import { alertSends, digestIssues, digestSends, jobsLog, SUBSCRIBER_STATUS, subscribers } from '../db/schema';
+import { EXPIRE_MS } from '../digest/claim';
 import { eligibleSubscriber } from '../digest/issues';
+import type { DigestEvent } from '../digest/types';
 import { coverage } from '../digest/week';
 import { EV_LANGS, type EvLang, evLangOf, facetsOf } from '../events/facets';
+import { startOfKey, todayKeyPT } from '../format/calendar';
 import { type Category, CATEGORY_SLUGS, type Locale } from '../taxonomy';
 import { cleanCategories, normalizeEmail, type Subscriber } from './service';
 import { tokenId } from './token';
@@ -94,6 +98,124 @@ export async function facetMatrix(opts: Opts = {}): Promise<FacetCounts> {
     if (f.onlineOnly) add(onlineOnly, r.locale, n);
   }
   return { evLang, onlineOnly, people };
+}
+
+// ---- F20 going alerts (DESIGN-F20 G15) ----------------------------------------------------------
+
+/**
+ * Readers a going alert can reach: the digest's audience (eligibleSubscriber, the alert claim's
+ * own rule, at the same instant) with going alerts on. Per language, like the tables above.
+ */
+export async function goingAlertsOn(opts: Opts = {}): Promise<LocaleCounts> {
+  const db = opts.db ?? defaultDb;
+  const found = await db
+    .select({ locale: subscribers.locale, n: sql<number>`count(*)::int` })
+    .from(subscribers)
+    .where(and(eligibleSubscriber(opts.now ?? new Date()), eq(subscribers.goingAlerts, true)))
+    .groupBy(subscribers.locale);
+  const out = zero();
+  for (const r of found) add(out, r.locale, Number(r.n));
+  return out;
+}
+
+/** The alert cron's two daily runs (vercel.json), in UTC hours: 07:00–09:00 PT, the second retrying the first. */
+export const ALERT_RUN_HOURS_UTC = [15, 16] as const;
+
+/** The next scheduled alert run after `now` (Hobby crons may start up to 59 minutes into the hour). */
+export function nextAlertRun(now: Date): Date {
+  for (let day = 0; ; day++) {
+    for (const h of ALERT_RUN_HOURS_UTC) {
+      const at = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + day, h);
+      if (at > now.getTime()) return new Date(at);
+    }
+  }
+}
+
+/** One jobs_log 'alerts' row as the card shows it: counts and codes only (the row holds nothing else). */
+export type AlertRunLine = {
+  startedAt: Date;
+  ok: boolean | null;
+  /** The Pacific day the run claimed for. */
+  day: string | null;
+  pool: number;
+  claimed: number;
+  sent: number;
+  replayed: number;
+  failed: number;
+  /** off / locked / digest_day. */
+  skipped: string | null;
+  reason: string | null;
+  partial: boolean;
+};
+
+export type NextAlert = {
+  /** When the next run is due, and its Pacific day. */
+  runAt: Date;
+  day: string;
+  /** A digest is scheduled for that day: the run sends no new alerts (one newsletter email a day). */
+  digestDay: boolean;
+  /** What that run would alert if nothing changes before it: alertPool() as of then. */
+  events: DigestEvent[];
+  /** Marks made before this instant are in; later ones wait for the run after. */
+  cutoff: Date;
+  /** The newest logged run (idle runs log nothing). */
+  lastRun: AlertRunLine | null;
+};
+
+const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+const codeOf = (v: unknown) => (typeof v === 'string' && /^[a-z0-9_:.-]{1,64}$/i.test(v) ? v : null);
+
+/**
+ * The "Next going alert" card: the pool the next run would mail (read through the same live public
+ * path as the cron, at the run's time), whether a digest holds it back, and the last logged run.
+ */
+export async function nextGoingAlert(opts: Opts = {}): Promise<NextAlert> {
+  const db = opts.db ?? defaultDb;
+  const runAt = nextAlertRun(opts.now ?? new Date());
+  const day = todayKeyPT(runAt);
+  const [pool, issues, [last]] = await Promise.all([
+    alertPool({ db, now: runAt }),
+    db
+      .select({ id: digestIssues.id })
+      .from(digestIssues)
+      .where(
+        and(
+          inArray(digestIssues.status, ['scheduled', 'sending']),
+          gte(digestIssues.sendAfter, startOfKey(day)),
+          lt(digestIssues.sendAfter, startOfKey(day, 1)),
+        ),
+      )
+      .limit(1),
+    db
+      .select({ startedAt: jobsLog.startedAt, ok: jobsLog.ok, detail: jobsLog.detail })
+      .from(jobsLog)
+      .where(eq(jobsLog.job, 'alerts'))
+      .orderBy(desc(jobsLog.startedAt), desc(jobsLog.id))
+      .limit(1),
+  ]);
+  const d = (last?.detail ?? {}) as Record<string, unknown>;
+  return {
+    runAt,
+    day,
+    digestDay: issues.length > 0,
+    events: pool.events,
+    cutoff: pool.cutoff,
+    lastRun: last
+      ? {
+          startedAt: last.startedAt,
+          ok: last.ok,
+          day: typeof d.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.day) ? d.day : null,
+          pool: num(d.pool),
+          claimed: num(d.claimed),
+          sent: num(d.sent),
+          replayed: num(d.replayed),
+          failed: num(d.failed),
+          skipped: codeOf(d.skipped),
+          reason: codeOf(d.reason),
+          partial: d.partial === true,
+        }
+      : null,
+  };
 }
 
 /** G3 (guide week 15, PRD「连续 2 期准时发给 ≥50 人」): the bar for confirmed subscribers and digests sent. */
@@ -330,6 +452,7 @@ const iso = (d: Date | null) => d?.toISOString() ?? null;
 /** Exact match on the address or the primary key; the columns are listed, so nothing else leaks. */
 export async function subscriberDetail(q: SubscriberQuery, opts: Opts = {}): Promise<SubscriberDetail | null> {
   const db = opts.db ?? defaultDb;
+  const liveSince = new Date((opts.now ?? new Date()).getTime() - EXPIRE_MS).toISOString();
   const [row] = await db
     .select({
       id: subscribers.id,
@@ -365,10 +488,15 @@ export async function subscriberDetail(q: SubscriberQuery, opts: Opts = {}): Pro
       .where(eq(digestSends.subscriberId, row.id))
       .orderBy(desc(digestSends.claimedAt), desc(digestIssues.isoWeek))
       .limit(3),
+    // In flight: a digest or going-alert claim not yet sent or failed, and young enough to still be
+    // sent (same rule as the delete guard: past EXPIRE_MS nothing sends or replays it).
     db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(digestSends)
-      .where(and(eq(digestSends.subscriberId, row.id), sql`${digestSends.resendId} is null and ${digestSends.error} is null`)),
+      .select({
+        n: sql<number>`(select count(*) from ${digestSends} where ${digestSends.subscriberId} = ${subscribers.id} and ${digestSends.resendId} is null and ${digestSends.error} is null and ${digestSends.claimedAt} > ${liveSince}::timestamptz)
+          + (select count(*) from ${alertSends} where ${alertSends.subscriberId} = ${subscribers.id} and ${alertSends.resendId} is null and ${alertSends.error} is null and ${alertSends.claimedAt} > ${liveSince}::timestamptz)`.mapWith(Number),
+      })
+      .from(subscribers)
+      .where(eq(subscribers.id, row.id)),
   ]);
   return {
     ...rest,

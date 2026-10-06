@@ -47,6 +47,10 @@ const EMAIL = 'reader@example.com';
 
 beforeEach(async () => {
   vi.stubEnv('SUBSCRIBER_LINK_SECRET', SECRET);
+  // F20: alerts in 'dev' mode (off Vercel), so the going-alerts box counts unless a test turns it off.
+  vi.stubEnv('VERCEL', '');
+  vi.stubEnv('ALERTS_SENDING', '');
+  vi.stubEnv('DIGEST_SENDING', '');
   h.db = (await testDb()).db;
   h.hasDb = true;
   h.refreshes = 0;
@@ -241,6 +245,70 @@ describe('savePreferences', () => {
   });
 });
 
+describe('savePreferences: going alerts (F20)', () => {
+  const save = (token: string, extra: Record<string, string | string[]> = {}) =>
+    savePreferences(token, null, form({ locale: 'en', c: 'ai', ...extra }));
+
+  it('ticking the box turns alerts on from now, saving again keeps that time, unticking clears it', async () => {
+    const { row, token } = await seed();
+    const before = Date.now();
+    expect(await save(token, { alerts_present: '1', alerts: '1' })).toEqual({ ok: true, key: 'prefs.saved' });
+    const on = await get(row.id);
+    expect(on.goingAlerts).toBe(true);
+    expect(on.goingAlertsSince!.getTime()).toBeGreaterThanOrEqual(before - 1000);
+    await save(token, { alerts_present: '1', alerts: '1' });
+    expect((await get(row.id)).goingAlertsSince).toEqual(on.goingAlertsSince);
+    // The section was on the page and the box is unticked: off.
+    expect(await save(token, { alerts_present: '1' })).toEqual({ ok: true, key: 'prefs.saved' });
+    expect(await get(row.id)).toMatchObject({ goingAlerts: false, goingAlertsSince: null, categories: ['ai'] });
+  });
+
+  it('a form without the box (alerts off when the page rendered) keeps the stored choice', async () => {
+    const since = new Date(Date.now() - 864e5);
+    const { row, token } = await seed({ goingAlerts: true, goingAlertsSince: since });
+    expect(await save(token)).toEqual({ ok: true, key: 'prefs.saved' });
+    expect(await get(row.id)).toMatchObject({ goingAlerts: true, goingAlertsSince: since });
+  });
+
+  it.each([
+    ['ALERTS_SENDING=0', { ALERTS_SENDING: '0' }],
+    ['Vercel without a verified sender', { VERCEL: '1', RESEND_API_KEY: '', RESEND_FROM: '' }],
+  ])('with alerts off here (%s) the box is ignored: a stale page can change neither way', async (_label, env: Record<string, string>) => {
+    for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+    const on = await seed({ goingAlerts: true, goingAlertsSince: new Date(Date.now() - 864e5) });
+    expect(await save(on.token, { alerts_present: '1' })).toEqual({ ok: true, key: 'prefs.saved' });
+    expect(await get(on.row.id)).toMatchObject({ goingAlerts: true, goingAlertsSince: on.row.goingAlertsSince, categories: ['ai'] });
+    const off = await seed({ email: 'off@example.com' });
+    await save(off.token, { alerts_present: '1', alerts: '1' });
+    expect(await get(off.row.id)).toMatchObject({ goingAlerts: false, goingAlertsSince: null });
+  });
+
+  it.each([
+    ['a forged value', { alerts: 'yes' }],
+    ['the box posted twice', { alerts: ['1', '1'] }],
+  ])('rejects %s without changing anything', async (_label, extra: Record<string, string | string[]>) => {
+    const { row, token } = await seed();
+    expect(await save(token, { alerts_present: '1', ...extra })).toEqual({ ok: false, key: 'state.error' });
+    expect(await get(row.id)).toEqual(row);
+    expect(h.refreshes).toBe(0);
+  });
+
+  it('no category and the box unticked: unsubscribed with alerts off, so "Subscribe again" brings back only the weekly email', async () => {
+    const { row, token } = await seed({ goingAlerts: true, goingAlertsSince: new Date(Date.now() - 864e5) });
+    expect(await savePreferences(token, null, form({ locale: 'en', alerts_present: '1' }))).toEqual({ ok: true, key: 'prefs.unsubscribed' });
+    expect(await get(row.id)).toMatchObject({ status: 'unsubscribed', goingAlerts: false, goingAlertsSince: null });
+    expect(await changeSubscription(token, null, form({ intent: 'resubscribe' }))).toEqual({ ok: true, key: 'prefs.resubscribed' });
+    expect(await get(row.id)).toMatchObject({ status: 'active', goingAlerts: false, goingAlertsSince: null });
+  });
+
+  it('the one-tap language switch never touches alerts, whatever the post carries', async () => {
+    const since = new Date(Date.now() - 864e5);
+    const { row, token } = await seed({ goingAlerts: true, goingAlertsSince: since });
+    expect(await changeLanguage(token, null, form({ locale: 'zh', alerts_present: '1' }))).toEqual({ ok: true, key: 'prefs.langSwitchedZh' });
+    expect(await get(row.id)).toMatchObject({ locale: 'zh', goingAlerts: true, goingAlertsSince: since });
+  });
+});
+
 describe('changeLanguage', () => {
   it('switches only the edition language; categories come from the row, not the post', async () => {
     const { row, token } = await seed();
@@ -371,6 +439,21 @@ describe('changeSubscription', () => {
     expect(h.sent).toHaveLength(1);
   });
 
+  it('F20: the confirmation for a comeback names going alerts when they come back on, and only then', async () => {
+    const old = new Date(Date.now() - 3 * 864e5);
+    const on = await seed({ status: 'unsubscribed', confirmedAt: null, consentAt: old, unsubscribedAt: old, goingAlerts: true, goingAlertsSince: old });
+    expect(await changeSubscription(on.token, null, form({ intent: 'resubscribe' }))).toEqual({ ok: true, key: 'prefs.resubscribePending' });
+    const off = await seed({ email: 'off@example.com', status: 'unsubscribed', confirmedAt: null, consentAt: old, unsubscribedAt: old });
+    expect(await changeSubscription(off.token, null, form({ intent: 'resubscribe' }))).toEqual({ ok: true, key: 'prefs.resubscribePending' });
+    expect(h.sent.map((m) => m.to)).toEqual([EMAIL, 'off@example.com']);
+    const line = { en: 'Going alerts are on too: at most one email a day when Victor marks an event as going.', zh: '会去提醒也已打开：Victor 标记会去的活动时，每天最多一封。' };
+    for (const l of [line.en, line.zh]) {
+      expect(h.sent[0].text).toContain(l);
+      expect(h.sent[0].html).toContain(l);
+      expect(h.sent[1].text).not.toContain(l);
+    }
+  });
+
   it('coming back records a new consent: time, IP, user agent and the prefs page', async () => {
     const old = new Date(Date.now() - 30 * 864e5);
     const { row, token } = await seed({
@@ -494,11 +577,44 @@ describe('unsubscribeFrom', () => {
     expect(await get(row.id)).toEqual(after);
   });
 
+  it('F20 "going" turns off going alerts only; again is harmless; status, categories and language stay', async () => {
+    const { row, token } = await seed({ goingAlerts: true, goingAlertsSince: new Date(Date.now() - 864e5), locale: 'zh' });
+    expect(await unsubscribeFrom(token, null, form({ c: 'going' }))).toEqual({ ok: true, key: 'unsubscribe.alertsOff' });
+    const after = await get(row.id);
+    expect(after).toEqual({ ...row, goingAlerts: false, goingAlertsSince: null });
+    expect(await unsubscribeFrom(token, null, form({ c: 'going' }))).toEqual({ ok: true, key: 'unsubscribe.alertsOff' });
+    expect(await get(row.id)).toEqual(after);
+    expect(h.refreshes).toBe(2);
+  });
+
+  it('F20 "going" works whatever the alert mode (an opt-out always works), and on an unsubscribed row', async () => {
+    vi.stubEnv('ALERTS_SENDING', '0');
+    const { row, token } = await seed({ status: 'unsubscribed', unsubscribedAt: new Date(), goingAlerts: true, goingAlertsSince: new Date() });
+    expect(await unsubscribeFrom(token, null, form({ c: 'going' }))).toEqual({ ok: true, key: 'unsubscribe.alertsOff' });
+    expect(await get(row.id)).toMatchObject({ status: 'unsubscribed', goingAlerts: false, goingAlertsSince: null });
+  });
+
   it.each([[{ c: 'bogus' }], [{ c: '' }], [{}]])('rejects %o', async (fields) => {
     const { row, token } = await seed();
     expect(await unsubscribeFrom(token, null, form(fields))).toEqual({ ok: false, key: 'state.error' });
     expect(await get(row.id)).toEqual(row);
     expect(h.refreshes).toBe(0);
+  });
+});
+
+describe('mail-app Unsubscribe hints (no-JS fallback, broken link)', () => {
+  it('say that on a going alert the mail app\'s button turns off only the alerts (DESIGN-F20 G11), en and zh', async () => {
+    const en = (await import('../messages/en.json')).default.Newsletter;
+    const zh = (await import('../messages/zh.json')).default.Newsletter;
+    for (const hint of [en.link.unsubscribeHint, en.noscript.links]) {
+      expect(hint).toContain('Unsubscribe button your mail app shows on a Sunday email');
+      expect(hint).toContain('on a going alert, that button turns off only the alerts');
+      expect(hint).not.toContain('for this newsletter');
+    }
+    for (const hint of [zh.link.unsubscribeHint, zh.noscript.links]) {
+      expect(hint).toContain('邮件 App 在周报上显示的「退订」按钮');
+      expect(hint).toContain('在会去提醒上，这个按钮只关闭提醒');
+    }
   });
 });
 
@@ -533,7 +649,7 @@ describe('markup', () => {
   const text = {
     language: 'Email language', en: 'English', zh: '中文', categories: 'Categories', save: 'Save', saving: 'Saving…',
     evLang: 'Event language', evLangAny: 'Any', evLangZh: 'Chinese or bilingual', evLangEn: 'English or bilingual',
-    evLangBilingual: 'Bilingual only', onlineOnly: 'Online events only (incl. hybrid)',
+    evLangBilingual: 'Bilingual only', onlineOnly: 'Online events only (incl. hybrid)', goingAlerts: 'Email me when Victor marks an event as going',
     pauseTitle: 'Take a break', pause: 'Pause for 4 weeks', resume: 'Resume now', leaveTitle: 'Unsubscribe',
     unsubscribeAll: 'Unsubscribe from everything', resubscribe: 'Subscribe again',
   };
@@ -541,10 +657,15 @@ describe('markup', () => {
     ['prefs.saved', 'prefs.unsubscribed', 'prefs.paused', 'prefs.resumed', 'prefs.resubscribed', 'prefs.resubscribePending', 'prefs.linkExpired', 'prefs.statusSuppressed', 'link.unavailable', 'state.error', 'prefs.langSwitchedEn', 'prefs.langSwitchedZh'].map((k) => [k, k]),
   ) as Parameters<typeof PrefsForm>[0]['messages'];
   type Props = Parameters<typeof PrefsForm>[0];
-  const prefs = (status: Props['status'], language?: Props['language'], facets: Props['facets'] = { evLang: null, onlineOnly: false }) =>
+  const prefs = (
+    status: Props['status'],
+    language?: Props['language'],
+    facets: Props['facets'] = { evLang: null, onlineOnly: false },
+    goingAlerts?: boolean,
+  ) =>
     renderToStaticMarkup(
       createElement(PrefsForm, {
-        locale: 'en', status, emailLocale: 'zh', categories: ['ai', 'cycling'], facets,
+        locale: 'en', status, emailLocale: 'zh', categories: ['ai', 'cycling'], facets, goingAlerts,
         actions: { save: noop, pause: noop, leave: noop }, text, messages, language,
       }),
     );
@@ -608,6 +729,21 @@ describe('markup', () => {
     expect(prefs('unsubscribed')).not.toContain('name="ev_lang"');
   });
 
+  it('F20: the going-alerts box sits in the preferences form showing the stored choice, and only when given one', () => {
+    const on = prefs('active', undefined, undefined, true);
+    const form = on.match(/<form[^>]*>[\s\S]*?<\/form>/g)!.find((f) => f.includes('name="c"'))!;
+    expect(form).toContain('<input type="hidden" name="alerts_present" value="1"/>');
+    expect(form).toContain('Email me when Victor marks an event as going');
+    expect(form).toMatch(/<label class="[^"]*\bmin-h-11\b[^"]*">(?:(?!<\/label>).)*Email me when Victor/);
+    expect(checked(on, 'alerts', '1')).toBe(true);
+    expect(checked(prefs('pending', undefined, undefined, false), 'alerts', '1')).toBe(false);
+    // Alerts off on this deployment: no control at all, so the save can't touch the stored value.
+    for (const html of [prefs('active'), prefs('unsubscribed', undefined, undefined, true)]) {
+      expect(html).not.toContain('name="alerts"');
+      expect(html).not.toContain('alerts_present');
+    }
+  });
+
   it('paused rows get Resume; pending rows get no pause section; unsubscribed rows only Subscribe again', () => {
     expect(prefs('paused')).toContain('Resume now');
     expect(prefs('paused')).toContain('name="intent" value="resume"');
@@ -622,14 +758,23 @@ describe('markup', () => {
     expect(gone).toContain('name="intent" value="resubscribe"');
   });
 
-  const buttons = (done: boolean, categories: { slug: 'ai' | 'vc'; label: string }[]) =>
+  const buttons = (done: boolean, categories: { slug: 'ai' | 'vc'; label: string }[], going?: 'offer' | 'off' | null) =>
     renderToStaticMarkup(
       createElement(UnsubscribeButtons, {
-        action: noop, done, categories,
-        text: { all: 'Unsubscribe from everything', done: 'You are unsubscribed.', stopped: {} as Record<Category, string> },
-        messages: { 'unsubscribe.done': 'done', 'prefs.linkExpired': 'x', 'prefs.statusSuppressed': 'x', 'link.unavailable': 'x', 'state.error': 'x' },
+        action: noop, done, categories, going,
+        text: {
+          all: 'Unsubscribe from everything', done: 'You are unsubscribed.', stopped: {} as Record<Category, string>,
+          going: 'Turn off going alerts', alertsOff: 'Going alerts are off.',
+        },
+        messages: {
+          'unsubscribe.done': 'done', 'unsubscribe.alertsOff': 'x', 'prefs.linkExpired': 'x', 'prefs.statusSuppressed': 'x', 'link.unavailable': 'x',
+          'state.error': 'x',
+        },
       }),
     );
+  /** Each form's `c`, and whether its button is the filled (primary) one. */
+  const choices = (html: string) =>
+    [...html.matchAll(/<form[^>]*>[\s\S]*?<\/form>/g)].map((m) => [/name="c" value="([^"]*)"/.exec(m[0])![1], m[0].includes('bg-ink')]);
 
   it('the unsubscribe page has one form per category plus everything, and only the confirmation once done', () => {
     const html = buttons(false, [{ slug: 'ai', label: 'Stop AI & Tech' }, { slug: 'vc', label: 'Stop VC & Founders' }]);
@@ -641,5 +786,17 @@ describe('markup', () => {
     const done = buttons(true, []);
     expect(done).not.toContain('<form');
     expect(done).toContain('You are unsubscribed.');
+  });
+
+  it('F20 from an alert: "Turn off going alerts" first and filled, everything second; once off, a note instead', () => {
+    expect(choices(buttons(false, [{ slug: 'ai', label: 'Stop AI & Tech' }]))).toEqual([['ai', false], ['all', true]]);
+    const offer = buttons(false, [], 'offer');
+    expect(choices(offer)).toEqual([['going', true], ['all', false]]);
+    expect(offer).toContain('Turn off going alerts');
+    expect(offer).not.toContain('Going alerts are off.');
+    const off = buttons(false, [], 'off');
+    expect(choices(off)).toEqual([['all', true]]);
+    expect(off).toMatch(/role="status"[^>]*>Going alerts are off\.</);
+    expect(buttons(true, [], 'offer')).not.toContain('<form');
   });
 });

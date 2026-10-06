@@ -32,13 +32,31 @@ export function welcomeBanner(welcome: string | string[] | undefined, status: St
   return null;
 }
 
+/** `/unsubscribe?list=going`: opened from a going alert (its footer link or one-click header). */
+export function isGoingList(list: string | string[] | undefined): boolean {
+  return list === 'going';
+}
+
 /**
  * The categories /unsubscribe offers a "Stop …" button for. None once the row is unsubscribed or
  * suppressed, and none with a single category: "Stop X" and "everything" are then the same press.
+ * None either when the page came from a going alert (`going`): the choice there is alerts or
+ * everything; the categories are one link away on the preference center.
  */
-export function unsubscribeChoices(view: Pick<SubscriberView, 'status' | 'categories'>): Category[] {
-  if (view.status === 'unsubscribed' || view.status === 'suppressed') return [];
+export function unsubscribeChoices(view: Pick<SubscriberView, 'status' | 'categories'>, going = false): Category[] {
+  if (going || view.status === 'unsubscribed' || view.status === 'suppressed') return [];
   return view.categories.length > 1 ? [...view.categories] : [];
+}
+
+/**
+ * F20, /unsubscribe?list=going: 'offer' the "Turn off going alerts" button while they are on, or
+ * say they are already 'off'. Null when the page wasn't opened from an alert, or the row gets no
+ * email at all (unsubscribed, suppressed), where the page's own status says enough. Shown whatever
+ * the deployment's alert mode: turning something off always works.
+ */
+export function goingChoice(view: Pick<SubscriberView, 'status' | 'goingAlerts'>, going: boolean): 'offer' | 'off' | null {
+  if (!going || view.status === 'unsubscribed' || view.status === 'suppressed') return null;
+  return view.goingAlerts ? 'offer' : 'off';
 }
 
 /** October 31, 2026 / 2026年10月31日, in Pacific time like every other date on the site. */

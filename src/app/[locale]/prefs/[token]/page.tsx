@@ -6,7 +6,7 @@ import { LinkProblem } from '@/components/LinkProblem';
 import { PageShell } from '@/components/PageShell';
 import { PrefsForm } from '@/components/PrefsForm';
 import { effectiveStatus, longDate, welcomeBanner } from '@/lib/newsletter/prefs-view';
-import { linksWork } from '@/lib/newsletter/status';
+import { alertsMode, linksWork } from '@/lib/newsletter/status';
 import { type Subscriber, subscriberFromToken, viewOf } from '@/lib/subscribers/service';
 import type { Locale } from '@/lib/taxonomy';
 import { changeLanguage, changePause, changeSubscription, type PrefsKey, savePreferences } from '../actions';
@@ -115,6 +115,8 @@ async function Prefs({ locale, params, searchParams }: Props & { locale: Locale 
           emailLocale={view.locale}
           categories={view.categories}
           facets={{ evLang: view.evLang, onlineOnly: view.onlineOnly }}
+          // F20: no inert control. While alerts are off here the box is hidden and the stored choice kept.
+          goingAlerts={alertsMode() === 'off' ? undefined : view.goingAlerts}
           actions={{
             save: savePreferences.bind(null, token),
             pause: changePause.bind(null, token),
@@ -131,6 +133,7 @@ async function Prefs({ locale, params, searchParams }: Props & { locale: Locale 
             evLangEn: t('prefs.evLangEn'),
             evLangBilingual: t('prefs.evLangBilingual'),
             onlineOnly: t('prefs.onlineOnly'),
+            goingAlerts: t('prefs.goingAlerts'),
             save: t('prefs.save'),
             saving: t('prefs.saving'),
             pauseTitle: t('prefs.pauseTitle'),

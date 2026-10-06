@@ -7,7 +7,15 @@ import { sendEmail } from './send';
 // as the digest. The subscriber's language comes first. Plain HTML like the magic-link email;
 // react-email arrives with the digest template in week 14.
 
-type Sub = { id: string; email: string; tokenVersion: number; locale: Locale; categories: string[] };
+type Sub = {
+  id: string;
+  email: string;
+  tokenVersion: number;
+  locale: Locale;
+  categories: string[];
+  /** F20: going alerts are on for this row, so the confirmation covers them too. */
+  goingAlerts?: boolean;
+};
 
 /** Subject in the subscriber's language first, then the other, then the sender name. */
 const subject = (sub: Sub, en: string, zh: string) => (sub.locale === 'zh' ? `${zh} · ${en}` : `${en} · ${zh}`) + " · Victor's Picks";
@@ -41,19 +49,32 @@ ${order.map(section).join('\n<hr style="border:none;border-top:1px solid #e5e5e0
   return { html, text };
 }
 
-/** Double opt-in: nothing is sent to this address again until the link is clicked. */
+/**
+ * Double opt-in: nothing is sent to this address again until the link is clicked. The email names
+ * everything the click switches on, F20 going alerts included when the row has them on (ticked on
+ * the form, or kept from before by a re-request or "Subscribe again").
+ */
 export async function sendConfirmEmail(sub: Sub) {
   const url = subscriberLinks(sub).confirm;
+  const alerts = sub.goingAlerts === true;
   const { html, text } = render(sub, url, {
     en: {
       lead: "Confirm that you want Victor's Picks by email: one email on Sunday evening with the categories you picked.",
       button: 'Confirm subscription',
-      after: [`You picked: ${labels(sub.categories, 'en')}.`, "If this wasn't you, ignore this email: nothing is sent until the link is clicked, and the request expires in 7 days."],
+      after: [
+        `You picked: ${labels(sub.categories, 'en')}.`,
+        ...(alerts ? ['Going alerts are on too: at most one email a day when Victor marks an event as going.'] : []),
+        "If this wasn't you, ignore this email: nothing is sent until the link is clicked, and the request expires in 7 days.",
+      ],
     },
     zh: {
       lead: '请确认订阅 Victor 精选周报：每周日晚上一封，只有你选的类别。',
       button: '确认订阅',
-      after: [`你选了：${labels(sub.categories, 'zh')}。`, '如果不是你本人操作，忽略即可：不点链接就不会收到任何周报，这个申请 7 天后失效。'],
+      after: [
+        `你选了：${labels(sub.categories, 'zh')}。`,
+        ...(alerts ? ['会去提醒也已打开：Victor 标记会去的活动时，每天最多一封。'] : []),
+        '如果不是你本人操作，忽略即可：不点链接就不会收到任何邮件，这个申请 7 天后失效。',
+      ],
     },
   });
   return sendEmail({ to: sub.email, subject: subject(sub, 'Confirm your subscription', '确认订阅'), html, text });

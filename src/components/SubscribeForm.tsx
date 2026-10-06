@@ -21,6 +21,8 @@ export type SubscribeCopy = {
   pending: string;
   pendingHint: string;
   again: string;
+  /** F20: label of the going-alerts checkbox; undefined while alerts can't be sent (no checkbox). */
+  goingAlerts?: string;
   errors: Record<SubscribeErrorCode | 'rate_limited' | 'closed' | 'busy', string>;
 };
 
@@ -32,7 +34,7 @@ export type SubscribeCopy = {
 export type SubscribeFacets = { value: Facets; summary: string; remove: string; removed: string };
 
 /** What was submitted, kept in the browser so a failed submit can refill the form. */
-type Draft = { email: string; locale: Locale; categories: Category[] };
+type Draft = { email: string; locale: Locale; categories: Category[]; alerts: boolean };
 type FormState = SubscribeState & { draft?: Draft };
 
 function readDraft(fd: FormData): Draft {
@@ -41,6 +43,7 @@ function readDraft(fd: FormData): Draft {
     email: typeof email === 'string' ? email.trim() : '',
     locale: fd.get('locale') === 'zh' ? 'zh' : 'en',
     categories: fd.getAll('c').filter(isCategory),
+    alerts: fd.get('alerts') === '1',
   };
 }
 
@@ -233,6 +236,14 @@ export function SubscribeForm({
           ))}
         </div>
       </fieldset>
+
+      {/* F20: unticked by default; the weekly email doesn't depend on it. */}
+      {copy.goingAlerts && (
+        <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm md:min-h-8">
+          <input type="checkbox" name="alerts" value="1" defaultChecked={draft?.alerts ?? false} className="size-4 shrink-0 accent-ink" />
+          <span>{copy.goingAlerts}</span>
+        </label>
+      )}
 
       {/* Honeypot: off screen, out of the tab order and hidden from assistive tech. */}
       <div aria-hidden className="absolute -left-[10000px] top-0 h-px w-px overflow-hidden">

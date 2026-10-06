@@ -361,7 +361,10 @@ describe('the facts /privacy states', () => {
     }
     expect(msg.headers?.['List-Unsubscribe']).toBeUndefined();
     expect(en.Privacy.short.items.leave).toMatch(/^Every Sunday email has a one-click unsubscribe/);
-    expect(en.Privacy.choices.items.prefs).toMatch(/^Every Sunday email links to a preferences page/);
+    expect(en.Privacy.choices.items.prefs).toMatch(/^Every Sunday email and going alert links to a preferences page/);
+    // A going alert's one-click unsubscribe turns off only the alerts (DESIGN-F20 G11).
+    expect(en.Privacy.choices.items.prefs).toContain('it turns off just the alerts');
+    expect(zh.Privacy.choices.items.prefs).toContain('它只关闭提醒');
     expect(en.Privacy.choices.items.prefs).toContain('The one-time confirmation email has neither');
     expect(zh.Privacy.short.items.leave).toMatch(/^每封周报/);
     expect(zh.Privacy.choices.items.prefs).toContain('一次性的确认邮件没有这些');

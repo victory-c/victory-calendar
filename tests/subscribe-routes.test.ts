@@ -20,6 +20,7 @@ const confirmRoute = await import('@/app/[locale]/confirm/[token]/route');
 const unsubscribeRoute = await import('@/app/api/unsubscribe/route');
 const webhookRoute = await import('@/app/api/webhooks/resend/route');
 const cronRoute = await import('@/app/api/cron/sync/route');
+const { alertSends } = await import('@/lib/db/schema');
 const { digestIssues, digestSends, jobsLog, subscribers } = await import('@/lib/db/schema');
 const { newId } = await import('@/lib/ids');
 const { linkToken } = await import('@/lib/subscribers/token');
@@ -207,6 +208,41 @@ describe('/api/unsubscribe (RFC 8058)', () => {
     expect((await reload(suppressed.id)).status).toBe('suppressed');
   });
 
+  describe('F20 ?list=going (the going alerts\' own List-Unsubscribe)', () => {
+    const going = (t: string, list = 'list=going', init?: RequestInit) =>
+      unsubscribeRoute.POST(
+        new NextRequest(`${url(t)}&${list}`, { method: 'POST', body: 'List-Unsubscribe=One-Click', ...init } as ConstructorParameters<typeof NextRequest>[1]),
+      );
+
+    it('turns off going alerts only: 200, the weekly email untouched, idempotent', async () => {
+      const sub = await seed({ goingAlerts: true, goingAlertsSince: new Date(Date.now() - DAY), locale: 'zh' });
+      await expectPlain(await going(linkToken(sub)), 200, 'Going alerts off. 已关闭会去提醒。');
+      const row = await reload(sub.id);
+      expect(row).toEqual({ ...sub, goingAlerts: false, goingAlertsSince: null });
+      await expectPlain(await going(linkToken(sub)), 200, 'Going alerts off. 已关闭会去提醒。');
+      await expectPlain(await going(linkToken(sub), 'list=going', multipart()), 200);
+      expect(await reload(sub.id)).toEqual(row);
+      // A suppressed row stays exactly as it is, and still gets a 200.
+      const suppressed = await seed({ status: 'suppressed', goingAlerts: true });
+      await expectPlain(await going(linkToken(suppressed)), 200);
+      expect(await reload(suppressed.id)).toEqual(suppressed);
+    });
+
+    it('an unknown or ambiguous list unsubscribes from everything, as a link without one does', async () => {
+      for (const list of ['list=weekly', 'list=GOING', 'list=', 'list=going&list=going', 'list=going&list=all']) {
+        const sub = await seed({ goingAlerts: true });
+        await expectPlain(await going(linkToken(sub), list), 200, 'Unsubscribed. 已退订。');
+        expect((await reload(sub.id)).status).toBe('unsubscribed');
+      }
+    });
+
+    it('a bad token is still a 400 that changes nothing', async () => {
+      const sub = await seed({ goingAlerts: true });
+      await expectPlain(await going(tampered(linkToken(sub))), 400);
+      expect(await reload(sub.id)).toEqual(sub);
+    });
+  });
+
   it('400 for a missing, malformed, tampered or unknown token, changing nothing', async () => {
     const sub = await seed();
     for (const t of [null, '', 'bad', tampered(linkToken(sub)), ghostToken()]) {
@@ -258,6 +294,17 @@ describe('/api/unsubscribe (RFC 8058)', () => {
       expectSee(await get('https://evil.example/'), '/unsubscribe');
       expectSee(await get(null), '/unsubscribe');
       expect((await reload(zh.id)).status).toBe('active');
+    });
+
+    it('F20: keeps ?list=going for the manual page (which then offers "Turn off going alerts"); drops any other list', async () => {
+      const zh = await seed({ locale: 'zh', goingAlerts: true });
+      const t = linkToken(zh);
+      const getList = (q: string) => unsubscribeRoute.GET(new NextRequest(`${url(t)}&${q}`));
+      expectSee(await getList('list=going'), `/zh/unsubscribe?t=${t}&list=going`);
+      expectSee(await getList('list=weekly'), `/zh/unsubscribe?t=${t}`);
+      expectSee(await getList('list=going&list=going'), `/zh/unsubscribe?t=${t}`);
+      expectSee(await unsubscribeRoute.GET(new NextRequest('http://localhost/api/unsubscribe?t=x&list=going')), '/unsubscribe');
+      expect(await reload(zh.id)).toEqual(zh);
     });
 
     it('without a database it still redirects, without reading anything', async () => {
@@ -494,11 +541,11 @@ describe('POST /api/webhooks/resend', () => {
       expect((await reload(b.id)).status).toBe('suppressed');
       const log = await rows();
       expect(log.map((r) => [r.ok, r.detail])).toEqual([
-        [false, { type: 'email.bounced', kind: 'digest', issue: ISSUE, bounce: 'Permanent', domain: 'example.org', svix: 'msg_hard' }],
-        [false, { type: 'email.bounced', kind: null, issue: null, bounce: 'Transient', domain: 'mail.example.net', svix: 'msg_soft' }],
-        [false, { type: 'email.complained', kind: null, issue: null, bounce: null, domain: 'example.org', svix: 'msg_complaint' }],
-        [false, { type: 'email.suppressed', kind: null, issue: null, bounce: null, domain: 'example.com', svix: 'msg_supp' }],
-        [false, { type: 'email.failed', kind: 'digest_seed', issue: ISSUE, bounce: null, domain: 'qq.example', svix: 'msg_failed' }],
+        [false, { type: 'email.bounced', kind: 'digest', issue: ISSUE, day: null, bounce: 'Permanent', domain: 'example.org', svix: 'msg_hard' }],
+        [false, { type: 'email.bounced', kind: null, issue: null, day: null, bounce: 'Transient', domain: 'mail.example.net', svix: 'msg_soft' }],
+        [false, { type: 'email.complained', kind: null, issue: null, day: null, bounce: null, domain: 'example.org', svix: 'msg_complaint' }],
+        [false, { type: 'email.suppressed', kind: null, issue: null, day: null, bounce: null, domain: 'example.com', svix: 'msg_supp' }],
+        [false, { type: 'email.failed', kind: 'digest_seed', issue: ISSUE, day: null, bounce: null, domain: 'qq.example', svix: 'msg_failed' }],
       ]);
       // Never an address, a local part or a subscriber id.
       const stored = JSON.stringify(log);
@@ -510,7 +557,7 @@ describe('POST /api/webhooks/resend', () => {
       const res = await post(signed(withTags(bounced([seedSub.email], 'Permanent'), { kind: 'digest_seed', issue: ISSUE }), { id: 'msg_seed' }));
       expect(await res.json()).toEqual({ ok: true, suppressed: 1 });
       expect((await reload(seedSub.id)).status).toBe('suppressed');
-      expect((await rows()).map((r) => r.detail)).toEqual([{ type: 'email.bounced', kind: 'digest_seed', issue: ISSUE, bounce: 'Permanent', domain: 'example.org', svix: 'msg_seed' }]);
+      expect((await rows()).map((r) => r.detail)).toEqual([{ type: 'email.bounced', kind: 'digest_seed', issue: ISSUE, day: null, bounce: 'Permanent', domain: 'example.org', svix: 'msg_seed' }]);
     });
 
     it('a redelivery writes the same svix id again (readers count distinct ids); untrusted tags and odd values are dropped', async () => {
@@ -520,7 +567,7 @@ describe('POST /api/webhooks/resend', () => {
       const log = await rows();
       expect(log).toHaveLength(2);
       expect(new Set(log.map((r) => (r.detail as { svix: string }).svix))).toEqual(new Set(['msg_again']));
-      expect(log[0].detail).toEqual({ type: 'email.bounced', kind: null, issue: null, bounce: null, domain: 'example.org', svix: 'msg_again' });
+      expect(log[0].detail).toEqual({ type: 'email.bounced', kind: null, issue: null, day: null, bounce: null, domain: 'example.org', svix: 'msg_again' });
     });
 
     it('other event types write nothing; no recipient domain is null', async () => {
@@ -546,6 +593,77 @@ describe('POST /api/webhooks/resend', () => {
       expect(await soft.json()).toEqual({ ok: true });
       expect(errors.join('\n')).toContain('[webhook:resend] email.complained: event log write failed');
       expect(errors.join('\n')).not.toContain('private.person');
+    });
+  });
+
+  describe('going alerts (F20): tags kind=alert, day, sub', () => {
+    const DAY_KEY = '2026-10-07';
+    const withTags = (evt: ReturnType<typeof emailEvent>, tags: Record<string, string>) => ({ ...evt, data: { ...evt.data, tags } });
+    /** An alert Resend accepted for `sub` on DAY_KEY. */
+    async function sentAlert(over: Partial<typeof subscribers.$inferInsert> = {}) {
+      const sub = await seed(over);
+      await db().insert(alertSends).values({
+        alertDay: DAY_KEY, subscriberId: sub.id, eventIds: ['evt_a', 'evt_b'], variantKey: 'en:evt_a,evt_b',
+        claimedAt: new Date(Date.now() - DAY), batchKey: 'abk_1', resendId: 're_1', sentAt: new Date(Date.now() - DAY),
+      });
+      const row = async () => (await db().select().from(alertSends).where(eq(alertSends.subscriberId, sub.id)))[0];
+      return { sub, row, tags: { kind: 'alert', day: DAY_KEY, sub: sub.id } };
+    }
+    const failed = (to: string[], tags: Record<string, string> | undefined, reason: unknown = 'reached_daily_quota') =>
+      tags ? withTags(emailEvent('email.failed', to, { failed: { reason } }), tags) : emailEvent('email.failed', to, { failed: { reason } });
+
+    it('email.failed records failed:<reason> on that alert_sends row (so its events may be alerted again); a replay changes nothing', async () => {
+      const { sub, row, tags } = await sentAlert();
+      const other = await sentAlert();
+      const res = await post(signed(failed([sub.email], tags), { id: 'msg_alert_failed' }));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, failed: 1 });
+      expect(await row()).toMatchObject({ error: 'failed:reached_daily_quota', resendId: 're_1' });
+      expect((await other.row()).error).toBeNull();
+      expect(await (await post(signed(failed([sub.email], tags)))).json()).toEqual({ ok: true, failed: 0 });
+      // Logged with the alert day; no address, no subscriber id.
+      const log = (await db().select().from(jobsLog)).filter((r) => r.job === 'email_event');
+      expect(log[0].detail).toEqual({ type: 'email.failed', kind: 'alert', issue: null, day: DAY_KEY, bounce: null, domain: 'example.org', svix: 'msg_alert_failed' });
+      expect(JSON.stringify(log)).not.toContain(sub.id);
+      expect((await reload(sub.id)).status).toBe('active');
+    });
+
+    it('an odd reason is stored as failed:other', async () => {
+      const { sub, row, tags } = await sentAlert();
+      await post(signed(failed([sub.email], tags, 'Mailbox <full> for x@example.org')));
+      expect((await row()).error).toBe('failed:other');
+    });
+
+    it('email.failed without a well-formed day and sub, or with a digest-only tag set, is a 200 no-op', async () => {
+      const { sub, row } = await sentAlert();
+      for (const tags of [
+        { kind: 'alert', sub: sub.id } as Record<string, string>,
+        { kind: 'alert', day: '2026-10-7', sub: sub.id },
+        { kind: 'alert', day: "2026-10-07' or 1=1", sub: sub.id },
+        { kind: 'alert', day: DAY_KEY },
+        { kind: 'alert', issue: 'dig_0123456789abcdef', sub: sub.id },
+        { kind: 'digest', day: DAY_KEY, sub: sub.id },
+        { day: DAY_KEY, sub: sub.id },
+      ]) {
+        const res = await post(signed(failed([sub.email], tags)));
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({ ok: true });
+      }
+      expect((await row()).error).toBeNull();
+    });
+
+    it('a hard bounce on an alert suppresses the tagged subscriber by id, whatever the address says', async () => {
+      const { sub, tags } = await sentAlert();
+      const res = await post(signed(withTags(bounced(['renamed@example.org'], 'Permanent'), tags)));
+      expect(await res.json()).toEqual({ ok: true, suppressed: 1 });
+      expect((await reload(sub.id)).status).toBe('suppressed');
+    });
+
+    it('without a database an alert email.failed is a 503 so Resend retries', async () => {
+      const { sub, tags } = await sentAlert();
+      h.db = noDb;
+      h.hasDb = false;
+      expect((await post(signed(failed([sub.email], tags)))).status).toBe(503);
     });
   });
 });

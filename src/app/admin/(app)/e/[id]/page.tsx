@@ -6,12 +6,14 @@ import { GoingForm } from '@/components/admin/GoingForm';
 import { CoverImage } from '@/components/CoverImage';
 import { getAdminEvent, toWallTime } from '@/lib/admin/events';
 import { requireAdmin } from '@/lib/admin-session';
+import { getGoingMark } from '@/lib/alerts/marks';
 import { blobConfigured } from '@/lib/covers/blob';
 import { braveConfigured } from '@/lib/covers/brave';
 import { OPENVERSE_QUERY } from '@/lib/covers/openverse';
 import { platformName } from '@/lib/events/platform';
 import { fmtRange } from '@/lib/format/date';
 import { aiConfigured } from '@/lib/ingest/extract';
+import { alertsMode } from '@/lib/newsletter/status';
 import { peekRemaining } from '@/lib/ratelimit';
 import { isCategory } from '@/lib/taxonomy';
 
@@ -52,7 +54,9 @@ async function Editor({ params, searchParams }: PageProps<'/admin/e/[id]'>) {
 
   // Cover selector steps 4–6: what's configured, and today's searches / generations left.
   const left = (name: Parameters<typeof peekRemaining>[0]) => peekRemaining(name, 'global').catch(() => null);
-  const [openverse, brave, ai] = await Promise.all([left('coverOpenverse'), left('coverBrave'), left('coverAi')]);
+  // The going form's alert switch starts from the stored mark (F20), so a declined alert shows off.
+  const [openverse, brave, ai, mark] = await Promise.all([left('coverOpenverse'), left('coverBrave'), left('coverAi'), getGoingMark(e.id)]);
+  const now = new Date(); // after the admin session (request data): fine under Cache Components
   const sources = {
     blobReady: blobConfigured(), aiReady: aiConfigured(), braveReady: braveConfigured(),
     openverseQuery: isCategory(e.category) ? OPENVERSE_QUERY[e.category] : '',
@@ -78,7 +82,18 @@ async function Editor({ params, searchParams }: PageProps<'/admin/e/[id]'>) {
         when={e.startAt ? fmtRange(e.startAt, e.endAt, 'zh', e.tz) : null}
         publicHref={e.status === 'published' || e.status === 'cancelled' ? `/events/${e.slug}` : null}
         cover={<CoverPanel id={e.id} preview={preview} kind={e.cover?.kind ?? null} letterboxed={e.cover?.letterboxed ?? false} attribution={e.cover?.attribution ?? null} blobReady={blobConfigured()} hasCategory={isCategory(e.category)} sources={sources} />}
-        going={<GoingForm id={e.id} going={e.going} visibility={e.goingVisibility} />}
+        going={
+          <GoingForm
+            id={e.id}
+            going={e.going}
+            visibility={e.goingVisibility}
+            status={e.status}
+            alertOn={mark?.alert ?? true}
+            mode={alertsMode()}
+            startAt={e.startAt}
+            now={now.getTime()}
+          />
+        }
       />
     </>
   );

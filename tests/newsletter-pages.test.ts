@@ -9,6 +9,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const h = vi.hoisted(() => ({
   locale: 'en' as 'en' | 'zh',
   open: true,
+  /** F20 alertsMode(): 'off' hides the going-alerts controls. */
+  alerts: 'dev' as 'live' | 'dev' | 'off',
   sub: null as unknown,
   /** Use the real messages through next-intl's formatter, for tests that pin the reader's words. */
   real: false,
@@ -43,7 +45,11 @@ vi.mock('@/components/PageShell', () => ({
   PageShell: ({ children }: { children: ReactNode }) => createElement('main', null, children),
 }));
 vi.mock('@/components/SubscribeMenu', () => ({ SubscribeMenu: () => createElement('details', { id: 'subscribe' }) }));
-vi.mock('@/lib/newsletter/status', () => ({ newsletterStatus: () => (h.open ? 'open' : 'closed'), linksWork: () => true }));
+vi.mock('@/lib/newsletter/status', () => ({
+  newsletterStatus: () => (h.open ? 'open' : 'closed'),
+  linksWork: () => true,
+  alertsMode: () => h.alerts,
+}));
 // The row is already a view here: the pages only pass it through viewOf.
 vi.mock('@/lib/subscribers/service', () => ({
   subscriberFromToken: async (token: string) => (token === 'good' ? h.sub : null),
@@ -58,7 +64,7 @@ vi.mock('@/app/[locale]/prefs/actions', () => ({
   unsubscribeFrom: async () => null,
 }));
 
-const { effectiveStatus, longDate, unsubscribeChoices, welcomeBanner } = await import('@/lib/newsletter/prefs-view');
+const { effectiveStatus, goingChoice, isGoingList, longDate, unsubscribeChoices, welcomeBanner } = await import('@/lib/newsletter/prefs-view');
 const { CategoryCheckboxes } = await import('@/components/CategoryCheckboxes');
 const { LinkProblem } = await import('@/components/LinkProblem');
 const { SubscribeForm, statusLine } = await import('@/components/SubscribeForm');
@@ -70,12 +76,13 @@ type View = import('@/lib/subscribers/service').SubscriberView;
 beforeEach(() => {
   h.locale = 'en';
   h.open = true;
+  h.alerts = 'dev';
   h.sub = null;
   h.real = false;
 });
 
 const view = (over: Partial<View> = {}): View => ({
-  status: 'active', locale: 'en', categories: ['ai', 'vc'], evLang: null, onlineOnly: false, pausedUntil: null, ...over,
+  status: 'active', locale: 'en', categories: ['ai', 'vc'], evLang: null, onlineOnly: false, goingAlerts: false, pausedUntil: null, ...over,
 });
 
 // ---- prefs-view ---------------------------------------------------------------------------------
@@ -133,6 +140,26 @@ describe('unsubscribeChoices', () => {
     expect(unsubscribeChoices(view({ categories: ['ai'] }))).toEqual([]);
     expect(unsubscribeChoices(view({ status: 'unsubscribed', categories: ['ai', 'vc'] }))).toEqual([]);
     expect(unsubscribeChoices(view({ status: 'suppressed', categories: ['ai', 'vc'] }))).toEqual([]);
+  });
+});
+
+describe('F20 ?list=going helpers', () => {
+  it('isGoingList: exactly "going"', () => {
+    expect(isGoingList('going')).toBe(true);
+    for (const v of [undefined, '', 'GOING', 'weekly', ['going']]) expect(isGoingList(v)).toBe(false);
+  });
+
+  it('unsubscribeChoices: no category buttons on a page opened from an alert', () => {
+    expect(unsubscribeChoices(view({ categories: ['ai', 'vc'] }), true)).toEqual([]);
+    expect(unsubscribeChoices(view({ categories: ['ai', 'vc'] }), false)).toEqual(['ai', 'vc']);
+  });
+
+  it('goingChoice: offer while on, "off" once off, nothing without the list or for a row that gets no email', () => {
+    expect(goingChoice(view({ goingAlerts: true }), true)).toBe('offer');
+    expect(goingChoice(view({ status: 'paused', goingAlerts: true }), true)).toBe('offer');
+    expect(goingChoice(view({ status: 'pending', goingAlerts: false }), true)).toBe('off');
+    expect(goingChoice(view({ goingAlerts: true }), false)).toBeNull();
+    for (const status of ['unsubscribed', 'suppressed'] as const) expect(goingChoice(view({ status, goingAlerts: true }), true)).toBeNull();
   });
 });
 
@@ -324,6 +351,94 @@ describe('/unsubscribe', () => {
       expect($('a[href="/subscribe"]')).toHaveLength(0);
       expect($('a[href="/"]').text()).toBe('en:Newsletter.link.home');
     }
+  });
+});
+
+describe('F20 going alerts on the token and subscribe pages', () => {
+  const values = ($: ReturnType<typeof load>) => $('input[name=c]').map((_i, el) => $(el).attr('value')).get();
+
+  it('/unsubscribe?list=going: "alerts or everything", with the alert\'s own choice first', async () => {
+    h.sub = view({ categories: ['ai', 'vc', 'social'], goingAlerts: true });
+    const $ = await html(unsubscribePage({ t: 'good', list: 'going' }));
+    expect($.text()).toContain('en:Newsletter.unsubscribe.goingLead');
+    expect($.text()).not.toContain('unsubscribe.lead');
+    expect(values($)).toEqual(['going', 'all']);
+    expect($('input[name=c][value=going]').closest('form').text()).toBe('en:Newsletter.unsubscribe.going');
+    // "More options" still leads to the preference center.
+    expect($('a[href="/prefs/good"]').text()).toBe('en:Newsletter.unsubscribe.more');
+  });
+
+  it('/unsubscribe?list=going with alerts already off: says so, and still offers everything', async () => {
+    h.sub = view({ goingAlerts: false });
+    const $ = await html(unsubscribePage({ t: 'good', list: 'going' }));
+    expect(values($)).toEqual(['all']);
+    expect($('[role=status]').text()).toBe('en:Newsletter.unsubscribe.alertsOff');
+    expect($.text()).not.toContain('goingLead');
+  });
+
+  it('the alert choice shows whatever the alert mode (an opt-out always works), but never on the plain page', async () => {
+    h.alerts = 'off';
+    h.sub = view({ categories: ['ai', 'vc'], goingAlerts: true });
+    expect(values(await html(unsubscribePage({ t: 'good', list: 'going' })))).toEqual(['going', 'all']);
+    expect(values(await html(unsubscribePage({ t: 'good' })))).toEqual(['ai', 'vc', 'all']);
+    expect(values(await html(unsubscribePage({ t: 'good', list: 'weekly' })))).toEqual(['ai', 'vc', 'all']);
+  });
+
+  it('/unsubscribe?list=going on an unsubscribed row: only the confirmation', async () => {
+    h.sub = view({ status: 'unsubscribed', goingAlerts: true });
+    const $ = await html(unsubscribePage({ t: 'good', list: 'going' }));
+    expect($('form')).toHaveLength(0);
+    expect($('[role=status]').text()).toBe('en:Newsletter.unsubscribe.done');
+  });
+
+  it('/prefs: the going-alerts box with the stored choice while alerts can be sent; none (and nothing posted) when off', async () => {
+    h.sub = view({ goingAlerts: true });
+    const $ = await html(prefsPage());
+    const box = $('input[name=alerts]');
+    expect(box.attr('checked')).toBeDefined();
+    expect(box.closest('label').text()).toBe('en:Newsletter.prefs.goingAlerts');
+    expect(box.closest('form').find('input[name=c]').length).toBeGreaterThan(0);
+    expect($('input[name=alerts_present]')).toHaveLength(1);
+    h.sub = view({ goingAlerts: false });
+    expect((await html(prefsPage()))('input[name=alerts]').attr('checked')).toBeUndefined();
+    h.alerts = 'off';
+    h.sub = view({ goingAlerts: true });
+    const off = await html(prefsPage());
+    expect(off('input[name=alerts]')).toHaveLength(0);
+    expect(off('input[name=alerts_present]')).toHaveLength(0);
+    expect(off.text()).not.toContain('prefs.goingAlerts');
+  });
+
+  it('/subscribe: an unticked box while alerts can be sent, none when they cannot', async () => {
+    const $ = await html(subscribePage());
+    expect($('input[name=alerts]').attr('checked')).toBeUndefined();
+    expect($('input[name=alerts]').closest('label').text()).toBe('en:Newsletter.form.goingAlerts');
+    h.alerts = 'live';
+    expect((await html(subscribePage()))('input[name=alerts]')).toHaveLength(1);
+    h.alerts = 'off';
+    expect((await html(subscribePage()))('input[name=alerts]')).toHaveLength(0);
+  });
+
+  it('in the reader\'s words, en and zh', async () => {
+    h.real = true;
+    const words = async (locale: 'en' | 'zh') => {
+      h.locale = locale;
+      h.sub = view({ goingAlerts: true, categories: ['ai', 'vc'] });
+      const unsub = await html(unsubscribePage({ t: 'good', list: 'going' }));
+      const prefs = await html(prefsPage());
+      const sub = await html(subscribePage());
+      return [
+        unsub('input[name=c][value=going]').closest('form').text(),
+        prefs('input[name=alerts]').closest('label').text(),
+        sub('input[name=alerts]').closest('label').text(),
+      ];
+    };
+    expect(await words('en')).toEqual([
+      'Turn off going alerts',
+      'Email me when Victor marks an event as going (at most one email a day)',
+      'Email me when Victor marks an event as going (at most one email a day)',
+    ]);
+    expect(await words('zh')).toEqual(['关闭会去提醒', 'Victor 标记会去时提醒我（每天最多一封）', 'Victor 标记会去时提醒我（每天最多一封）']);
   });
 });
 

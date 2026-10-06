@@ -60,3 +60,13 @@ export function digestMode(): DigestMode {
   if (hasVerifiedSender()) return 'live';
   return process.env.VERCEL ? 'off' : 'dev';
 }
+
+/**
+ * How the going-alert cron may send (F20). The digest's gate, plus its own stop: ALERTS_SENDING=0
+ * turns alerts off anywhere while the digest keeps going. 'off' is also what hides the opt-in
+ * checkboxes on the subscribe form and the preferences page, so no one is offered an email that
+ * can't be sent (today's production: no verified sender).
+ */
+export function alertsMode(): DigestMode {
+  return process.env.ALERTS_SENDING === '0' ? 'off' : digestMode();
+}

@@ -67,6 +67,30 @@ export async function buildSnapshot(issue: DigestIssue, opts: Opts = {}): Promis
   };
 }
 
+/**
+ * F20 going alerts (alerts/pool.ts): public events as the email rows the digest would build, live
+ * at `at` rather than at an issue's send time: the seal is publicGoing() at that instant under the
+ * attendance switch as it is now, and covers follow the issue rules with an empty keep list (a Luma
+ * official cover falls back to the template). Sorted by start time, then id.
+ */
+export async function liveDigestEvents(list: PublicEvent[], opts: { db?: DB; at: Date }): Promise<DigestEvent[]> {
+  if (list.length === 0) return [];
+  const db = opts.db ?? defaultDb;
+  const [attendance, toTemplate, coverIds] = await Promise.all([
+    showAttendance(),
+    readSetting('official_covers_to_template'),
+    coverIdsOf(db, list.map((e) => e.id)),
+  ]);
+  const ctx: Ctx = {
+    origin: publicOrigin(),
+    covers: { keep: new Set(), allToTemplate: Boolean(toTemplate?.on) },
+    coverIds,
+    at: opts.at,
+    show: attendance === true,
+  };
+  return byStart(list).map((e) => toDigestEvent(e, ctx));
+}
+
 function toDigestEvent(e: PublicEvent, ctx: Ctx): DigestEvent {
   const cover = emailCover({ ...e, coverId: ctx.coverIds.get(e.id) ?? null }, ctx.origin, ctx.covers);
   return {
