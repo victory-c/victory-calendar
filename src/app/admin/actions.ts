@@ -12,8 +12,15 @@ import {
 } from '@/lib/admin/events';
 import { requireAdmin } from '@/lib/admin-session';
 import { createToken, revokeToken, type Scope, SCOPES } from '@/lib/api/tokens';
-import { coverFromUpload, coverFromUrl, coverToTemplate, runCoverChain } from '@/lib/covers/chain';
+import { type AiTier, generateAiCandidate, isAiTier } from '@/lib/covers/ai';
+import { type BraveHit, searchBrave } from '@/lib/covers/brave';
+import {
+  type BravePick, coverFromAiCandidate, coverFromBrave, coverFromOpenverse, coverFromUpload, coverFromUrl, coverToTemplate, runCoverChain,
+} from '@/lib/covers/chain';
+import { coverErrorText } from '@/lib/covers/errors';
+import { type OpenverseHit, searchOpenverse } from '@/lib/covers/openverse';
 import { ingest } from '@/lib/ingest/pipeline';
+import { peekRemaining } from '@/lib/ratelimit';
 import { readSetting, writeSetting } from '@/lib/settings';
 
 export type ActionState = { ok: boolean; message: string; token?: string } | null;
@@ -210,6 +217,88 @@ export async function coverFromBlobUpload(id: string, blobUrl: string): Promise<
     return { ok: true, message: 'Cover updated · 封面已更新' };
   } catch (e) {
     return { ok: false, message: errText(e) };
+  }
+}
+
+// ---- cover selector steps 4–6 (M4 F11): manual only, runCoverChain never reaches them ---------
+// Searches return data and change nothing; each costs one of the day's searches (Openverse cache
+// hits are free). An AI tap makes a preview only; "Use this" applies it.
+
+export type CoverSearchState<H> = { ok: boolean; message: string; hits?: H[]; remaining?: number | null };
+export type AiPreviewState = { ok: boolean; message: string; url?: string; tier?: AiTier; remaining?: number };
+
+// After a failed call the count may still have moved (a failed AI call can be billed).
+const leftToday = (name: 'coverOpenverse' | 'coverBrave' | 'coverAi') => peekRemaining(name, 'global').catch(() => null);
+const found = (n: number) => (n ? `${n} found · 找到 ${n} 张` : 'Nothing found; try other words · 没找到，换个词试试');
+const applied = (lowRes: boolean) =>
+  lowRes ? "Cover updated with a smaller copy (original unavailable) · 原图取不到，已用较小的版本作封面" : 'Cover updated · 封面已更新';
+
+export async function searchOpenverseCovers(q: string, page = 1): Promise<CoverSearchState<OpenverseHit>> {
+  await requireAdmin();
+  try {
+    const r = await searchOpenverse(String(q), { page: Number(page) || 1 });
+    return { ok: true, message: found(r.hits.length), hits: r.hits, remaining: r.remaining };
+  } catch (e) {
+    return { ok: false, message: coverErrorText(e), remaining: await leftToday('coverOpenverse') };
+  }
+}
+
+export async function searchBraveCovers(q: string): Promise<CoverSearchState<BraveHit>> {
+  await requireAdmin();
+  try {
+    const r = await searchBrave(String(q));
+    return { ok: true, message: found(r.hits.length), hits: r.hits, remaining: r.remaining };
+  } catch (e) {
+    return { ok: false, message: coverErrorText(e), remaining: await leftToday('coverBrave') };
+  }
+}
+
+export async function pickOpenverseCover(id: string, openverseId: string): Promise<ActionState> {
+  await requireAdmin();
+  try {
+    const { lowRes } = await coverFromOpenverse(id, String(openverseId));
+    refreshPublic();
+    refresh();
+    return { ok: true, message: applied(lowRes) };
+  } catch (e) {
+    return { ok: false, message: coverErrorText(e) };
+  }
+}
+
+export async function pickBraveCover(id: string, pick: BravePick): Promise<ActionState> {
+  await requireAdmin();
+  try {
+    const { lowRes } = await coverFromBrave(id, {
+      imageUrl: String(pick?.imageUrl ?? ''), pageUrl: String(pick?.pageUrl ?? ''), thumbUrl: pick?.thumbUrl ? String(pick.thumbUrl) : null,
+    });
+    refreshPublic();
+    refresh();
+    return { ok: true, message: applied(lowRes) };
+  } catch (e) {
+    return { ok: false, message: coverErrorText(e) };
+  }
+}
+
+export async function generateAiCover(id: string, tier: AiTier): Promise<AiPreviewState> {
+  await requireAdmin();
+  if (!isAiTier(tier)) return { ok: false, message: 'Unknown model · 未知模型' };
+  try {
+    const r = await generateAiCandidate(id, tier);
+    return { ok: true, message: 'Preview ready; nothing changed yet · 预览好了，封面还没换', ...r };
+  } catch (e) {
+    return { ok: false, message: coverErrorText(e), remaining: (await leftToday('coverAi')) ?? undefined };
+  }
+}
+
+export async function applyAiCover(id: string, previewUrl: string, tier: AiTier): Promise<ActionState> {
+  await requireAdmin();
+  try {
+    await coverFromAiCandidate(id, String(previewUrl), tier);
+    refreshPublic();
+    refresh();
+    return { ok: true, message: applied(false) };
+  } catch (e) {
+    return { ok: false, message: coverErrorText(e) };
   }
 }
 

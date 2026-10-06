@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  __setHopForTests, assertFetchableUrl, guardedLookup, isBlockedIp, SafeFetchError, safeFetch, safeFetchBytes, type Hop,
+  __setHopForTests, assertFetchableUrl, guardedLookup, isBlockedIp, SafeFetchError, safeFetch, safeFetchBytes, safeFetchJson, type Hop,
 } from '@/lib/ingest/safe-fetch';
 
 const code = async (p: Promise<unknown> | (() => unknown)) => {
@@ -141,5 +141,75 @@ describe('safeFetch redirects, types and caps', () => {
     expect(await code(safeFetchBytes('https://img.example/stream', { maxBytes: 1024 }))).toBe('too_large');
     expect((await safeFetchBytes('https://img.example/ok')).byteLength).toBe(16);
     expect(await code(safeFetch('https://img.example/gone'))).toBe('status');
+  });
+});
+
+describe('safeFetch extra headers, pinHost and JSON (M4 cover sources)', () => {
+  let restore: (() => void) | undefined;
+  afterEach(() => restore?.());
+
+  const body = (s: string) => ({
+    async *[Symbol.asyncIterator]() {
+      yield Buffer.from(s);
+    },
+    destroy() {},
+  });
+  /** Records the extra headers each hop was asked to send. */
+  const route = (map: Record<string, { status: number; headers?: Record<string, string>; body?: string }>) => {
+    const sent: { url: string; headers: Record<string, string> }[] = [];
+    restore = __setHopForTests(async (url, _signal, headers) => {
+      sent.push({ url: url.toString(), headers: { ...headers } });
+      const r = map[url.toString()];
+      if (!r) throw new Error(`unexpected ${url}`);
+      return { status: r.status, headers: r.headers ?? {}, body: body(r.body ?? '') };
+    });
+    return sent;
+  };
+  const json = { 'content-type': 'application/json; charset=utf-8' };
+
+  it('sends extra headers (lower-cased) and asks for JSON', async () => {
+    const sent = route({ 'https://api.example.org/v1?q=a': { status: 200, headers: json, body: '{"ok":true}' } });
+    expect(await safeFetchJson('https://api.example.org/v1?q=a', { headers: { 'X-Subscription-Token': 'k1' } })).toEqual({ ok: true });
+    expect(sent[0].headers).toEqual({ accept: 'application/json', 'x-subscription-token': 'k1' });
+  });
+
+  it('drops extra headers when a redirect leaves the first host, keeps them on the same host', async () => {
+    const sent = route({
+      'https://api.example.org/a': { status: 302, headers: { location: '/b' } },
+      'https://api.example.org/b': { status: 302, headers: { location: 'https://other.example.net/c' } },
+      'https://other.example.net/c': { status: 200, headers: json, body: '[]' },
+    });
+    await safeFetchJson('https://api.example.org/a', { headers: { 'x-api-key': 'k2' } });
+    expect(sent.map((s) => s.headers['x-api-key'] ?? null)).toEqual(['k2', 'k2', null]);
+    expect(JSON.stringify(sent[2])).not.toContain('k2');
+  });
+
+  it('pinHost refuses another host up front and on any redirect, before the header could travel', async () => {
+    const sent = route({
+      'https://api.example.org/a': { status: 302, headers: { location: 'https://evil.example.net/steal' } },
+      'https://evil.example.net/steal': { status: 200, headers: json, body: '{}' },
+    });
+    const opts = { headers: { 'x-api-key': 'k3' }, pinHost: 'api.example.org' };
+    expect(await code(safeFetchJson('https://api.example.org/a', opts))).toBe('pinned_host');
+    expect(await code(safeFetchJson('https://evil.example.net/steal', opts))).toBe('pinned_host');
+    expect(sent.map((s) => s.url)).toEqual(['https://api.example.org/a']);
+  });
+
+  it('JSON: wrong content-type and unparseable bodies are refused', async () => {
+    route({
+      'https://api.example.org/html': { status: 200, headers: { 'content-type': 'text/html' }, body: '<html>' },
+      'https://api.example.org/bad': { status: 200, headers: json, body: '{nope' },
+      'https://api.example.org/429': { status: 429 },
+    });
+    expect(await code(safeFetchJson('https://api.example.org/html'))).toBe('content_type');
+    expect(await code(safeFetchJson('https://api.example.org/bad'))).toBe('bad_json');
+    const err = (await safeFetchJson('https://api.example.org/429').then(() => null, (e) => e)) as SafeFetchError;
+    expect([err.code, err.status]).toEqual(['status', 429]);
+  });
+
+  it('plain fetches send no extra headers', async () => {
+    const sent = route({ 'https://img.example.org/a.png': { status: 200, headers: { 'content-type': 'image/png' }, body: 'x' } });
+    await safeFetchBytes('https://img.example.org/a.png');
+    expect(sent[0].headers).toEqual({});
   });
 });

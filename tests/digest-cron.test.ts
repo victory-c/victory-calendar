@@ -39,9 +39,11 @@ vi.mock('@/lib/settings', async (orig) => {
 vi.mock('@/lib/digest/assemble', () => ({
   buildSnapshot: async (issue: { id: string; isoWeek: string }) => {
     if (h.runThrows) throw h.runThrows;
+    // The claims count only events inside [from, to) (select.ts pickCells, F19), as the email does.
     return {
-      version: 1, issueId: issue.id, isoWeek: issue.isoWeek, from: '', to: '', previewWeek: '', sendAfter: '', origin: 'https://picks.test',
-      introEn: null, introZh: null, showAttendance: true, events: [{ id: 'evt_1', category: 'ai', titleEn: 'AI night' }], preview: [],
+      version: 1, issueId: issue.id, isoWeek: issue.isoWeek, from: '2026-10-12T07:00:00.000Z', to: '2026-10-19T07:00:00.000Z', previewWeek: '',
+      sendAfter: '', origin: 'https://picks.test', introEn: null, introZh: null, showAttendance: true,
+      events: [{ id: 'evt_1', category: 'ai', titleEn: 'AI night', startAt: '2026-10-15T01:30:00.000Z', format: 'in_person' }], preview: [],
     };
   },
 }));

@@ -2,6 +2,7 @@ import 'server-only';
 import { and, asc, desc, eq, getTableColumns, gte, inArray, isNull, lt, lte, or, type SQL, sql } from 'drizzle-orm';
 import { db as defaultDb, type DB } from '../db';
 import { digestIssues, digestSends, events, subscribers } from '../db/schema';
+import { facetsOf } from '../events/facets';
 import { newId } from '../ids';
 import { CATEGORY_SLUGS } from '../taxonomy';
 import { archivable } from './archive-sql';
@@ -227,19 +228,26 @@ export function eligibleSubscriber(now: Date): SQL {
   )!;
 }
 
-/** Eligible subscribers per variant (language × category set), largest first. Counts only, no addresses. */
+/** Eligible subscribers per variant (language × category set × F19 facets), largest first. Counts only, no addresses. */
 export async function audience(opts: Opts = {}): Promise<{ variant: Variant; count: number }[]> {
   const db = opts.db ?? defaultDb;
   const now = opts.now ?? new Date();
   const rows = await db
-    .select({ locale: subscribers.locale, categories: subscribers.categories, count: sql<number>`count(*)` })
+    .select({
+      locale: subscribers.locale,
+      categories: subscribers.categories,
+      evLangPref: subscribers.evLangPref,
+      onlineOnly: subscribers.onlineOnly,
+      count: sql<number>`count(*)`,
+    })
     .from(subscribers)
     .where(eligibleSubscriber(now))
-    .groupBy(subscribers.locale, subscribers.categories);
+    .groupBy(subscribers.locale, subscribers.categories, subscribers.evLangPref, subscribers.onlineOnly);
   const byKey = new Map<string, { variant: Variant; count: number }>();
   for (const r of rows) {
-    // The same set can be stored in another order or with an unknown slug; the key normalises both.
-    const variant = parseVariantKey(variantKey(r.locale, r.categories));
+    // The same set can be stored in another order or with an unknown slug, and facets in shapes
+    // the digest reads as none (claim.ts); the key normalises all of it, as the claim does.
+    const variant = parseVariantKey(variantKey(r.locale, r.categories, facetsOf(r)));
     if (!variant) continue; // unreachable: the rule above requires a known slug
     const slot = byKey.get(variant.key);
     if (slot) slot.count += Number(r.count);

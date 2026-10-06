@@ -14,8 +14,7 @@
     "nav": "Main",
     "calendar": "Calendar",
     "going": "Going",
-    "archive": "Archive"
-,
+    "archive": "Archive",
     "weekly": "Weekly"
   },
   "Home": {
@@ -58,6 +57,11 @@
     "outlook": "Outlook",
     "hostedBy": "Hosted by {host}",
     "coverCredit": "Cover: {host} via {platform}",
+    "coverOpenverse": "Cover: <page>{work}</page> · <deed>{license}</deed>",
+    "coverCropped": "cropped",
+    "coverPadded": "padded to square",
+    "coverVia": "Image via <page>{host}</page>",
+    "coverAi": "AI-generated cover",
     "yourTime": "Your time",
     "rsvpAt": "RSVP on {platform}",
     "refreshNote": "Calendar subscriptions refresh on each app's own schedule; time changes and cancellations show up at the next refresh, and a cancelled event stays in the feed, marked cancelled. An event added on its own is a one-time copy and won't update.",
@@ -67,8 +71,9 @@
     "title": "More filters",
     "lang": "Event language",
     "langAny": "Any",
-    "langZh": "Chinese",
-    "langBilingual": "Bilingual",
+    "langZh": "Chinese (incl. bilingual)",
+    "langEn": "English (incl. bilingual)",
+    "langBilingual": "Bilingual only",
     "fmt": "Format",
     "fmtAny": "Any",
     "fmtInPerson": "In person",
@@ -83,7 +88,9 @@
     "online": "Online",
     "free": "Free only",
     "apply": "Apply",
-    "clear": "Clear"
+    "clear": "Clear",
+    "subscribeFiltered": "Subscribe to this selection",
+    "siteOnly": "Area, price and in-person filters apply on the site only."
   },
   "Calendar": {
     "title": "Calendar",
@@ -136,7 +143,8 @@
       "calendar": "Calendar",
       "going": "Where I'm going",
       "archive": "Archive"
-    }
+    },
+    "brave": "Some cover images are found with <brave>Brave Search</brave>'s image search."
   },
   "Privacy": {
     "title": "Privacy",
@@ -166,14 +174,14 @@
         "fonts": "Fonts and images are served by this site, so your browser doesn't call Google Fonts or any other outside service while you read.",
         "logs": "Vercel, which hosts the site, keeps standard request logs (IP address, browser, the page requested) on its own schedule. I use them only to fix problems and stop abuse.",
         "links": "When you follow a link to an event page, that site only learns that you came from this site, not from which page.",
-        "feeds": "Calendar feeds and RSS need no account. Their links carry only your language and category choices."
+        "feeds": "Calendar feeds and RSS need no account. Their links carry only your choices: language, categories, and optionally event language and online-only."
       }
     },
     "subscribe": {
       "title": "If you subscribe",
       "storeLead": "What I store:",
       "items": {
-        "email": "Your email address, the language and categories you picked, and your status (waiting for confirmation, subscribed, paused or unsubscribed) with its dates.",
+        "email": "Your email address, the language and categories you picked, the event-language and online-only filters if you set them, and your status (waiting for confirmation, subscribed, paused or unsubscribed) with its dates.",
         "consent": "The most recent sign-up request for your address, confirmed or not: when it was made, which page it came from, and the IP address and browser user-agent it was sent from. Once you confirm, that's the record that you asked to subscribe.",
         "sends": "Which weekly emails were sent to you, and when.",
         "nothing": "Nothing else: no name, no location, no browsing history."
@@ -184,12 +192,12 @@
     "use": {
       "title": "What I use it for",
       "items": {
-        "send": "Sending the confirmation email and the Sunday email, in your language and with only your categories.",
+        "send": "Sending the confirmation email and the Sunday email, in your language and with only your categories and filters.",
         "abuse": "Stopping bots, and stopping anyone from flooding someone else's inbox with sign-up emails.",
         "proof": "Showing that you asked to subscribe, and making sure an unsubscribe sticks.",
         "nothing": "Nothing else: no ads, no profiling, no selling."
       },
-      "ai": "I use AI (Anthropic's Claude, through Vercel's AI Gateway) to help draft event summaries and translations. It only sees public event pages and my own notes, never your email address or anything else about subscribers or visitors."
+      "ai": "I use AI (Anthropic's Claude, through Vercel's AI Gateway) to help draft event summaries and translations, and sometimes to make an abstract cover image (Recraft or Black Forest Labs FLUX, through the same gateway) from a fixed prompt plus the event's category. It only sees public event pages and my own notes, never your email address or anything else about subscribers or visitors."
     },
     "tracking": {
       "title": "Opens and clicks",
@@ -205,7 +213,7 @@
       "items": {
         "vercel": "<b>Vercel</b> hosts the site: request logs, the bot check, the firewall and image storage.",
         "neon": "<b>Neon</b> (part of Databricks) runs the database that holds subscriptions and send records.",
-        "upstash": "<b>Upstash</b> keeps the rate-limit counters, which hold hashes only.",
+        "upstash": "<b>Upstash</b> keeps the rate-limit counters, which hold hashes only, plus site-wide daily counters and a one-day cache of Openverse search results (public image data).",
         "resend": "<b>Resend</b> sends the emails. It sees your address, the email itself, and whether it was delivered, bounced or marked as spam."
       },
       "policy": "{name} privacy policy",
@@ -225,7 +233,7 @@
     "choices": {
       "title": "Your choices",
       "items": {
-        "prefs": "Every Sunday email links to a preferences page where you can change the language or categories, pause for 4 weeks, or unsubscribe in one click, and your mail app's Unsubscribe button works on it too. The one-time confirmation email has neither: if you ignore it, nothing more is sent.",
+        "prefs": "Every Sunday email links to a preferences page where you can change the language, categories, event-language and online-only filters, pause for 4 weeks, or unsubscribe in one click, and your mail app's Unsubscribe button works on it too. The one-time confirmation email has neither: if you ignore it, nothing more is sent.",
         "request": "To see what I hold about you, or to have it deleted, email me from the address you subscribed with, at the address under “<contact>Who runs this</contact>”. Deleting removes your subscription and its send records from my database, and takes your address off Resend's do-not-send list if it's there. Copies in provider logs and backups expire on their own schedules.",
         "suppressed": "If your address is on my do-not-send list, it may be on Resend's as well. A deletion request takes it off both, so the block is lifted and you can subscribe again.",
         "change": "To change your address, subscribe with the new one and unsubscribe the old one."
@@ -238,8 +246,8 @@
     "takedown": {
       "title": "For event hosts: takedowns",
       "items": {
-        "keep": "For each pick I keep the public facts (title, time, place, host, link), a short summary in my own words, and sometimes a cover: the event's official cover image, credited as “Cover: host via platform”, or, when there isn't one, a tile made from the hosts' profile photos on the event page (credited in emails as “Host photos via platform”).",
-        "promise": "If you host an event and want its cover (official or made from host photos) or its listing removed, email me at the address under “<contact>Who runs this</contact>”. Within 24 hours I'll swap the cover for a plain template or take the listing down, on this site and in future emails.",
+        "keep": "For each pick I keep the public facts (title, time, place, host, link), a short summary in my own words, and sometimes a cover. A cover is one of: the event's official cover image, credited as “Cover: host via platform”; a tile made from the hosts' profile photos on the event page (credited in emails as “Host photos via platform”); an openly licensed photo from Openverse (CC0, CC BY or CC BY-SA), credited with its title, creator and licence and linked to its source; an image I found with Brave image search, credited “Image via” its site and linked to it; an image I uploaded or linked to by hand, for example the host's own poster; or an abstract image made with AI, labelled as such. Brave finds never appear in emails or share cards, and Openverse photos that need a credit never appear on share cards: those use a plain template there.",
+        "promise": "If you host an event and want its cover (official, made from host photos, or any other) or its listing removed, or you own an image used as a cover, email me at the address under “<contact>Who runs this</contact>”. Within 24 hours I'll swap the cover for a plain template or take the listing down, on this site and in future emails.",
         "limits": "Emails already sent, and copies kept by search engines or other sites, are beyond my reach.",
         "inbox": "Some picks start as invitations in my own calendars. Those wait in a private list only I can see, which keeps the title, time, place, links and a short snippet with email addresses removed (never the guest list), and are cleared a week after the event."
       }
@@ -283,7 +291,17 @@
       "submitting": "Sending…",
       "privacy": "I only use your email to send this newsletter. Every email has a one-click unsubscribe.",
       "privacyLink": "How I handle your data",
-      "honeypot": "Leave this field empty"
+      "honeypot": "Leave this field empty",
+      "facets": "Only {facets}",
+      "facetsRemove": "Remove",
+      "facetsRemoved": "Filters removed."
+    },
+    "facets": {
+      "zh": "Chinese or bilingual events",
+      "en": "English or bilingual events",
+      "bilingual": "bilingual events",
+      "online": "online events (incl. hybrid)",
+      "onlineOf": "online (incl. hybrid) {events}"
     },
     "state": {
       "pending": "Almost done: open the email I just sent and click the link. Nothing arrives until you do.",
@@ -338,7 +356,13 @@
       "langSwitchToEn": "Switch to English",
       "langSwitchToZh": "Switch to Chinese",
       "langSwitchedEn": "Done. Your next email will be in English.",
-      "langSwitchedZh": "Done. Your next email will be in Chinese."
+      "langSwitchedZh": "Done. Your next email will be in Chinese.",
+      "evLang": "Event language",
+      "evLangAny": "Any",
+      "evLangZh": "Chinese or bilingual",
+      "evLangEn": "English or bilingual",
+      "evLangBilingual": "Bilingual only",
+      "onlineOnly": "Online events only (incl. hybrid)"
     },
     "unsubscribe": {
       "title": "Unsubscribe",

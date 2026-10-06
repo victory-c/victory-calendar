@@ -4,6 +4,7 @@ import { db as defaultDb, type DB } from '../db';
 import { digestIssues, digestSends, jobsLog, SUBSCRIBER_STATUS, subscribers } from '../db/schema';
 import { eligibleSubscriber } from '../digest/issues';
 import { coverage } from '../digest/week';
+import { EV_LANGS, type EvLang, evLangOf, facetsOf } from '../events/facets';
 import { type Category, CATEGORY_SLUGS, type Locale } from '../taxonomy';
 import { cleanCategories, normalizeEmail, type Subscriber } from './service';
 import { tokenId } from './token';
@@ -60,6 +61,39 @@ export async function categoryMatrix(opts: Opts = {}): Promise<{ rows: Record<Ca
     for (const c of cleanCategories(r.categories)) add(rows[c], r.locale, n);
   }
   return { rows, people };
+}
+
+export type FacetCounts = {
+  /** Event-language preference ('any' = none, or a stored shape the digest reads as none). */
+  evLang: Record<'any' | EvLang, LocaleCounts>;
+  /** Online-only readers (the rest get every format). */
+  onlineOnly: LocaleCounts;
+  people: LocaleCounts;
+};
+
+/**
+ * F19 facets × language among the same readers as categoryMatrix (the digest's own rule, at the
+ * same instant): how many narrowed their email by event language or to online events. Each reader
+ * is in exactly one event-language row, so those rows add up to `people`.
+ */
+export async function facetMatrix(opts: Opts = {}): Promise<FacetCounts> {
+  const db = opts.db ?? defaultDb;
+  const found = await db
+    .select({ locale: subscribers.locale, evLangPref: subscribers.evLangPref, onlineOnly: subscribers.onlineOnly, n: sql<number>`count(*)::int` })
+    .from(subscribers)
+    .where(eligibleSubscriber(opts.now ?? new Date()))
+    .groupBy(subscribers.locale, subscribers.evLangPref, subscribers.onlineOnly);
+  const evLang = Object.fromEntries(['any', ...EV_LANGS].map((k) => [k, zero()])) as FacetCounts['evLang'];
+  const onlineOnly = zero();
+  const people = zero();
+  for (const r of found) {
+    const n = Number(r.n);
+    const f = facetsOf(r);
+    add(people, r.locale, n);
+    add(evLang[f.evLang ?? 'any'], r.locale, n);
+    if (f.onlineOnly) add(onlineOnly, r.locale, n);
+  }
+  return { evLang, onlineOnly, people };
 }
 
 /** G3 (guide week 15, PRD「连续 2 期准时发给 ≥50 人」): the bar for confirmed subscribers and digests sent. */
@@ -276,6 +310,9 @@ export type SubscriberDetail = {
   status: Subscriber['status'];
   locale: Locale;
   categories: Category[];
+  /** F19 facets as the digest reads them (a malformed stored value shows as none). */
+  evLang: EvLang | null;
+  onlineOnly: boolean;
   createdAt: string;
   consentAt: string | null;
   consentSource: string | null;
@@ -300,6 +337,8 @@ export async function subscriberDetail(q: SubscriberQuery, opts: Opts = {}): Pro
       status: subscribers.status,
       locale: subscribers.locale,
       categories: subscribers.categories,
+      evLangPref: subscribers.evLangPref,
+      onlineOnly: subscribers.onlineOnly,
       createdAt: subscribers.createdAt,
       consentAt: subscribers.consentAt,
       consentSource: subscribers.consentSource,
@@ -310,6 +349,7 @@ export async function subscriberDetail(q: SubscriberQuery, opts: Opts = {}): Pro
     .from(subscribers)
     .where('email' in q ? eq(subscribers.email, q.email) : eq(subscribers.id, q.id));
   if (!row) return null;
+  const { evLangPref, onlineOnly, ...rest } = row;
   const [sends, [busy]] = await Promise.all([
     db
       .select({
@@ -331,7 +371,8 @@ export async function subscriberDetail(q: SubscriberQuery, opts: Opts = {}): Pro
       .where(and(eq(digestSends.subscriberId, row.id), sql`${digestSends.resendId} is null and ${digestSends.error} is null`)),
   ]);
   return {
-    ...row,
+    ...rest,
+    ...facetsOf({ evLangPref, onlineOnly }),
     categories: cleanCategories(row.categories),
     createdAt: row.createdAt.toISOString(),
     consentAt: iso(row.consentAt),
@@ -355,10 +396,12 @@ export async function subscriberDetail(q: SubscriberQuery, opts: Opts = {}): Pro
 /**
  * The export's columns (DESIGN D12). Every status, so a migration carries the unsubscribed and
  * suppressed rows over and never mails them again; no consent IP or user agent (data minimisation).
+ * The F19 facets come last (so older column positions don't move), as the digest reads them:
+ * ev_lang_pref en / zh / bilingual or empty for any, online_only true / false.
  */
 export const EXPORT_COLUMNS = [
   'id', 'email', 'status', 'locale', 'categories', 'created_at', 'consent_at', 'consent_source', 'confirmed_at',
-  'unsubscribed_at', 'paused_until',
+  'unsubscribed_at', 'paused_until', 'ev_lang_pref', 'online_only',
 ] as const;
 
 export async function exportRows(opts: Opts = {}): Promise<string[][]> {
@@ -376,12 +419,15 @@ export async function exportRows(opts: Opts = {}): Promise<string[][]> {
       confirmedAt: subscribers.confirmedAt,
       unsubscribedAt: subscribers.unsubscribedAt,
       pausedUntil: subscribers.pausedUntil,
+      evLangPref: subscribers.evLangPref,
+      onlineOnly: subscribers.onlineOnly,
     })
     .from(subscribers)
     .orderBy(asc(subscribers.createdAt), asc(subscribers.id));
   return found.map((r) => [
     r.id, r.email, r.status, r.locale, r.categories.join(';'), r.createdAt.toISOString(), iso(r.consentAt) ?? '',
     r.consentSource ?? '', iso(r.confirmedAt) ?? '', iso(r.unsubscribedAt) ?? '', iso(r.pausedUntil) ?? '',
+    evLangOf(r.evLangPref) ?? '', String(r.onlineOnly === true),
   ]);
 }
 

@@ -1,6 +1,7 @@
 import { getTranslations } from 'next-intl/server';
 import { Link } from '@/i18n/navigation';
 import { feedUrl, googleSubscribe, outlookSubscribe, targetOrder, webcal } from '@/lib/calendar-links';
+import { type Facets, facetParams, hasFacets, NO_FACETS } from '@/lib/events/facets';
 import { publicOrigin } from '@/lib/host';
 import { calendarName } from '@/lib/ics';
 import { newsletterStatus } from '@/lib/newsletter/status';
@@ -11,18 +12,36 @@ import type { Category, Locale } from '@/lib/taxonomy';
  * A <details> menu — zero JS. zh puts Google last (unreachable from mainland China).
  * While the newsletter is open, the same selection also links to /subscribe?c= (guide: one chip
  * selection feeds both the ICS link and the email form). Not for going.ics: no going emails yet.
+ * F19: the site's event-language and online filters ride along as `ev_lang` / `online` on both
+ * links; `siteOnly` (area, price, in person) gets a one-line note, since no feed can carry those.
  */
-export async function SubscribeMenu({ locale, cats = [], going = false }: { locale: Locale; cats?: Category[]; going?: boolean }) {
+export async function SubscribeMenu({
+  locale,
+  cats = [],
+  going = false,
+  facets = NO_FACETS,
+  siteOnly = false,
+}: {
+  locale: Locale;
+  cats?: Category[];
+  going?: boolean;
+  facets?: Facets;
+  siteOnly?: boolean;
+}) {
   const t = await getTranslations({ locale, namespace: 'Subscribe' });
-  const https = feedUrl(publicOrigin(), { cats, locale, going });
-  const name = calendarName(locale, cats, going);
+  const f = going ? NO_FACETS : facets;
+  const filtered = hasFacets(f);
+  const tf = filtered || (siteOnly && !going) ? await getTranslations({ locale, namespace: 'Facets' }) : null;
+  const https = feedUrl(publicOrigin(), { cats, locale, going, ...f });
+  const name = calendarName(locale, cats, going, f);
   const links = {
     apple: { href: webcal(https), label: t('apple') },
     google: { href: googleSubscribe(https), label: t('google') },
     outlook: { href: outlookSubscribe(https, name), label: t('outlook') },
   } as const;
   const order = targetOrder(locale).filter((k): k is keyof typeof links => k in links);
-  const label = going ? t('going') : cats.length ? t('these') : t('all');
+  const label = going ? t('going') : filtered && tf ? tf('subscribeFiltered') : cats.length ? t('these') : t('all');
+  const signUp = new URLSearchParams([...(cats.length ? [['c', cats.join(',')]] : []), ...facetParams(f)]).toString().replace(/%2C/g, ',');
   const email = !going && newsletterStatus() === 'open' ? await getTranslations({ locale, namespace: 'Newsletter' }) : null;
   return (
     <details id="subscribe" className="group relative mt-3 inline-block">
@@ -49,7 +68,7 @@ export async function SubscribeMenu({ locale, cats = [], going = false }: { loca
         {email && (
           <div className="mt-1.5 border-t border-rule pt-1.5">
             <Link
-              href={cats.length ? `/subscribe?c=${cats.join(',')}` : '/subscribe'}
+              href={signUp ? `/subscribe?${signUp}` : '/subscribe'}
               className="flex h-11 items-center rounded-lg px-3 text-sm hover:bg-rule/50"
             >
               {email('title')}
@@ -65,6 +84,7 @@ export async function SubscribeMenu({ locale, cats = [], going = false }: { loca
             className="mt-1 h-9 w-full rounded-lg border border-rule bg-paper px-2 font-mono text-xs"
           />
           <p className="mt-1 text-xs text-muted">{t('urlHint')}</p>
+          {siteOnly && !going && tf && <p className="mt-2 text-xs text-muted">{tf('siteOnly')}</p>}
           <p className="mt-2 text-xs text-muted">{t('refresh')}</p>
         </div>
       </div>

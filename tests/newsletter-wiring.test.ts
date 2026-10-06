@@ -268,6 +268,27 @@ describe('Subscribe entry points follow newsletterStatus()', () => {
       expect(subscribeLinks(await menu({ locale: 'en' }))).toEqual([['/subscribe', 'Get the picks by email']]);
     });
 
+    it('F19: the site\'s language and online filters ride along on the feed and the email link; site-only filters get a note', async () => {
+      gate('open');
+      const m = await menu({ locale: 'zh', cats: ['ai'], facets: { evLang: 'zh', onlineOnly: true }, siteOnly: true });
+      expect(subscribeLinks(m)).toEqual([['/subscribe?c=ai&amp;ev_lang=zh&amp;online=1', '每周精选，发到你的邮箱']]);
+      expect(m).toContain('value="https://picks.example.org/calendar.ics?c=ai&amp;lang=zh&amp;ev_lang=zh&amp;online=1"');
+      expect(m).toContain('href="webcal://picks.example.org/calendar.ics?c=ai&amp;lang=zh&amp;ev_lang=zh&amp;online=1"');
+      expect(m).toContain('订阅当前筛选');
+      expect(m).toContain('区域、价格、线下筛选只在网站上生效。');
+      // Outlook gets the feed name with the facets in it.
+      expect(m).toContain(encodeURIComponent('Victor 精选 · AI 与技术 · 中文或双语活动 · 线上').replace(/%20/g, '+'));
+      // No facets, no note: the menu is exactly as before.
+      const plain = await menu({ locale: 'en', cats: ['ai'] });
+      expect(plain).toContain('Subscribe to these categories');
+      expect(plain).not.toContain('site only');
+      expect(plain).toContain('value="https://picks.example.org/calendar.ics?c=ai"');
+      // going.ics takes no facets and shows no note.
+      const going = await menu({ locale: 'en', going: true, facets: { evLang: 'zh', onlineOnly: true }, siteOnly: true });
+      expect(going).toContain('value="https://picks.example.org/calendar/going.ics"');
+      expect(going).not.toContain('site only');
+    });
+
     it('no email link on the going.ics menu (no going emails yet)', async () => {
       gate('open');
       expect(subscribeLinks(await menu({ locale: 'en', going: true }))).toEqual([]);

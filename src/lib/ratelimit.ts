@@ -17,6 +17,12 @@ export const LIMITS = {
   digestTest: { max: 10, window: '1 d' },
   // Seed rounds (one batch to DIGEST_SEED_EMAILS, at most 10 addresses): 4 a day, ≤ 40 emails.
   digestSeed: { max: 4, window: '1 d' },
+  // Cover picker (M4 F11), deployment-wide: Openverse's anonymous API allows ~200 a day per
+  // (shared Vercel) IP; Brave bills $5 per 1,000 (30 a day stays inside the $5 monthly credit);
+  // AI covers cost $0.007–0.04 each.
+  coverOpenverse: { max: 100, window: '1 d' },
+  coverBrave: { max: 30, window: '1 d' },
+  coverAi: { max: 20, window: '1 d' },
 } as const;
 
 type LimitName = keyof typeof LIMITS;
@@ -79,7 +85,19 @@ export async function hasRoom(name: LimitName, key: string, now = Date.now()): P
   return (await upstash(name).getRemaining(key)).remaining > 0;
 }
 
+/** How many `limit(name, key)` calls are left in the current window, without using one. */
+export async function peekRemaining(name: LimitName, key: string, now = Date.now()): Promise<number> {
+  if (!hasUpstash()) {
+    const cur = memory.get(`${name}:${key}`);
+    return !cur || cur.reset <= now ? LIMITS[name].max : Math.max(0, LIMITS[name].max - cur.count);
+  }
+  return Math.max(0, (await upstash(name).getRemaining(key)).remaining);
+}
+
 /** Test hook. */
 export function _resetMemoryLimits() {
   memory.clear();
 }
+
+/** Whether Upstash Redis is configured; the cover picker's search cache shares it (memory otherwise). */
+export const upstashConfigured = hasUpstash;

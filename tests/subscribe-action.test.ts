@@ -189,6 +189,16 @@ describe('subscribe action: a real sign-up', () => {
     expect(vi.mocked(cache.revalidateTag)).not.toHaveBeenCalled();
   });
 
+  it('F19: facets carried in hidden fields are stored; none without them; unknown values mean none', async () => {
+    await run(form({ ev_lang: 'zh', online: '1' }));
+    expect((await rows())[0]).toMatchObject({ evLangPref: ['zh'], onlineOnly: true });
+    await run(form({ email: 'plain@example.com' }));
+    await run(form({ email: 'forged@example.com', ev_lang: 'fr', online: 'yes' }));
+    const by = Object.fromEntries((await rows()).map((r) => [r.email, [r.evLangPref, r.onlineOnly]]));
+    expect(by['plain@example.com']).toEqual([null, null]);
+    expect(by['forged@example.com']).toEqual([null, null]);
+  });
+
   it('answers before mailing: the confirmation goes out only once after() callbacks run', async () => {
     const r = await subscribe(initialSubscribeState, form());
     expect(r).toEqual({ status: 'pending' });
@@ -481,7 +491,7 @@ describe('subscribe action: existing addresses look the same from outside', () =
   it('active or paused: nothing changes, they get their preferences link', async () => {
     const active = await seed('reader@example.com', 'active', { confirmedAt: new Date() });
     const paused = await seed('rest@example.com', 'paused', { confirmedAt: new Date(), pausedUntil: new Date(Date.now() + 864e5) });
-    expect(await run(form({ c: ['social'], locale: 'zh' }))).toEqual({ status: 'pending' });
+    expect(await run(form({ c: ['social'], locale: 'zh', ev_lang: 'zh', online: '1' }))).toEqual({ status: 'pending' });
     expect(await run(form({ email: 'rest@example.com' }))).toEqual({ status: 'pending' });
     const [a] = await db().select().from(subscribers).where(eq(subscribers.id, active.id));
     const [p] = await db().select().from(subscribers).where(eq(subscribers.id, paused.id));
@@ -499,10 +509,12 @@ describe('subscribe action: existing addresses look the same from outside', () =
   });
 
   it('pending: re-armed with the new choices and a fresh confirmation', async () => {
-    const row = await seed('reader@example.com', 'pending');
-    await run(form({ c: ['cycling'], locale: 'zh', source: 'zh/subscribe' }));
+    const row = await seed('reader@example.com', 'pending', { evLangPref: ['en'] });
+    await run(form({ c: ['cycling'], locale: 'zh', source: 'zh/subscribe', online: '1' }));
     const [again] = await rows();
-    expect(again).toMatchObject({ id: row.id, status: 'pending', categories: ['cycling'], locale: 'zh', consentSource: 'zh/subscribe' });
+    expect(again).toMatchObject({
+      id: row.id, status: 'pending', categories: ['cycling'], locale: 'zh', consentSource: 'zh/subscribe', evLangPref: null, onlineOnly: true,
+    });
     expect(again.consentAt!.getTime()).toBeGreaterThan(row.consentAt!.getTime());
     expect(h.sent).toHaveLength(1);
     expect(verifyToken(confirmToken(h.sent[0].text), again)).toBe(true);
@@ -511,9 +523,11 @@ describe('subscribe action: existing addresses look the same from outside', () =
   it('unsubscribed: back to pending, confirm again; the earlier confirmation and opt-out stay on the row', async () => {
     const confirmedAt = new Date(Date.now() - 30 * 864e5);
     const unsubscribedAt = new Date(Date.now() - 864e5);
-    await seed('reader@example.com', 'unsubscribed', { unsubscribedAt, confirmedAt });
-    await run();
-    expect((await rows())[0]).toMatchObject({ status: 'pending', unsubscribedAt, confirmedAt, categories: ['ai', 'hackathon'] });
+    await seed('reader@example.com', 'unsubscribed', { unsubscribedAt, confirmedAt, onlineOnly: true });
+    await run(form({ ev_lang: 'bilingual' }));
+    expect((await rows())[0]).toMatchObject({
+      status: 'pending', unsubscribedAt, confirmedAt, categories: ['ai', 'hackathon'], evLangPref: ['bilingual'], onlineOnly: null,
+    });
     expect(h.sent[0].subject).toContain('Confirm');
   });
 });
@@ -574,9 +588,13 @@ describe('subscribe action: failures', () => {
 
 describe('subscribe-state', () => {
   it('parseSubscribeParams: known slugs in canonical order, merged repeats, only known link problems', () => {
-    expect(parseSubscribeParams({})).toEqual({ cats: [], link: null });
-    expect(parseSubscribeParams({ c: 'vc,bogus,ai' })).toEqual({ cats: ['ai', 'vc'], link: null });
-    expect(parseSubscribeParams({ c: ['social', 'ai'] })).toEqual({ cats: ['ai', 'social'], link: null });
+    const none = { evLang: null, onlineOnly: false };
+    expect(parseSubscribeParams({})).toEqual({ cats: [], facets: none, link: null });
+    expect(parseSubscribeParams({ c: 'vc,bogus,ai' })).toEqual({ cats: ['ai', 'vc'], facets: none, link: null });
+    expect(parseSubscribeParams({ c: ['social', 'ai'] })).toEqual({ cats: ['ai', 'social'], facets: none, link: null });
+    // F19: facets from a feed menu's link; unknown values are ignored.
+    expect(parseSubscribeParams({ c: 'ai', ev_lang: 'zh', online: '1' }).facets).toEqual({ evLang: 'zh', onlineOnly: true });
+    expect(parseSubscribeParams({ ev_lang: 'fr', online: 'true' }).facets).toEqual(none);
     expect(parseSubscribeParams({ link: 'expired' }).link).toBe('expired');
     expect(parseSubscribeParams({ link: 'invalid' }).link).toBe('invalid');
     expect(parseSubscribeParams({ link: 'gone' }).link).toBeNull();

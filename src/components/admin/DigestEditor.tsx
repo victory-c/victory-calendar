@@ -25,8 +25,8 @@ export type DigestEditorProps = {
   canSendNow: boolean;
   modeOff: boolean;
   aiReady: boolean;
-  /** The variant on preview; Send test sends exactly that. */
-  test: { locale: 'en' | 'zh'; categories: string; label: string };
+  /** The variant on preview, F19 facets included ('' = any event language); Send test sends exactly that. */
+  test: { locale: 'en' | 'zh'; categories: string; evLang?: string; online?: boolean; label: string };
   adminEmail: string | null;
   /** Seed inboxes (DIGEST_SEED_EMAILS) by domain only, never an address; `reason` says why sending is off. */
   seed: SeedInfo;
@@ -148,6 +148,8 @@ export function DigestEditor(p: DigestEditorProps) {
         <button type="submit" name="_op" value="save" disabled={!draft} hidden tabIndex={-1} aria-hidden />
         <input type="hidden" name="test_locale" value={p.test.locale} />
         <input type="hidden" name="test_cats" value={p.test.categories} />
+        {p.test.evLang && <input type="hidden" name="test_ev" value={p.test.evLang} />}
+        {p.test.online && <input type="hidden" name="test_online" value="1" />}
 
         <section className="space-y-4">
           <h2 className="font-mono text-xs uppercase text-muted">Intro · 开场白</h2>
@@ -227,7 +229,7 @@ export function DigestEditor(p: DigestEditorProps) {
       </form>
 
       <section className="border-t border-rule pt-4">
-        <p ref={status} role="status" aria-live="polite" tabIndex={-1} className={`mb-3 min-h-5 text-sm ${state && !state.ok ? 'text-seal-text' : 'text-muted'}`}>
+        <p ref={status} id="digest-status" role="status" aria-live="polite" tabIndex={-1} className={`mb-3 min-h-5 text-sm ${state && !state.ok ? 'text-seal-text' : 'text-muted'}`}>
           {pending ? 'Working… · 处理中…' : state?.message}
         </p>
         <div className="flex flex-wrap gap-2">

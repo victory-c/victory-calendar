@@ -1,13 +1,15 @@
+import { EV_LANGS, type EvLang, type Facets, isOnlineish, langOf, matchesFacets, NO_FACETS } from '../events/facets';
 import { dayKey, fmtDayHeader, PT } from '../format/date';
 import { CATEGORY_SLUGS, type Category, isCategory, type Locale } from '../taxonomy';
 import type { DigestEvent, DigestSeal, DigestSnapshot } from './types';
 import { coverage } from './week';
 
-// What one variant (language × category set) shows, as a pure function of the frozen snapshot.
-// F06 "only the sections you picked": the category sections, the going list and the next-week
-// preview are all restricted to the variant's categories, so an event from a category the reader
-// didn't pick never appears anywhere in their email. The subject's counts come from here too, so
-// they always match what the body shows.
+// What one variant (language × category set × F19 facets) shows, as a pure function of the frozen
+// snapshot. F06 "only the sections you picked": the category sections, the going list and the
+// next-week preview are all restricted to the variant's categories, and since F19 to its event
+// language and online-only choice too, so an event the reader didn't ask for never appears anywhere
+// in their email. The subject's counts come from here too, so they always match what the body shows.
+// The archive and the WeChat / long-image exports pass every category and no facets.
 
 export type DigestDay = {
   /** Pacific calendar day, YYYY-MM-DD. */
@@ -66,9 +68,25 @@ export function categoriesWithPicks(snap: DigestSnapshot): Category[] {
   return CATEGORY_SLUGS.filter((c) => present.has(c));
 }
 
-export function selectForVariant(snap: DigestSnapshot, categories: readonly string[]): VariantSelection {
+/**
+ * The covered week's distinct (category, event language, online) combinations, in a fixed order:
+ * at most 7 × 3 × 2 = 42. The claim SQL (claim.ts) tests each subscriber's categories and facets
+ * against these, with the same rule as matchesFacets, so it claims a digest exactly when
+ * isEmptyFor() is false for the subscriber's variant (a test checks the two agree).
+ */
+export type PickCell = { category: Category; lang: EvLang; online: boolean };
+
+export function pickCells(snap: DigestSnapshot): PickCell[] {
+  const seen = new Set<string>();
+  for (const e of weekEvents(snap)) seen.add(`${e.category}|${langOf(e.eventLanguage)}|${isOnlineish(e.format)}`);
+  return CATEGORY_SLUGS.flatMap((category) =>
+    EV_LANGS.flatMap((lang) => [false, true].filter((online) => seen.has(`${category}|${lang}|${online}`)).map((online) => ({ category, lang, online }))),
+  );
+}
+
+export function selectForVariant(snap: DigestSnapshot, categories: readonly string[], facets: Facets = NO_FACETS): VariantSelection {
   const want = wanted(categories);
-  const picked = weekEvents(snap).filter((e) => want.has(e.category));
+  const picked = weekEvents(snap).filter((e) => want.has(e.category) && matchesFacets(e, facets));
 
   const sections: DigestSection[] = [];
   for (const category of CATEGORY_SLUGS) {
@@ -97,7 +115,7 @@ export function selectForVariant(snap: DigestSnapshot, categories: readonly stri
   const preview = unique(
     snap.preview.filter((e) => {
       const t = Date.parse(e.startAt);
-      return isCategory(e.category) && want.has(e.category) && t >= previewFrom && t < previewTo;
+      return isCategory(e.category) && want.has(e.category) && matchesFacets(e, facets) && t >= previewFrom && t < previewTo;
     }),
   ).sort(byStart);
 
@@ -105,7 +123,7 @@ export function selectForVariant(snap: DigestSnapshot, categories: readonly stri
 }
 
 /** True when the variant has no picks this week (it gets at most the monthly empty notice). */
-export function isEmptyFor(snap: DigestSnapshot, categories: readonly string[]): boolean {
+export function isEmptyFor(snap: DigestSnapshot, categories: readonly string[], facets: Facets = NO_FACETS): boolean {
   const want = wanted(categories);
-  return !weekEvents(snap).some((e) => want.has(e.category));
+  return !weekEvents(snap).some((e) => want.has(e.category) && matchesFacets(e, facets));
 }

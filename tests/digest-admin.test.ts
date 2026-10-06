@@ -431,6 +431,19 @@ describe('send test', () => {
     expect(h.sent[0].subject).toBe('[测试] 本周没有想推荐的');
   });
 
+  it('F19: carries the preview facets (test_ev, test_online); a forged language is ignored', async () => {
+    const { issue } = await seedWeek(); // English, in-person events
+    await act(issue.id, 'test', { test_locale: 'zh', test_cats: 'ai,hackathon', test_ev: 'zh' });
+    expect(h.sent[0].subject).toBe('[测试] 本周没有想推荐的');
+    expect(h.sent[0].text).toContain('只收：中文或双语活动。');
+    await act(issue.id, 'test', { test_locale: 'en', test_cats: 'ai,hackathon', test_ev: 'en', test_online: '1' });
+    expect(h.sent[1].subject).toBe("[Test] Nothing I'd recommend this week");
+    expect(h.sent[1].text).toContain('Only online (incl. hybrid) English or bilingual events.');
+    await act(issue.id, 'test', { test_locale: 'zh', test_cats: 'ai,hackathon', test_ev: 'fr', test_online: 'yes' });
+    expect(h.sent[2].subject).toBe('[测试] 本周 2 场精选 · Victor 会去 1 场');
+    expect(h.sent[2].text).not.toContain('只收：');
+  });
+
   it('defaults to the Chinese, all-categories variant', async () => {
     const { issue } = await seedWeek();
     await act(issue.id, 'test', { test_cats: 'nonsense' });
@@ -710,6 +723,23 @@ describe('audience: one render per distinct email', () => {
     expect(emailKey({ ...snap, events: undefined } as unknown as typeof snap, v('zh:ai'))).toBe('zh:ai'); // malformed: own key
   });
 
+  it('F19: facets are part of the key; within one facet choice the same dedup holds', async () => {
+    await addEvent({ category: 'social', eventLanguage: 'zh', format: 'online', startAt: new Date('2026-10-16T02:00:00Z') });
+    const snap = await snapshot();
+    expect(emailKey(snap, v('zh:ai,social;l=zh'))).toBe('zh:social;l=zh');
+    expect(emailKey(snap, v('zh:social,vc;l=zh'))).toBe('zh:social;l=zh'); // the VC preview item is English: dropped
+    expect(emailKey(snap, v('zh:ai,social;o'))).toBe('zh:social;o');
+    expect(emailKey(snap, v('zh:ai,social'))).toBe('zh:ai,social');
+    expect(emailKey(snap, v('zh:ai;l=zh'))).toBe('zh:empty;l=zh');
+    expect(emailKey(snap, v('zh:ai;l=zh;o'))).toBe('zh:empty;l=zh;o');
+    expect(emailKey(snap, v('zh:vc'))).toBe('zh:empty');
+    const a = await renderVariant(snap, v('zh:ai,social;l=zh'));
+    const b = await renderVariant(snap, v('zh:social,vc;l=zh'));
+    expect(a!.html).toBe(b!.html);
+    expect((await renderVariant(snap, v('zh:social;o')))!.html).not.toBe(a!.html); // another facet line
+    expect((await renderEmptyNotice(snap, v('zh:ai;l=zh'))).html).toBe((await renderEmptyNotice(snap, v('zh:hackathon,ai;l=zh'))).html);
+  });
+
   it('variants with the same key render byte-identical emails (what the dedup relies on)', async () => {
     const snap = await snapshot();
     const a = await renderVariant(snap, v('zh:ai,campus,social'));
@@ -875,7 +905,7 @@ describe('markup', () => {
   });
 
   const previewProps = (over: Partial<PreviewProps> = {}): PreviewProps => ({
-    week: W, locale: 'zh', categories: ['ai', 'hackathon'],
+    week: W, locale: 'zh', categories: ['ai', 'hackathon'], evLang: null, onlineOnly: false,
     result: { ok: true, empty: false, subject: '本周 2 场精选 · Victor 会去 1 场', preheader: '这周', html: '<!DOCTYPE html><html><body><p>hi &amp; bye</p></body></html>', text: 'hi', bytes: 81_234, picks: 2, going: 1 },
     maxBytes: 90_000,
     audience: [{ key: 'zh:ai', label: '中文 · AI 与技术', count: 4, href: '/admin/digest?w=2026-W42&l=zh&c=ai', subject: '本周 1 场精选', bytes: 20_000, empty: false, error: null }],
@@ -897,6 +927,23 @@ describe('markup', () => {
     expect(input(out, 'c', 'ai')).toContain('checked=""');
     expect(input(out, 'c', 'vc')).not.toContain('checked');
     expect(input(out, 'l', 'zh')).toContain('checked=""');
+  });
+
+  it('F19: the preview picker carries the facets, and the test send gets them as hidden fields', () => {
+    const plain = renderToStaticMarkup(createElement(DigestPreview, previewProps()));
+    expect(plain).toMatch(/<select name="ev"[^>]*>/);
+    expect(plain).toMatch(/<option value="" selected="">Any · 不限<\/option>/);
+    expect(input(plain, 'o', '1')).not.toContain('checked');
+    const faceted = renderToStaticMarkup(createElement(DigestPreview, previewProps({ evLang: 'zh', onlineOnly: true })));
+    expect(faceted).toMatch(/<option value="zh" selected="">/);
+    expect(input(faceted, 'o', '1')).toContain('checked=""');
+    expect(faceted).toMatch(/<select name="ev"[^>]*\bh-11\b/);
+    const none = html(editor());
+    expect(none).not.toContain('name="test_ev"');
+    expect(none).not.toContain('name="test_online"');
+    const withFacets = html(editor({ test: { locale: 'en', categories: 'ai', evLang: 'bilingual', online: true, label: 'EN · AI & Tech · bilingual' } }));
+    expect(input(withFacets, 'test_ev', 'bilingual')).not.toBe('');
+    expect(input(withFacets, 'test_online', '1')).not.toBe('');
   });
 
   it('a render error is shown instead of the iframe', () => {

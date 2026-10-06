@@ -35,6 +35,16 @@ describe('calendar links (formats are undocumented, so pin them)', () => {
     expect(feedUrl(o, { cats: [], locale: 'en' })).toBe('https://picks.example.com/calendar.ics');
     expect(feedUrl(o, { locale: 'zh', going: true, cats: ['ai'] })).toBe('https://picks.example.com/calendar/going.ics?lang=zh');
   });
+  it('F19 facets: fixed param order c, lang, ev_lang, online; going.ics takes none', () => {
+    const o = 'https://picks.example.com';
+    expect(feedUrl(o, { cats: ['ai', 'hackathon'], locale: 'zh', evLang: 'zh', onlineOnly: true })).toBe(
+      'https://picks.example.com/calendar.ics?c=ai,hackathon&lang=zh&ev_lang=zh&online=1',
+    );
+    expect(feedUrl(o, { locale: 'en', onlineOnly: true })).toBe('https://picks.example.com/calendar.ics?online=1');
+    expect(feedUrl(o, { locale: 'en', evLang: 'bilingual', onlineOnly: false })).toBe('https://picks.example.com/calendar.ics?ev_lang=bilingual');
+    expect(feedUrl(o, { locale: 'en', evLang: null })).toBe('https://picks.example.com/calendar.ics');
+    expect(feedUrl(o, { locale: 'zh', going: true, evLang: 'zh', onlineOnly: true })).toBe('https://picks.example.com/calendar/going.ics?lang=zh');
+  });
   it('Outlook subscribe', () => {
     expect(outlookSubscribe('https://picks.example.com/calendar.ics?c=ai&lang=zh', 'Victor 精选 · AI 与技术')).toMatchInlineSnapshot(
       `"https://outlook.live.com/calendar/0/addfromweb?url=https%3A%2F%2Fpicks.example.com%2Fcalendar.ics%3Fc%3Dai%26lang%3Dzh&name=Victor+%E7%B2%BE%E9%80%89+%C2%B7+AI+%E4%B8%8E%E6%8A%80%E6%9C%AF"`,

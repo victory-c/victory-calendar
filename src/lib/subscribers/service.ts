@@ -3,6 +3,7 @@ import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db as defaultDb, type DB } from '../db';
 import { digestSends, jobsLog, subscribers } from '../db/schema';
+import { type EvLang, facetColumns, type Facets, facetsOf, NO_FACETS } from '../events/facets';
 import { newId } from '../ids';
 import { type Category, CATEGORY_SLUGS, type Locale } from '../taxonomy';
 import { tokenId, verifyToken } from './token';
@@ -62,6 +63,8 @@ export type SubscribeInput = {
   email: string;
   locale: Locale;
   categories: Category[];
+  /** F19 event-language / online-only choice carried in from a feed menu (none when omitted). */
+  facets?: Facets;
   ip: string | null;
   ua: string | null;
   source: string;
@@ -77,8 +80,9 @@ export type SubscribeOutcome =
 
 /**
  * The form's only write. New address → pending; a pending or unsubscribed row is re-armed with the
- * new choices and consent record; active, paused and suppressed rows are left alone. The caller
- * shows the same "check your inbox" state in every case, so the form can't reveal who subscribed.
+ * new choices (categories and facets) and consent record; active, paused and suppressed rows are
+ * left alone. The caller shows the same "check your inbox" state in every case, so the form can't
+ * reveal who subscribed.
  * Re-arming keeps confirmed_at and unsubscribed_at: a former subscriber's history (and their
  * digest_sends rows) must survive an unconfirmed re-request, which the purge then reverts.
  */
@@ -88,6 +92,7 @@ export async function requestSubscription(input: SubscribeInput, opts: Opts = {}
   const consent = {
     locale: input.locale,
     categories: input.categories,
+    ...facetColumns(input.facets ?? NO_FACETS),
     consentAt: now,
     consentIp: input.ip,
     consentUa: input.ua?.slice(0, 512) ?? null,
@@ -151,11 +156,19 @@ async function update(db: DB, id: string, from: readonly Subscriber['status'][],
   return row ?? null;
 }
 
-/** Prefs: language and categories. Picking no category at all is the same as unsubscribing. */
-export async function updatePreferences(sub: Subscriber, prefs: { locale: Locale; categories: Category[] }, opts: Opts = {}) {
+/**
+ * Prefs: language, categories and (F19) facets. Picking no category at all is the same as
+ * unsubscribing. `facets` left undefined keeps the stored ones (the one-tap language switch).
+ */
+export async function updatePreferences(
+  sub: Subscriber,
+  prefs: { locale: Locale; categories: Category[]; facets?: Facets },
+  opts: Opts = {},
+) {
   const db = opts.db ?? defaultDb;
   if (prefs.categories.length === 0) return unsubscribeAll(sub, opts);
-  return (await update(db, sub.id, editable, { locale: prefs.locale, categories: prefs.categories })) ?? sub;
+  const set = { locale: prefs.locale, categories: prefs.categories, ...(prefs.facets ? facetColumns(prefs.facets) : {}) };
+  return (await update(db, sub.id, editable, set)) ?? sub;
 }
 
 export async function pauseSubscription(sub: Subscriber, opts: Opts = {}) {
@@ -275,6 +288,9 @@ export type SubscriberView = {
   status: Subscriber['status'];
   locale: Locale;
   categories: Category[];
+  /** F19 facets as the digest reads them (a malformed stored value shows as none). */
+  evLang: EvLang | null;
+  onlineOnly: boolean;
   pausedUntil: string | null;
 };
 
@@ -283,6 +299,7 @@ export function viewOf(sub: Subscriber): SubscriberView {
     status: sub.status,
     locale: sub.locale,
     categories: cleanCategories(sub.categories),
+    ...facetsOf(sub),
     pausedUntil: sub.pausedUntil?.toISOString() ?? null,
   };
 }

@@ -193,6 +193,18 @@ describe('requestSubscription', () => {
     expect(sub.consentSource!.startsWith('zh/subscribe')).toBe(true);
   });
 
+  it('F19: stores the facets on insert (NULL when off) and replaces them on re-arm', async () => {
+    const r = (await requestSubscription(input({ facets: { evLang: 'zh', onlineOnly: true } }), opts(ago(DAY)))) as { sub: Subscriber };
+    expect(r.sub).toMatchObject({ evLangPref: ['zh'], onlineOnly: true });
+    const plain = (await requestSubscription(input({ email: 'plain@example.org' }), opts())) as { sub: Subscriber };
+    expect(plain.sub).toMatchObject({ evLangPref: null, onlineOnly: null });
+    // Re-armed with the new choices: these facets, or none.
+    await requestSubscription(input({ facets: { evLang: 'bilingual', onlineOnly: false } }), opts());
+    expect(await reload(r.sub.id)).toMatchObject({ evLangPref: ['bilingual'], onlineOnly: null });
+    await requestSubscription(input(), opts());
+    expect(await reload(r.sub.id)).toMatchObject({ evLangPref: null, onlineOnly: null });
+  });
+
   it('asking again while pending re-arms the same row with the new choices', async () => {
     const first = (await requestSubscription(input(), opts(ago(2 * DAY)))) as { sub: Subscriber };
     const again = await requestSubscription(input({ locale: 'zh', categories: ['cycling'], ip: null, ua: null, source: 'zh/subscribe' }), opts());
@@ -349,6 +361,17 @@ describe('preferences, pause and resume', () => {
       expect(row).toMatchObject({ status, locale: 'zh', categories: ['campus', 'social'] });
       expect(await reload(sub.id)).toEqual(row);
     }
+  });
+
+  it('F19: updatePreferences writes facets when given, and leaves them alone when not', async () => {
+    const sub = await seed({ evLangPref: ['en'], onlineOnly: true });
+    const kept = await updatePreferences(sub, { locale: 'zh', categories: ['ai'] }, opts());
+    expect(kept).toMatchObject({ locale: 'zh', evLangPref: ['en'], onlineOnly: true });
+    const set = await updatePreferences(kept, { locale: 'zh', categories: ['ai'], facets: { evLang: 'zh', onlineOnly: false } }, opts());
+    expect(set).toMatchObject({ evLangPref: ['zh'], onlineOnly: null });
+    const cleared = await updatePreferences(set, { locale: 'zh', categories: ['ai'], facets: { evLang: null, onlineOnly: false } }, opts());
+    expect(cleared).toMatchObject({ evLangPref: null, onlineOnly: null });
+    expect(await reload(sub.id)).toEqual(cleared);
   });
 
   it('updatePreferences with no category unsubscribes', async () => {
@@ -633,9 +656,12 @@ describe('viewOf', () => {
     const until = new Date(NOW.getTime() + PAUSE_MS);
     const sub = await seed({ status: 'paused', locale: 'zh', categories: ['vc', 'bogus', 'ai'], pausedUntil: until });
     const view = viewOf(sub);
-    expect(view).toEqual({ status: 'paused', locale: 'zh', categories: ['ai', 'vc'], pausedUntil: until.toISOString() });
+    expect(view).toEqual({ status: 'paused', locale: 'zh', categories: ['ai', 'vc'], evLang: null, onlineOnly: false, pausedUntil: until.toISOString() });
     expect(JSON.stringify(view)).not.toContain('@');
     expect(viewOf(await seed()).pausedUntil).toBeNull();
+    // F19: facets as the digest reads them; a malformed stored value is no preference.
+    expect(viewOf(await seed({ evLangPref: ['zh'], onlineOnly: true }))).toMatchObject({ evLang: 'zh', onlineOnly: true });
+    expect(viewOf(await seed({ evLangPref: ['zh', 'en'], onlineOnly: false }))).toMatchObject({ evLang: null, onlineOnly: false });
   });
 });
 

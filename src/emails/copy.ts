@@ -1,4 +1,5 @@
 import type { DigestSeal } from '@/lib/digest/types';
+import { type EvLang, type Facets, hasFacets } from '@/lib/events/facets';
 import { GOING_LABELS, type Locale } from '@/lib/taxonomy';
 
 // Every string the weekly digest prints, in both languages (W14 copy table). Strings that already
@@ -18,6 +19,18 @@ type Copy = {
   emptyBody: string;
   /** "You can add categories in your <preferences>." split around the link. */
   emptyMore: { before: string; link: string; after: string };
+  /** F19: the empty notice for a reader with facets set (their filters can be what left it empty). */
+  emptyBodyFiltered: string;
+  emptyMoreFiltered: { before: string; link: string; after: string };
+  /** F19 facet names, as the prefs page puts them (zh / en include bilingual events). */
+  facets: Record<EvLang, string> & { online: string };
+  /**
+   * Both facets set: one phrase, because they combine with AND ("online Chinese or bilingual
+   * events"), never a list that could read as "online events, and Chinese events".
+   */
+  onlineOf: (events: string) => string;
+  /** One footer line when facets are set; `facets` is the phrase facetNote() builds. */
+  facetNote: (facets: string) => string;
   defaultPreheader: string;
   signature: string;
   free: string;
@@ -49,6 +62,11 @@ export const COPY: Record<Locale, Copy> = {
     emptySubject: '本周没有想推荐的',
     emptyBody: '这周你选的类别里没有我想推荐的活动。',
     emptyMore: { before: '可以在', link: '订阅设置', after: '里多选几类。' },
+    emptyBodyFiltered: '这周你选的类别和筛选条件里没有我想推荐的活动。',
+    emptyMoreFiltered: { before: '可以在', link: '订阅设置', after: '里多选几类，或者放宽筛选。' },
+    facets: { zh: '中文或双语活动', en: '英文或双语活动', bilingual: '双语活动', online: '线上活动（含线上线下同步）' },
+    onlineOf: (events) => `线上（含线上线下同步）的${events}`,
+    facetNote: (f) => `只收：${f}。可以在订阅设置里修改。`,
     defaultPreheader: '这周值得去的湾区 tech 活动。',
     signature: '— Victor',
     free: '免费',
@@ -79,6 +97,11 @@ export const COPY: Record<Locale, Copy> = {
     emptySubject: "Nothing I'd recommend this week",
     emptyBody: "Nothing in your categories this week that I'd recommend.",
     emptyMore: { before: 'You can add categories in your ', link: 'preferences', after: '.' },
+    emptyBodyFiltered: "Nothing in your categories and filters this week that I'd recommend.",
+    emptyMoreFiltered: { before: 'You can add categories or widen your filters in your ', link: 'preferences', after: '.' },
+    facets: { zh: 'Chinese or bilingual events', en: 'English or bilingual events', bilingual: 'bilingual events', online: 'online events (incl. hybrid)' },
+    onlineOf: (events) => `online (incl. hybrid) ${events}`,
+    facetNote: (f) => `Only ${f}. You can change this in your preferences.`,
     defaultPreheader: 'Bay Area tech events worth going to this week.',
     signature: '— Victor',
     free: 'Free',
@@ -100,6 +123,14 @@ export const COPY: Record<Locale, Copy> = {
 
 /** Seal alt text, one language only: [会去] / [GOING], [主办] / [HOST], [分享] / [TALK]. */
 export const sealAlt = (seal: DigestSeal, locale: Locale) => `[${GOING_LABELS[seal][locale]}]`;
+
+/** The footer's facet line for a variant, or null without facets (the email is then exactly as before F19). */
+export function facetNote(l: Locale, f: Facets): string | null {
+  if (!hasFacets(f)) return null;
+  const c = COPY[l];
+  const phrase = !f.evLang ? c.facets.online : f.onlineOnly ? c.onlineOf(c.facets[f.evLang]) : c.facets[f.evLang];
+  return c.facetNote(phrase);
+}
 
 export const other = (l: Locale): Locale => (l === 'zh' ? 'en' : 'zh');
 export const htmlLang = (l: Locale) => (l === 'zh' ? 'zh-Hans' : 'en');

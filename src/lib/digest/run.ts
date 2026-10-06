@@ -24,6 +24,7 @@ import {
 } from './claim';
 import { templateEmailUrl } from './cover';
 import { DigestTooLargeError, personalize, renderEmptyNotice, renderVariant } from './render';
+import { type PickCell, pickCells } from './select';
 import { classify, devTransport, digestFrom, MAX_BATCH, resendTransport, type BatchEmail, type BatchMode, type BatchOk, type BatchTransport } from './transport';
 import type { DigestEvent, DigestSnapshot, RenderedEmail } from './types';
 import { parseVariantKey, type Variant } from './variant';
@@ -201,7 +202,8 @@ class Run {
   // Set once the issue is chosen and frozen.
   private issue!: Issue;
   private snap!: DigestSnapshot;
-  private categories: string[] = [];
+  /** The week's (category, event language, online) combinations the claims test subscribers against. */
+  private cells: PickCell[] = [];
 
   constructor(private readonly c: Ctx) {
     this.db = c.db;
@@ -238,7 +240,9 @@ class Run {
     }
     this.issue = issue;
     this.snap = snap;
-    this.categories = [...new Set(snap.events.map((e) => e.category))];
+    // The same events select.ts shows (known category, inside the covered week), so a claimed
+    // digest always has picks for its variant.
+    this.cells = pickCells(snap);
     this.out.issue = issue.isoWeek;
     this.out.status = 'sending';
     await this.sendIssue();
@@ -407,8 +411,8 @@ class Run {
     for (;;) {
       if (this.timeLeft() <= 0) return this.halt('deadline', true);
       const at = this.now();
-      const digest: ClaimTarget = { kind: 'digest', categories: this.categories };
-      const empty: ClaimTarget = { kind: 'empty', categories: this.categories, monthStart: monthStartPT(at) };
+      const digest: ClaimTarget = { kind: 'digest', cells: this.cells };
+      const empty: ClaimTarget = { kind: 'empty', cells: this.cells, monthStart: monthStartPT(at) };
       const room = this.c.dailyCap - (await sentTodayCount(at, this.db));
       if (room <= 0) {
         // Only a real overflow waits for tomorrow; if nobody is left the issue can finish now.
@@ -426,7 +430,7 @@ class Run {
 
     // 3. Nobody left to claim: the issue is sent once no claim is still waiting.
     const now = this.now();
-    this.out.skippedEmpty = await countSkippedEmpty(id, this.categories, monthStartPT(now), now, this.db);
+    this.out.skippedEmpty = await countSkippedEmpty(id, this.cells, monthStartPT(now), now, this.db);
     const [done] = await this.db
       .update(digestIssues)
       .set({ status: 'sent', sentAt: now })
@@ -563,7 +567,7 @@ class Run {
     }
     try {
       const rendered = await pending;
-      // A digest claim always overlaps a category with events; null means select and claim disagree.
+      // A digest claim always has a pick for its categories and facets; null means select and claim disagree.
       if (!rendered) {
         this.logFailure(ck, 'no picks');
         return { error: 'no_picks', row };

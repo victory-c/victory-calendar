@@ -6,7 +6,7 @@ import { requireAdmin } from '@/lib/admin-session';
 import { PT } from '@/lib/format/date';
 import { hasVerifiedSender, newsletterStatus, privacyContact } from '@/lib/newsletter/status';
 import {
-  categoryMatrix, G3_CONFIRMED, gateStatus, type IssueGate, type LocaleCounts, ON_TIME_MS, optInRate, statusCounts,
+  categoryMatrix, facetMatrix, G3_CONFIRMED, gateStatus, type IssueGate, type LocaleCounts, ON_TIME_MS, optInRate, statusCounts,
   type SubscriberStatus,
 } from '@/lib/subscribers/admin';
 import { CATEGORIES, CATEGORY_SLUGS } from '@/lib/taxonomy';
@@ -25,6 +25,13 @@ const STATUS: Record<SubscriberStatus, string> = {
   suppressed: 'Suppressed · 已抑制',
 };
 const H2 = 'mb-1 font-mono text-xs uppercase text-muted';
+/** F19 event-language preference rows; zh and en include bilingual events. */
+const EV_LANG = {
+  any: 'Any language · 不限',
+  zh: 'Chinese or bilingual · 中文或双语',
+  en: 'English or bilingual · 英文或双语',
+  bilingual: 'Bilingual only · 仅双语',
+} as const;
 
 const fmtPT = (d: Date) =>
   `${new Intl.DateTimeFormat('en-US', { timeZone: PT, weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d)} PT`;
@@ -98,7 +105,9 @@ async function Subscribers() {
   await requireAdmin();
   await connection();
   const now = new Date();
-  const [counts, matrix, gate, optIn] = await Promise.all([statusCounts(), categoryMatrix({ now }), gateStatus({ now }), optInRate()]);
+  const [counts, matrix, facets, gate, optIn] = await Promise.all([
+    statusCounts(), categoryMatrix({ now }), facetMatrix({ now }), gateStatus({ now }), optInRate(),
+  ]);
   const closed = newsletterStatus() === 'closed';
   // Names only, never values. On Vercel the form also waits for the sender and the /privacy contact.
   const missing =
@@ -140,6 +149,22 @@ async function Subscribers() {
         <p className="mt-1 text-xs text-muted">
           Counted now with the digest&apos;s own rule, so People matches /admin/digest&apos;s eligible count. One subscriber counts in every
           category they picked, so the rows add up to more than People · 与 /admin/digest 的「符合条件」同一规则、同一时刻；多选会重复计数，各行相加大于人数
+        </p>
+      </section>
+
+      <section aria-labelledby="subs-facets">
+        <h2 id="subs-facets" className={H2}>Filters · 筛选</h2>
+        <CountTable
+          caption="Eligible subscribers by event-language and online filter, and language · 符合条件的订阅者（活动语言、线上筛选 × 语言）"
+          head="Filter · 筛选"
+          rows={[
+            ...(Object.keys(EV_LANG) as (keyof typeof EV_LANG)[]).map((k) => ({ key: k, label: EV_LANG[k], c: facets.evLang[k] })),
+            { key: 'online', label: 'Online only · 只要线上（含线上线下同步）', c: facets.onlineOnly },
+          ]}
+          total={{ label: 'People · 人数', c: facets.people }}
+        />
+        <p className="mt-1 text-xs text-muted">
+          Same readers as above. Every reader is in one event-language row; online only is counted on top · 与上表同一批收件人；每人只在一个活动语言行里，「只要线上」另外计数
         </p>
       </section>
 

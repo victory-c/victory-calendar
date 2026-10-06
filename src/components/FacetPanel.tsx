@@ -24,6 +24,7 @@ export async function FacetPanel({ locale, filters, action, keep }: { locale: Lo
           <select name="lang" defaultValue={filters.lang ?? ''} className={`${select} mt-1 text-ink`}>
             <option value="">{t('langAny')}</option>
             <option value="zh">{t('langZh')}</option>
+            <option value="en">{t('langEn')}</option>
             <option value="bilingual">{t('langBilingual')}</option>
           </select>
         </label>

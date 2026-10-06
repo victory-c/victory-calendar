@@ -10,16 +10,30 @@ const h = vi.hoisted(() => ({
   locale: 'en' as 'en' | 'zh',
   open: true,
   sub: null as unknown,
+  /** Use the real messages through next-intl's formatter, for tests that pin the reader's words. */
+  real: false,
 }));
 
-vi.mock('next-intl/server', () => ({
-  getLocale: async () => h.locale,
-  // Interpolated values are appended, so a test can see which date or category went in.
-  getTranslations:
-    async ({ locale, namespace }: { locale: string; namespace: string }) =>
-    (key: string, values?: Record<string, unknown>) =>
-      `${locale}:${namespace}.${key}${values ? ` ${Object.values(values).join(' ')}` : ''}`,
-}));
+vi.mock('next-intl/server', async () => {
+  const { createTranslator } = await import('next-intl');
+  const messages = { en: (await import('../messages/en.json')).default, zh: (await import('../messages/zh.json')).default };
+  return {
+    getLocale: async () => h.locale,
+    // Interpolated values are appended, so a test can see which date or category went in.
+    getTranslations: async ({ locale, namespace }: { locale: 'en' | 'zh'; namespace: string }) =>
+      h.real
+        ? createTranslator({
+            locale,
+            messages: messages[locale],
+            namespace: namespace as never,
+            onError: (e) => {
+              throw e;
+            },
+          })
+        : (key: string, values?: Record<string, unknown>) =>
+            `${locale}:${namespace}.${key}${values ? ` ${Object.values(values).join(' ')}` : ''}`,
+  };
+});
 vi.mock('next/server', async (orig) => ({ ...(await orig()), connection: async () => {} }));
 vi.mock('@/i18n/navigation', () => ({
   Link: ({ href, children, prefetch: _p, ...rest }: { href: string; children: ReactNode; prefetch?: boolean }) =>
@@ -47,7 +61,7 @@ vi.mock('@/app/[locale]/prefs/actions', () => ({
 const { effectiveStatus, longDate, unsubscribeChoices, welcomeBanner } = await import('@/lib/newsletter/prefs-view');
 const { CategoryCheckboxes } = await import('@/components/CategoryCheckboxes');
 const { LinkProblem } = await import('@/components/LinkProblem');
-const { SubscribeForm } = await import('@/components/SubscribeForm');
+const { SubscribeForm, statusLine } = await import('@/components/SubscribeForm');
 const { default: PrefsPage } = await import('@/app/[locale]/prefs/[token]/page');
 const { default: UnsubscribePage } = await import('@/app/[locale]/unsubscribe/page');
 const { default: SubscribePage } = await import('@/app/[locale]/subscribe/page');
@@ -57,9 +71,12 @@ beforeEach(() => {
   h.locale = 'en';
   h.open = true;
   h.sub = null;
+  h.real = false;
 });
 
-const view = (over: Partial<View> = {}): View => ({ status: 'active', locale: 'en', categories: ['ai', 'vc'], pausedUntil: null, ...over });
+const view = (over: Partial<View> = {}): View => ({
+  status: 'active', locale: 'en', categories: ['ai', 'vc'], evLang: null, onlineOnly: false, pausedUntil: null, ...over,
+});
 
 // ---- prefs-view ---------------------------------------------------------------------------------
 
@@ -143,6 +160,14 @@ async function resolve(node: ReactNode): Promise<ReactNode> {
 }
 const html = async (page: Promise<ReactNode>) => load(renderToStaticMarkup((await resolve(await page)) as ReactElement));
 
+/** The first element of `type` in a resolved tree (client components are left unrendered there). */
+function findElement<P>(node: ReactNode, type: (props: P) => ReactNode): ReactElement<P> | null {
+  if (Array.isArray(node)) return node.map((n) => findElement(n, type)).find(Boolean) ?? null;
+  if (!isValidElement(node)) return null;
+  if (node.type === type) return node as ReactElement<P>;
+  return findElement((node as ReactElement<{ children?: ReactNode }>).props.children, type);
+}
+
 type Boundary = ReactElement<{ fallback?: ReactNode; children?: ReactNode }>;
 function findSuspense(node: ReactNode): Boundary | null {
   if (Array.isArray(node)) return node.map(findSuspense).find(Boolean) ?? null;
@@ -160,7 +185,7 @@ async function fallback(page: Promise<ReactNode>) {
 const prefsPage = (sp: Record<string, string> = {}, token = 'good') =>
   PrefsPage({ params: Promise.resolve({ token }), searchParams: Promise.resolve(sp) });
 const unsubscribePage = (sp: Record<string, string> = { t: 'good' }) => UnsubscribePage({ searchParams: Promise.resolve(sp) });
-const subscribePage = () => SubscribePage({ searchParams: Promise.resolve({}) });
+const subscribePage = (sp: Record<string, string> = {}) => SubscribePage({ searchParams: Promise.resolve(sp) });
 
 describe('noscript in the Suspense fallbacks', () => {
   it('prefs and unsubscribe: the links note next to (not inside) the busy placeholder', async () => {
@@ -366,6 +391,74 @@ describe('CategoryCheckboxes', () => {
   });
 });
 
+describe('F19 facets on the token and subscribe pages', () => {
+  it('/prefs shows the stored facets in the preferences form, labelled from Newsletter.prefs.*', async () => {
+    h.sub = view({ evLang: 'zh', onlineOnly: true });
+    const $ = await html(prefsPage());
+    expect($('input[name=ev_lang][value=zh]').attr('checked')).toBeDefined();
+    expect($('input[name=ev_lang][value=""]').attr('checked')).toBeUndefined();
+    expect($('input[name=online][value=1]').attr('checked')).toBeDefined();
+    expect($('input[name=facets_present]')).toHaveLength(1);
+    for (const key of ['evLang', 'evLangAny', 'evLangZh', 'evLangEn', 'onlineOnly']) expect($.text()).toContain(`en:Newsletter.prefs.${key}`);
+    expect($.text()).not.toContain('en:Newsletter.prefs.evLangBilingual');
+    h.sub = view();
+    const none = await html(prefsPage());
+    expect(none('input[name=ev_lang][value=""]').attr('checked')).toBeDefined();
+    expect(none('input[name=online]').attr('checked')).toBeUndefined();
+  });
+
+  it('/subscribe?ev_lang=zh&online=1 keeps them in hidden fields with a one-line summary and Remove', async () => {
+    const $ = await html(subscribePage({ c: 'ai', ev_lang: 'zh', online: '1' }));
+    expect($('input[type=hidden][name=ev_lang]').attr('value')).toBe('zh');
+    expect($('input[type=hidden][name=online]').attr('value')).toBe('1');
+    const line = $('input[name=ev_lang]').parent();
+    expect(line.text()).toContain('en:Newsletter.form.facets en:Newsletter.facets.onlineOf en:Newsletter.facets.zh');
+    expect(line.find('button[type=button]').text()).toBe('en:Newsletter.form.facetsRemove');
+    expect(line.find('button[type=button]').attr('class')).toMatch(/\bh-11\b/);
+    // No new controls: the form still has only the email, category and language inputs besides hidden ones.
+    expect($('select')).toHaveLength(0);
+    expect($('input[name=ev_lang]:not([type=hidden])')).toHaveLength(0);
+  });
+
+  it('the summary in the reader\'s words: both facets read as ONE phrase (they AND), in en and zh', async () => {
+    h.real = true;
+    const summary = async (locale: 'en' | 'zh', sp: Record<string, string>) => {
+      h.locale = locale;
+      const $ = await html(subscribePage({ c: 'ai', ...sp }));
+      const line = $('input[type=hidden][name=ev_lang], input[type=hidden][name=online]').first().parent();
+      return [line.children('span').text(), line.find('button[type=button]').text()];
+    };
+    expect(await summary('en', { ev_lang: 'zh', online: '1' })).toEqual(['Only online (incl. hybrid) Chinese or bilingual events', 'Remove']);
+    expect(await summary('zh', { ev_lang: 'zh', online: '1' })).toEqual(['只收：线上（含线上线下同步）的中文或双语活动', '清除']);
+    expect(await summary('en', { ev_lang: 'en', online: '1' })).toEqual(['Only online (incl. hybrid) English or bilingual events', 'Remove']);
+    expect(await summary('zh', { ev_lang: 'bilingual', online: '1' })).toEqual(['只收：线上（含线上线下同步）的双语活动', '清除']);
+    expect(await summary('en', { online: '1' })).toEqual(['Only online events (incl. hybrid)', 'Remove']);
+    expect(await summary('zh', { online: '1' })).toEqual(['只收：线上活动（含线上线下同步）', '清除']);
+    expect(await summary('en', { ev_lang: 'bilingual' })).toEqual(['Only bilingual events', 'Remove']);
+    expect(await summary('zh', { ev_lang: 'zh' })).toEqual(['只收：中文或双语活动', '清除']);
+  });
+
+  it('"Remove" hands the form its note in the page language, for the status line it moves focus to', async () => {
+    h.real = true;
+    const removed = async (locale: 'en' | 'zh') => {
+      h.locale = locale;
+      const form = findElement(await resolve(await subscribePage({ ev_lang: 'zh' })), SubscribeForm);
+      return form?.props.facets?.removed;
+    };
+    expect(await removed('en')).toBe('Filters removed.');
+    expect(await removed('zh')).toBe('已清除筛选。');
+  });
+
+  it('/subscribe without facets, or with unknown values, carries none', async () => {
+    for (const sp of [{}, { ev_lang: 'fr', online: 'yes' }] as Record<string, string>[]) {
+      const $ = await html(subscribePage(sp));
+      expect($('input[name=ev_lang]')).toHaveLength(0);
+      expect($('input[name=online]')).toHaveLength(0);
+      expect($.text()).not.toContain('Newsletter.form.facets');
+    }
+  });
+});
+
 describe('SubscribeForm before any answer', () => {
   const copy = {
     email: 'Email', emailPlaceholder: 'you@example.com', categories: 'Categories', categoriesHint: 'Pick at least one.',
@@ -373,6 +466,29 @@ describe('SubscribeForm before any answer', () => {
     honeypot: 'Leave this field empty', pending: 'Check your inbox', pendingHint: 'Hint', again: 'Subscribe again',
     errors: { invalid_email: 'bad email', no_category: 'pick one', bot: 'bot', server: 'server', rate_limited: 'slow down', closed: 'closed', busy: 'busy' },
   };
+
+  it('statusLine: the "filters removed" note shows until the next answer; an answer replaces it', () => {
+    const idle = { status: 'idle' } as const;
+    const removed = { at: idle, note: 'Filters removed.' };
+    expect(statusLine(idle, copy, removed)).toEqual({ text: 'Filters removed.', error: false });
+    expect(statusLine(idle, copy)).toEqual({ text: '', error: false });
+    expect(statusLine(idle, copy, { at: null, note: 'Filters removed.' })).toEqual({ text: '', error: false });
+    // A later answer is a new state: the note is gone, and an answer with no field takes the line.
+    expect(statusLine({ status: 'idle' }, copy, removed)).toEqual({ text: '', error: false });
+    expect(statusLine({ status: 'rate_limited' }, copy, removed)).toEqual({ text: 'slow down', error: true });
+    expect(statusLine({ status: 'error', code: 'server' }, copy, removed)).toEqual({ text: 'server', error: true });
+    expect(statusLine({ status: 'error', code: 'invalid_email', field: 'email' }, copy, removed)).toEqual({ text: '', error: false });
+    // Pressed while an answer with no field is showing: the note replaces it (confirms the removal).
+    const limited = { status: 'rate_limited' } as const;
+    expect(statusLine(limited, copy, { at: limited, note: 'Filters removed.' })).toEqual({ text: 'Filters removed.', error: false });
+  });
+
+  it('with carried facets, the status line stays empty until "Remove" is pressed', () => {
+    const facets = { value: { evLang: 'zh', onlineOnly: false }, summary: 'Only Chinese or bilingual events', remove: 'Remove', removed: 'Filters removed.' } as const;
+    const $ = load(renderToStaticMarkup(createElement(SubscribeForm, { locale: 'en', categories: ['ai'], copy, facets })));
+    expect($('input[type=hidden][name=ev_lang]').attr('value')).toBe('zh');
+    expect($('#subscribe-status').text()).toBe('');
+  });
 
   it('no field error yet; the status line can take focus for answers without a field', () => {
     const $ = load(renderToStaticMarkup(createElement(SubscribeForm, { locale: 'en', categories: ['ai'], copy })));

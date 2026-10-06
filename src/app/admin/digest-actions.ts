@@ -23,6 +23,7 @@ import { type BatchError, classify, digestFrom, resendTransport } from '@/lib/di
 import type { DigestSnapshot, RenderedEmail } from '@/lib/digest/types';
 import { parseVariantKey, type Variant, variantKey } from '@/lib/digest/variant';
 import { LATE_LIMIT_MS } from '@/lib/digest/week';
+import { isEvLang } from '@/lib/events/facets';
 import { maskEmail, sendEmail } from '@/lib/email/send';
 import { PT } from '@/lib/format/date';
 import { describeError } from '@/lib/log-safe';
@@ -190,11 +191,13 @@ async function schedule(issue: Issue): Promise<ActionState> {
   return { ok: true, message: parts.join(' · ') };
 }
 
-/** The variant being previewed (hidden fields), defaulting to Chinese with every category. */
+/** The variant being previewed (hidden fields), defaulting to Chinese with every category and no F19 facets. */
 function testVariant(fd: FormData): Variant {
   const locale: Locale = fd.get('test_locale') === 'en' ? 'en' : 'zh';
   const cats = parseCategories(String(fd.get('test_cats') ?? ''));
-  return parseVariantKey(variantKey(locale, cats.length ? cats : CATEGORY_SLUGS)) as Variant;
+  const ev = fd.get('test_ev');
+  const facets = { evLang: isEvLang(ev) ? ev : null, onlineOnly: fd.get('test_online') === '1' };
+  return parseVariantKey(variantKey(locale, cats.length ? cats : CATEGORY_SLUGS, facets)) as Variant;
 }
 
 /** The variant's email as the cron would build it: the frozen snapshot once sending, else a fresh one. */

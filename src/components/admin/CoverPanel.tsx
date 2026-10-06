@@ -2,16 +2,21 @@
 import { upload } from '@vercel/blob/client';
 import { type ReactNode, useActionState, useState, useTransition } from 'react';
 import { type ActionState, coverFromBlobUpload, coverFromLink, switchToTemplate } from '@/app/admin/actions';
+import { CoverSources, type CoverSourcesProps } from './CoverSources';
 import { btn, field } from './ui';
 
 const KIND: Record<string, string> = {
   official: 'Official · 官方封面', host_composite: 'Host photos · 主办方组合图', template: 'Template · 排版模板',
-  upload: 'Upload · 相册上传', url: 'Image link · 图片链接', openverse: 'Openverse', ai: 'AI', brave: 'Search · 搜索',
+  upload: 'Upload · 相册上传', url: 'Image link · 图片链接', openverse: 'Openverse · 开放许可图库', ai: 'AI abstract · AI 抽象封面', brave: 'Web search (Brave) · 网络搜索',
 };
 
-/** Cover tab: current cover, back to template, paste an image link, upload from the photo library. */
+/**
+ * Cover tab: current cover, back to template, paste an image link, upload from the photo library,
+ * and the search / generate sources (Openverse, AI, Brave) below.
+ */
 export function CoverPanel(props: {
   id: string; preview: ReactNode; kind: string | null; letterboxed: boolean; attribution: string | null; blobReady: boolean; hasCategory: boolean;
+  sources: Omit<CoverSourcesProps, 'id' | 'hasCategory' | 'blobReady'>;
 }) {
   const { id, blobReady } = props;
   const [linkState, linkAction, linkPending] = useActionState<ActionState, FormData>(coverFromLink.bind(null, id), null);
@@ -67,6 +72,8 @@ export function CoverPanel(props: {
         {!blobReady && <p className="text-sm text-muted">Links and uploads need Blob storage (checklist 2) · 链接和上传需要先在 Vercel 建 Blob（checklist 2）</p>}
         <p role="status" aria-live="polite" className={`min-h-5 text-sm ${failed ? 'text-seal-text' : 'text-muted'}`}>{status}</p>
       </div>
+
+      <CoverSources id={id} hasCategory={props.hasCategory} blobReady={blobReady} {...props.sources} />
     </div>
   );
 }

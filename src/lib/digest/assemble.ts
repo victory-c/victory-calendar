@@ -78,6 +78,7 @@ function toDigestEvent(e: PublicEvent, ctx: Ctx): DigestEvent {
     tz: e.tz,
     allDay: e.allDay,
     format: e.format,
+    eventLanguage: e.eventLanguage,
     titleEn: e.titleEn,
     titleZh: e.titleZh,
     noteEn: cleanText(e.noteEn),
@@ -89,6 +90,9 @@ function toDigestEvent(e: PublicEvent, ctx: Ctx): DigestEvent {
     platform: platformName(e.sourceUrl),
     coverUrl: cover.url,
     coverCredit: cover.credit,
+    // Only when there is one: snapshots of covers without links stay as they were.
+    ...(cover.sourceUrl ? { coverSourceUrl: cover.sourceUrl } : {}),
+    ...(cover.licenseUrl ? { coverLicenseUrl: cover.licenseUrl } : {}),
     seal: sealOf(e, ctx.at, ctx.show),
     featured: e.featured,
   };

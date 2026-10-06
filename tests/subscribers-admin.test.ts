@@ -157,6 +157,26 @@ describe('categoryMatrix', () => {
   });
 });
 
+describe('facetMatrix (F19)', () => {
+  it('event-language and online-only counts per language among the same readers as categoryMatrix', async () => {
+    await seed({ categories: ['ai'] });
+    await seed({ categories: ['ai'], evLangPref: ['zh'], locale: 'zh' });
+    await seed({ categories: ['vc'], evLangPref: ['zh'], onlineOnly: true });
+    await seed({ categories: ['ai'], evLangPref: ['en'], onlineOnly: true, locale: 'zh' });
+    await seed({ categories: ['ai'], evLangPref: ['bilingual'] });
+    await seed({ categories: ['ai'], evLangPref: ['en', 'zh'], onlineOnly: false }); // malformed: any
+    await seed({ categories: ['ai'], evLangPref: ['zh'], status: 'unsubscribed' }); // not a reader
+    await seed({ categories: ['bogus'], onlineOnly: true }); // never mailed
+    const f = await admin.facetMatrix({ db: db(), now: NOW });
+    expect(f.evLang).toEqual({
+      any: { en: 2, zh: 0, total: 2 }, zh: { en: 1, zh: 1, total: 2 }, en: { en: 0, zh: 1, total: 1 }, bilingual: { en: 1, zh: 0, total: 1 },
+    });
+    expect(f.onlineOnly).toEqual({ en: 1, zh: 1, total: 2 });
+    expect(f.people).toEqual({ en: 4, zh: 2, total: 6 });
+    expect(f.people).toEqual((await admin.categoryMatrix({ db: db(), now: NOW })).people);
+  });
+});
+
 describe('gateStatus (G3)', () => {
   it('confirmed now = active + paused; suppressed and unsubscribed rows that once confirmed do not count', async () => {
     await seed();
@@ -325,10 +345,18 @@ describe('subscriberDetail', () => {
       ['2026-W32', 'sent', null],
       ['2026-W31', 'failed', 'failed:bounced'],
     ]);
-    for (const k of ['consentIp', 'consentUa', 'tokenVersion']) expect(d).not.toHaveProperty(k);
+    expect(d).toMatchObject({ evLang: null, onlineOnly: false });
+    for (const k of ['consentIp', 'consentUa', 'tokenVersion', 'evLangPref']) expect(d).not.toHaveProperty(k);
     expect(JSON.stringify(d)).not.toContain(IP);
     expect(JSON.stringify(d)).not.toContain('consent-ua-marker');
     expect(await admin.subscriberDetail({ id: sub.id }, { db: db() })).toEqual(d);
+  });
+
+  it('F19: shows the facets as the digest reads them', async () => {
+    const sub = await seed({ evLangPref: ['zh'], onlineOnly: true });
+    expect(await admin.subscriberDetail({ id: sub.id }, { db: db() })).toMatchObject({ evLang: 'zh', onlineOnly: true });
+    const odd = await seed({ evLangPref: ['xx'], onlineOnly: null });
+    expect(await admin.subscriberDetail({ id: odd.id }, { db: db() })).toMatchObject({ evLang: null, onlineOnly: false });
   });
 
   it('flags a claim in flight, even one older than the last three sends', async () => {
@@ -529,7 +557,7 @@ describe('GET /admin/subscribers/export', () => {
     for (const [i, status] of statuses.entries()) {
       await seed({ status, createdAt: ago((20 - i) * DAY), unsubscribedAt: status === 'unsubscribed' ? ago(DAY) : null, locale: i % 2 ? 'zh' : 'en' });
     }
-    await seed({ email: '=cmd@example.org', consentSource: 'say "hi", -1', createdAt: ago(DAY), categories: ['ai', 'cycling'] });
+    await seed({ email: '=cmd@example.org', consentSource: 'say "hi", -1', createdAt: ago(DAY), categories: ['ai', 'cycling'], evLangPref: ['zh'], onlineOnly: true });
     const res = await get();
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('text/csv; charset=utf-8');
@@ -541,12 +569,17 @@ describe('GET /admin/subscribers/export', () => {
     const body = await res.text();
     expect(body.endsWith('\r\n')).toBe(true);
     const lines = body.replace(/^﻿/, '').split('\r\n').slice(0, -1);
-    expect(lines[0]).toBe('"id","email","status","locale","categories","created_at","consent_at","consent_source","confirmed_at","unsubscribed_at","paused_until"');
+    expect(lines[0]).toBe(
+      '"id","email","status","locale","categories","created_at","consent_at","consent_source","confirmed_at","unsubscribed_at","paused_until","ev_lang_pref","online_only"',
+    );
     expect(lines).toHaveLength(7);
     expect(lines.slice(1, 6).map((l) => l.split(',')[2])).toEqual(statuses.map((s) => `"${s}"`));
     expect(lines[6]).toContain(`"'=cmd@example.org"`);
     expect(lines[6]).toContain(`"say ""hi"", -1"`);
     expect(lines[6]).toContain('"ai;cycling"');
+    // F19 facets last, as the digest reads them: the language or empty, online true / false.
+    expect(lines[6].endsWith(',"zh","true"')).toBe(true);
+    expect(lines.slice(1, 6).every((l) => l.endsWith(',"","false"'))).toBe(true);
     expect(body).not.toContain(IP);
     expect(body).not.toContain('consent-ua-marker');
     expect(body).not.toMatch(/consent_ip|consent_ua|token_version/);

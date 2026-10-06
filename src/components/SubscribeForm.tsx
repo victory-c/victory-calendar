@@ -1,7 +1,8 @@
 'use client';
-import { startTransition, useActionState, useEffect, useRef, useSyncExternalStore } from 'react';
+import { startTransition, useActionState, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { subscribe } from '@/app/[locale]/subscribe/actions';
 import { CategoryCheckboxes } from '@/components/CategoryCheckboxes';
+import { type Facets, facetParams, hasFacets } from '@/lib/events/facets';
 import { initialSubscribeState, type SubscribeErrorCode, type SubscribeState, sourceFor } from '@/lib/newsletter/subscribe-state';
 import { type Category, isCategory, type Locale } from '@/lib/taxonomy';
 
@@ -22,6 +23,13 @@ export type SubscribeCopy = {
   again: string;
   errors: Record<SubscribeErrorCode | 'rate_limited' | 'closed' | 'busy', string>;
 };
+
+/**
+ * F19 facets that came in on the URL (a calendar menu's "Get the picks by email" link): kept in
+ * hidden fields, stated in one line, removable. The form has no controls of its own for them; the
+ * preference center does. `removed` is the status-line note after "Remove".
+ */
+export type SubscribeFacets = { value: Facets; summary: string; remove: string; removed: string };
 
 /** What was submitted, kept in the browser so a failed submit can refill the form. */
 type Draft = { email: string; locale: Locale; categories: Category[] };
@@ -61,12 +69,41 @@ function statusMessage(state: FormState, copy: SubscribeCopy) {
 }
 
 /**
+ * The status line: an answer from statusMessage(), else the "filters removed" note, which stays
+ * only until the next answer (`removed.at` is the form state when "Remove" was pressed).
+ */
+export function statusLine(
+  state: FormState,
+  copy: SubscribeCopy,
+  removed?: { at: FormState | null; note: string },
+): { text: string; error: boolean } {
+  // Pressed after an answer is already showing: the note replaces it (it confirms the last action).
+  if (removed && removed.at === state) return { text: removed.note, error: false };
+  const message = statusMessage(state, copy);
+  return message ? { text: message, error: true } : { text: '', error: false };
+}
+
+/**
  * The newsletter sign-up (guide SubscribeForm: idle, submitting, pending-confirm, error,
  * rate-limited, plus busy). Lives only on /subscribe and /zh/subscribe: a Server Action posts to
  * the page it is on, and BotID and the WAF rule protect exactly those two paths.
  */
-export function SubscribeForm({ locale, categories, copy }: { locale: Locale; categories: Category[]; copy: SubscribeCopy }) {
+export function SubscribeForm({
+  locale,
+  categories,
+  copy,
+  facets,
+}: {
+  locale: Locale;
+  categories: Category[];
+  copy: SubscribeCopy;
+  facets?: SubscribeFacets;
+}) {
   const [state, formAction, pending] = useActionState<FormState, FormData | null>(submit, initialSubscribeState);
+  // "Remove" drops them for this page view (no reload, so nothing typed is lost). It holds the form
+  // state at that moment, so the status line's note lasts until the next answer.
+  const [removedAt, setRemovedAt] = useState<FormState | null>(null);
+  const carried = facets && !removedAt && hasFacets(facets.value) ? facets : null;
   // BotID can't vouch for a native (pre-hydration) post, so the button waits for hydration.
   const hydrated = useSyncExternalStore(noop, () => true, () => false);
   const formRef = useRef<HTMLFormElement>(null);
@@ -120,7 +157,7 @@ export function SubscribeForm({ locale, categories, copy }: { locale: Locale; ca
   const draft = state.draft;
   const lang = draft?.locale ?? locale;
   // Field errors sit under their field (and take focus), so the status line never repeats them.
-  const message = statusMessage(state, copy);
+  const status = statusLine(state, copy, facets && { at: removedAt, note: facets.removed });
   const emailError = state.status === 'error' && state.field === 'email' ? copy.errors[state.code] : '';
   const catsError = state.status === 'error' && state.field === 'categories' ? copy.errors[state.code] : '';
 
@@ -162,6 +199,26 @@ export function SubscribeForm({ locale, categories, copy }: { locale: Locale; ca
         selected={draft?.categories ?? categories}
       />
 
+      {carried && (
+        <p className="-mt-3 flex flex-wrap items-center gap-x-3 text-sm text-muted">
+          <span>{carried.summary}</span>
+          {facetParams(carried.value).map(([k, v]) => (
+            <input key={k} type="hidden" name={k} value={v} />
+          ))}
+          {/* Removing unmounts this button: focus goes to the status line first, which then says so. */}
+          <button
+            type="button"
+            onClick={() => {
+              statusRef.current?.focus();
+              setRemovedAt(state);
+            }}
+            className="inline-flex h-11 items-center underline underline-offset-2 md:h-8"
+          >
+            {carried.remove}
+          </button>
+        </p>
+      )}
+
       <fieldset>
         <legend className="text-sm text-muted">{copy.language}</legend>
         <div className="mt-2 flex flex-wrap gap-2">
@@ -199,9 +256,9 @@ export function SubscribeForm({ locale, categories, copy }: { locale: Locale; ca
           role="status"
           aria-live="polite"
           tabIndex={-1}
-          className={`mt-3 min-h-5 text-sm ${message ? 'text-seal-text' : 'text-muted'}`}
+          className={`mt-3 min-h-5 text-sm ${status.error ? 'text-seal-text' : 'text-muted'}`}
         >
-          {message}
+          {status.text}
         </p>
         <p className="mt-1 text-xs text-muted">
           {copy.privacy}

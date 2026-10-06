@@ -1,6 +1,7 @@
 /* eslint-disable @next/next/no-img-element -- email markup rendered to a string, not a Next page */
 import { type CSSProperties, Fragment, type ReactNode } from 'react';
 import { Head, Html } from 'react-email';
+import { licenseCodeOfUrl, licenseLabel } from '@/lib/covers/credit';
 import { ALT_TITLE_MAX, chips, clip, dayLabel, NOTE_MAX, when, where } from '@/lib/digest/fields';
 import { isDigestSeal, type VariantSelection } from '@/lib/digest/select';
 import type { DigestEvent, DigestLinks, DigestSnapshot } from '@/lib/digest/types';
@@ -20,7 +21,8 @@ import { C, categoryHex, DARK_CSS, FONT, OUTLOOK_DARK_CSS } from './tokens';
 // - Every <img> has an absolute src, numeric width/height and a non-empty alt (Outlook blocks
 //   images by default and shows the alt in the box). Seals carry a hidden text twin, because the
 //   plain-text part skips images.
-// - Covers sit in a cell marked data-skip-in-text, so the text part has no bare image URLs.
+// - Covers sit in a cell marked data-skip-in-text, so the text part has no bare image URLs. Their
+//   credit line does reach the text part, an Openverse credit's links as `label <url>`.
 // - Per-reader links carry render.ts's placeholder token; it is swapped per recipient afterwards.
 // - Colours that matter in dark mode carry a class (bg / fg / mut / btn / chip / note / rule), and
 //   so does every element with an inline background (react-email's <Body> isn't used: it copies the
@@ -38,6 +40,8 @@ export type DigestEmailProps = {
   intro: string[];
   selection: VariantSelection;
   links: DigestLinks;
+  /** F19: one footer line naming the reader's facets (copy.ts facetNote); absent without facets. */
+  facetNote?: string | null;
 };
 
 export type EmptyNoticeProps = Omit<DigestEmailProps, 'intro' | 'selection'>;
@@ -79,6 +83,43 @@ const langIf = (lang: string, l: Locale) => (lang === htmlLang(l) ? undefined : 
 
 /** Only http(s) links leave the email; anything else falls back to our own page. */
 const httpOr = (url: string, fallback: string) => (/^https?:\/\//i.test(url) ? url : fallback);
+
+/**
+ * The cover credit as stored. An Openverse credit (`"Title" by Creator · CC BY-SA 2.0 · cropped`)
+ * links the work to its page and the licence to its deed, as the site does: CC BY / BY-SA 2.0 ask
+ * for the licence URI with every copy. Covers without links (and snapshots frozen before them)
+ * show the text alone.
+ */
+function CoverCredit({ e, s }: { e: DigestEvent; s: S }) {
+  const credit = e.coverCredit ?? '';
+  const page = e.coverSourceUrl && /^https?:\/\//i.test(e.coverSourceUrl) ? e.coverSourceUrl : null;
+  // Only a creativecommons.org deed is linked (licenseCodeOfUrl parses nothing else).
+  const label = licenseLabel(licenseCodeOfUrl(e.coverLicenseUrl));
+  const deed = label ? e.coverLicenseUrl! : null;
+  const a = (href: string, text: string) => (
+    <a href={href} className="mut" style={s.link}>
+      {text}
+    </a>
+  );
+  const at = deed && label ? credit.lastIndexOf(` · ${label}`) : -1;
+  if (deed && label && at > 0) {
+    const work = credit.slice(0, at);
+    return (
+      <>
+        {page ? <>{a(page, work)} · </> : `${work} · `}
+        {a(deed, label)}
+        {credit.slice(at + 3 + label.length)}
+      </>
+    );
+  }
+  // Not in the stored shape: the whole line to the page, then the deed.
+  return (
+    <>
+      {page ? a(page, credit) : credit}
+      {deed && label && <> · {a(deed, label)}</>}
+    </>
+  );
+}
 
 /** Hosted 96 px PNG shown at 48 px, one language per seal; the alt is styled for blocked images. */
 function SealImg({ e, l, origin }: { e: DigestEvent; l: Locale; origin: string }) {
@@ -160,7 +201,7 @@ function Item({ e, l, s, snap }: { e: DigestEvent; l: Locale; s: S; snap: Snap }
         </a>
         {e.coverCredit && (
           <div className="mut" style={{ marginTop: '6px', fontSize: '11px', color: C.muted }}>
-            {e.coverCredit}
+            <CoverCredit e={e} s={s} />
           </div>
         )}
       </td>
@@ -219,8 +260,11 @@ function Heading({ children, s, color, gap = '4px' }: { children: ReactNode; s: 
   );
 }
 
-/** Both languages, always (PRD §8 footer): sender, no paid placements, links. No mailing address. */
-function Footer({ l, s, links }: { l: Locale; s: S; links: DigestLinks }) {
+/**
+ * Both languages, always (PRD §8 footer): sender, no paid placements, links. No mailing address.
+ * A reader with F19 facets first gets one line in their language saying what the email leaves out.
+ */
+function Footer({ l, s, links, note }: { l: Locale; s: S; links: DigestLinks; note?: string | null }) {
   const o = other(l);
   const both = (pick: (c: (typeof COPY)[Locale]) => string) => `${pick(COPY[l])} ${pick(COPY[o])}`;
   const items: [string, string][] = [
@@ -234,6 +278,11 @@ function Footer({ l, s, links }: { l: Locale; s: S; links: DigestLinks }) {
     <Table style={{ marginTop: '28px' }}>
       <tr>
         <td className="rule" style={{ ...s.td, paddingTop: '16px', borderTop: `1px solid ${C.rule}` }}>
+          {note && (
+            <p className="mut" style={{ ...s.small, marginBottom: '10px' }}>
+              {note}
+            </p>
+          )}
           <p className="mut" style={s.small}>
             {`${COPY[l].sender} · ${COPY[l].noPaid}`}
           </p>
@@ -295,7 +344,7 @@ const MsoMarker = ({ edge }: { edge: 'open' | 'close' }) => <span data-vp-mso={e
 /** The `o:` prefix of the head block above. */
 const OFFICE_NS = { 'xmlns:o': 'urn:schemas-microsoft-com:office:office' } as Record<string, string>;
 
-function Shell({ locale: l, snap, subject, preheader, links, children }: EmptyNoticeProps & { children: ReactNode }) {
+function Shell({ locale: l, snap, subject, preheader, links, facetNote, children }: EmptyNoticeProps & { children: ReactNode }) {
   const s = styles(l);
   const lang = htmlLang(l);
   // The covered week's Monday at noon PT, always the right calendar day whatever the DST offset.
@@ -340,7 +389,7 @@ function Shell({ locale: l, snap, subject, preheader, links, children }: EmptyNo
                           </span>
                         </p>
                         {children}
-                        <Footer l={l} s={s} links={links} />
+                        <Footer l={l} s={s} links={links} note={facetNote} />
                       </td>
                     </tr>
                   </tbody>
@@ -362,7 +411,7 @@ export function DigestEmail(p: DigestEmailProps) {
   const { sections, going, preview } = p.selection;
   const origin = p.snap.origin;
   return (
-    <Shell locale={l} snap={p.snap} subject={p.subject} preheader={p.preheader} links={p.links}>
+    <Shell locale={l} snap={p.snap} subject={p.subject} preheader={p.preheader} links={p.links} facetNote={p.facetNote}>
       {p.intro.map((line, i) => (
         <p key={i} className="fg" style={s.p}>
           {line}
@@ -413,15 +462,18 @@ export function DigestEmail(p: DigestEmailProps) {
   );
 }
 
-/** At most once a month per reader: nothing in their categories this week, and how to add some. */
+/**
+ * At most once a month per reader: nothing in their categories this week, and how to add some (or,
+ * with F19 facets set, how to widen them).
+ */
 export function EmptyNoticeEmail(p: EmptyNoticeProps) {
   const l = p.locale;
   const s = styles(l);
-  const m = COPY[l].emptyMore;
+  const m = p.facetNote ? COPY[l].emptyMoreFiltered : COPY[l].emptyMore;
   return (
     <Shell {...p}>
       <p className="fg" style={s.p}>
-        {COPY[l].emptyBody}
+        {p.facetNote ? COPY[l].emptyBodyFiltered : COPY[l].emptyBody}
       </p>
       <p className="fg" style={s.p}>
         {m.before}

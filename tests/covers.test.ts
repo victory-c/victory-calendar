@@ -6,6 +6,7 @@ import { coverFromUpload, coverFromUrl, coverToTemplate, runCoverChain, type Cha
 import { CoverError, processCover } from '@/lib/covers/process';
 import type { DB } from '@/lib/db';
 import { covers, events } from '@/lib/db/schema';
+import { __setHopForTests } from '@/lib/ingest/safe-fetch';
 import { testDb } from './helpers/pglite';
 
 const img = (w: number, h: number, fmt: 'png' | 'jpeg' = 'png', color = { r: 200, g: 60, b: 40 }) =>
@@ -151,11 +152,57 @@ describe('cover chain', () => {
     expect((await cover())!.kind).toBe('upload');
     expect(store.deleted).toContain(original);
     await expect(coverFromUpload('evt_1', 'https://evil.example/x.jpg', deps())).rejects.toThrow();
+    // A Blob file outside uploads/ (a live cover, say) is never processed, and so never deleted.
+    const live = 'https://store0.public.blob.vercel-storage.com/covers/cov_1-400.webp';
+    await expect(coverFromUpload('evt_1', live, deps())).rejects.toThrow('not a Blob upload');
+    expect(store.deleted).not.toContain(live);
+  });
+
+  it('upload: the original is deleted even when it is unusable or the event is gone', async () => {
+    const original = 'https://store0.public.blob.vercel-storage.com/uploads/photo.jpg';
+    const tooSmall = deps({ fetchBytes: async () => img(120, 120, 'jpeg') });
+    await expect(coverFromUpload('evt_1', original, tooSmall)).rejects.toMatchObject({ code: 'too_small' });
+    expect(store.deleted).toEqual([original]);
+    await expect(coverFromUpload('evt_1', original, deps({ fetchBytes: async () => Buffer.from('<html>nope</html>') }))).rejects.toThrow();
+    expect(store.deleted).toEqual([original, original]);
+    // Event deleted between the upload and the pick: the processed files and the original both go.
+    store.deleted = [];
+    await expect(coverFromUpload('evt_gone', original, deps({ fetchBytes: async () => img(900, 900, 'jpeg') }))).rejects.toMatchObject({ code: 'bad_input' });
+    expect(store.deleted).toHaveLength(4);
+    expect(store.deleted.at(-1)).toBe(original);
+    expect([...store.files.keys()]).toEqual([]);
+    expect(await cover()).toBeNull();
   });
 
   it('back to template on request', async () => {
     await runCoverChain(input, deps());
     await coverToTemplate('evt_1', deps());
     expect((await cover())!.kind).toBe('template');
+  });
+
+  it('never reaches the picker-only sources (Openverse, AI, Brave), even with every key set', async () => {
+    process.env.BRAVE_SEARCH_API_KEY = 'k';
+    process.env.AI_GATEWAY_API_KEY = 'k';
+    const fetched: string[] = [];
+    const restore = __setHopForTests(async (url) => {
+      fetched.push(url.hostname);
+      return { status: 404, headers: {}, body: { async *[Symbol.asyncIterator]() {}, destroy() {} } };
+    });
+    try {
+      // Default fetcher (safe-fetch), so any request the chain makes shows up at the hop.
+      const r = await runCoverChain(input, { db, store, officialToTemplate: false, renderTemplate: async () => img(1600, 1600) });
+      expect(r).toMatchObject({ kind: 'template', tried: ['official', 'host_composite', 'template'] });
+      expect(fetched).toEqual(['images.lumacdn.com', 'images.lumacdn.com']);
+      expect(store.files.size).toBe(0);
+    } finally {
+      restore();
+      delete process.env.BRAVE_SEARCH_API_KEY;
+      delete process.env.AI_GATEWAY_API_KEY;
+    }
+  });
+
+  it('a manual pick for a missing event leaves no files behind', async () => {
+    await expect(coverFromUrl('evt_gone', official, deps())).rejects.toThrow(/not found/i);
+    expect(store.files.size).toBe(0);
   });
 });
