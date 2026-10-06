@@ -96,6 +96,9 @@ beforeEach(async () => {
   vi.stubEnv('PUBLIC_HOST', 'picks.test');
   vi.stubEnv('NEWSLETTER_OPEN', '');
   vi.stubEnv('VERCEL', '');
+  // F20: going alerts in 'dev' mode (off Vercel), so the form offers the box unless a test turns it off.
+  vi.stubEnv('ALERTS_SENDING', '');
+  vi.stubEnv('DIGEST_SENDING', '');
   vi.stubEnv('UPSTASH_REDIS_REST_URL', '');
   vi.stubEnv('KV_REST_API_URL', '');
 });
@@ -518,6 +521,9 @@ describe('subscribe action: existing addresses look the same from outside', () =
     expect(again.consentAt!.getTime()).toBeGreaterThan(row.consentAt!.getTime());
     expect(h.sent).toHaveLength(1);
     expect(verifyToken(confirmToken(h.sent[0].text), again)).toBe(true);
+    // The earlier email's link described the earlier choices: it no longer confirms anything.
+    expect(again.tokenVersion).toBe(row.tokenVersion + 1);
+    expect(verifyToken(confirmToken(h.sent[0].text), row)).toBe(false);
   });
 
   it('unsubscribed: back to pending, confirm again; the earlier confirmation and opt-out stay on the row', async () => {
@@ -529,6 +535,94 @@ describe('subscribe action: existing addresses look the same from outside', () =
       status: 'pending', unsubscribedAt, confirmedAt, categories: ['ai', 'hackathon'], evLangPref: ['bilingual'], onlineOnly: null,
     });
     expect(h.sent[0].subject).toContain('Confirm');
+  });
+});
+
+describe('subscribe action: going alerts (F20)', () => {
+  it('the ticked box is stored and dated from the request; unticked, forged or absent means off', async () => {
+    const before = Date.now();
+    await run(form({ alerts: '1' }));
+    fromIp('203.0.113.30');
+    await run(form({ email: 'plain@example.com' }));
+    fromIp('203.0.113.31');
+    await run(form({ email: 'forged@example.com', alerts: 'on' }));
+    const by = Object.fromEntries((await rows()).map((r) => [r.email, r]));
+    expect(by['reader@example.com'].goingAlerts).toBe(true);
+    expect(by['reader@example.com'].goingAlertsSince!.getTime()).toBeGreaterThanOrEqual(before - 1000);
+    expect(by['reader@example.com'].goingAlertsSince).toEqual(by['reader@example.com'].consentAt);
+    for (const email of ['plain@example.com', 'forged@example.com']) expect(by[email]).toMatchObject({ goingAlerts: false, goingAlertsSince: null });
+  });
+
+  it('a re-request stores the new answer: unticked turns alerts off on a pending row', async () => {
+    await seed('reader@example.com', 'pending', { goingAlerts: true, goingAlertsSince: new Date(Date.now() - 864e5) });
+    await run(form());
+    expect((await rows())[0]).toMatchObject({ status: 'pending', goingAlerts: false, goingAlertsSince: null });
+  });
+
+  it.each([
+    ['ALERTS_SENDING=0', { ALERTS_SENDING: '0' }],
+    ['DIGEST_SENDING=0', { DIGEST_SENDING: '0' }],
+  ])('while alerts are off here (%s) the box is ignored and a re-armed row keeps its choice', async (_label, env: Record<string, string>) => {
+    for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+    await run(form({ alerts: '1' }));
+    expect((await rows())[0]).toMatchObject({ status: 'pending', goingAlerts: false, goingAlertsSince: null });
+    await seed('kept@example.com', 'unsubscribed', { goingAlerts: true, goingAlertsSince: new Date(Date.now() - 30 * 864e5) });
+    fromIp('203.0.113.32');
+    await run(form({ email: 'kept@example.com' }));
+    const kept = (await rows()).find((r) => r.email === 'kept@example.com')!;
+    // Kept on, but counted from this new request: nothing from before it is ever alerted.
+    expect(kept).toMatchObject({ status: 'pending', goingAlerts: true });
+    expect(kept.goingAlertsSince).toEqual(kept.consentAt);
+  });
+
+  it('active and paused rows are untouched by the box, like every other field', async () => {
+    const row = await seed('reader@example.com', 'active', { confirmedAt: new Date() });
+    await run(form({ alerts: '1' }));
+    expect((await rows())[0]).toEqual(row);
+  });
+
+  const ALERTS_EN = 'Going alerts are on too: at most one email a day when Victor marks an event as going.';
+  const ALERTS_ZH = '会去提醒也已打开：Victor 标记会去的活动时，每天最多一封。';
+
+  it('the confirmation email names going alerts when the box is ticked (both languages), so the click confirms them too', async () => {
+    await run(form({ alerts: '1' }));
+    fromIp('203.0.113.33');
+    await run(form({ email: 'plain@example.com' }));
+    const [ticked, plain] = h.sent;
+    for (const part of [ticked.text, ticked.html]) {
+      expect(part).toContain(ALERTS_EN);
+      expect(part).toContain(ALERTS_ZH);
+    }
+    for (const part of [plain.text, plain.html]) {
+      expect(part).not.toContain(ALERTS_EN);
+      expect(part).not.toContain(ALERTS_ZH);
+    }
+    // After the category line, before the "if this wasn't you" note, in each language's block.
+    const lines = ticked.text.split('\n');
+    expect(lines.indexOf(ALERTS_EN)).toBe(lines.findIndex((l) => l.startsWith('You picked:')) + 1);
+    expect(lines.indexOf(ALERTS_ZH)).toBe(lines.findIndex((l) => l.startsWith('你选了：')) + 1);
+  });
+
+  it('a re-request that keeps alerts on (box not shown here) still says so in the confirmation', async () => {
+    vi.stubEnv('ALERTS_SENDING', '0');
+    await seed('reader@example.com', 'unsubscribed', { confirmedAt: new Date(Date.now() - 30 * 864e5), goingAlerts: true, goingAlertsSince: new Date(Date.now() - 30 * 864e5) });
+    await run(form());
+    expect((await rows())[0]).toMatchObject({ status: 'pending', goingAlerts: true });
+    expect(h.sent[0].text).toContain(ALERTS_EN);
+    expect(h.sent[0].text).toContain(ALERTS_ZH);
+  });
+
+  it('a stranger re-requesting a pending address with alerts ticked cannot ride on the first email\'s link', async () => {
+    await run(form());
+    const first = confirmToken(h.sent[0].text);
+    fromIp('203.0.113.34');
+    await run(form({ alerts: '1', c: ['vc'] }));
+    const [row] = await rows();
+    expect(row).toMatchObject({ status: 'pending', goingAlerts: true, categories: ['vc'] });
+    expect(verifyToken(first, row)).toBe(false);
+    // Only the second email, which names the alerts, can confirm them.
+    expect(verifyToken(confirmToken(h.sent[1].text), row)).toBe(true);
+    expect(h.sent[1].text).toContain(ALERTS_EN);
   });
 });
 
@@ -661,6 +755,18 @@ describe('SubscribeForm (server render, before hydration)', () => {
     expect(zh('input[name=source]').attr('value')).toBe('zh/subscribe');
   });
 
+  it('F20: an unticked going-alerts box when the page passes its label, and none otherwise', () => {
+    const $ = load(renderToStaticMarkup(createElement(SubscribeForm, { locale: 'en', categories: ['ai'], copy: { ...copy, goingAlerts: 'Email me when Victor marks an event as going' } })));
+    const box = $('input[name=alerts]');
+    expect(box.attr()).toMatchObject({ type: 'checkbox', value: '1' });
+    expect(box.attr('checked')).toBeUndefined();
+    expect(box.closest('label').text()).toBe('Email me when Victor marks an event as going');
+    expect(box.closest('label').attr('class')).toMatch(/\bmin-h-11\b/);
+    // Before the submit button, inside the form that posts it.
+    expect(box.closest('form').find('button[type=submit]')).toHaveLength(1);
+    expect(render('en')('input[name=alerts]')).toHaveLength(0);
+  });
+
   it('language names carry their own lang; the status line is a polite live region', () => {
     const $ = render('en');
     expect($('span[lang=en]').text()).toBe('English');
@@ -695,6 +801,14 @@ describe('/subscribe page', () => {
     expect($('form input[name=c][checked]')).toHaveLength(7);
     expect($('#subscribe')).toHaveLength(0);
     expect($.text()).not.toContain('closed.title');
+  });
+
+  it('F20: the going-alerts box only while alerts can be sent (dev here; never with ALERTS_SENDING=0)', async () => {
+    const on = await page();
+    expect(on('form input[name=alerts]')).toHaveLength(1);
+    expect(on('form input[name=alerts]').closest('label').text()).toBe('en:Newsletter.form.goingAlerts');
+    vi.stubEnv('ALERTS_SENDING', '0');
+    expect((await page())('input[name=alerts]')).toHaveLength(0);
   });
 
   it('open: ?c= preselects those categories; zh page preselects 中文', async () => {

@@ -181,9 +181,9 @@
       "title": "If you subscribe",
       "storeLead": "What I store:",
       "items": {
-        "email": "Your email address, the language and categories you picked, the event-language and online-only filters if you set them, and your status (waiting for confirmation, subscribed, paused or unsubscribed) with its dates.",
+        "email": "Your email address, the language and categories you picked, the event-language and online-only filters if you set them, whether you turned on going alerts and since when, and your status (waiting for confirmation, subscribed, paused or unsubscribed) with its dates.",
         "consent": "The most recent sign-up request for your address, confirmed or not: when it was made, which page it came from, and the IP address and browser user-agent it was sent from. Once you confirm, that's the record that you asked to subscribe.",
-        "sends": "Which weekly emails were sent to you, and when.",
+        "sends": "Which weekly emails and going alerts were sent to you, and when.",
         "nothing": "Nothing else: no name, no location, no browsing history."
       },
       "bot": "When you press Subscribe, your browser runs Vercel's bot check (BotID), loaded through this site's own address, to tell people from scripts. It is Vercel's service, covered by Vercel's privacy policy.",
@@ -192,7 +192,7 @@
     "use": {
       "title": "What I use it for",
       "items": {
-        "send": "Sending the confirmation email and the Sunday email, in your language and with only your categories and filters.",
+        "send": "Sending the confirmation email, the Sunday email and, if you turned them on, going alerts (at most one a morning when I mark an event I plan to go to), in your language and with only your categories and filters.",
         "abuse": "Stopping bots, and stopping anyone from flooding someone else's inbox with sign-up emails.",
         "proof": "Showing that you asked to subscribe, and making sure an unsubscribe sticks.",
         "nothing": "Nothing else: no ads, no profiling, no selling."
@@ -222,7 +222,7 @@
     "retention": {
       "title": "How long I keep things",
       "items": {
-        "pending": "A sign-up that's never confirmed: deleted after 7 days. If you had subscribed before, it goes back to unsubscribed instead.",
+        "pending": "A sign-up that's never confirmed: deleted after 7 days. If you had subscribed before, it goes back to unsubscribed instead, with going alerts off.",
         "active": "While you're subscribed or paused: kept.",
         "unsubscribed": "After you unsubscribe: kept for 12 months, so the unsubscribe sticks and the latest sign-up request is on record if a question comes up, then deleted along with its send records.",
         "suppressed": "Addresses that bounced, marked an email as spam, or that I blocked by hand: the whole subscription record, sign-up IP address and user-agent included, and its send records are kept indefinitely on a do-not-send list, so the address never gets email from me again. Resend also keeps bounced and spam-flagged addresses on its own do-not-send list. Both stay until you ask me to delete them.",
@@ -233,7 +233,7 @@
     "choices": {
       "title": "Your choices",
       "items": {
-        "prefs": "Every Sunday email links to a preferences page where you can change the language, categories, event-language and online-only filters, pause for 4 weeks, or unsubscribe in one click, and your mail app's Unsubscribe button works on it too. The one-time confirmation email has neither: if you ignore it, nothing more is sent.",
+        "prefs": "Every Sunday email and going alert links to a preferences page where you can change the language, categories, event-language and online-only filters, turn going alerts on or off, pause for 4 weeks, or unsubscribe in one click, and your mail app's Unsubscribe button works too (on a going alert it turns off just the alerts). The one-time confirmation email has neither: if you ignore it, nothing more is sent.",
         "request": "To see what I hold about you, or to have it deleted, email me from the address you subscribed with, at the address under “<contact>Who runs this</contact>”. Deleting removes your subscription and its send records from my database, and takes your address off Resend's do-not-send list if it's there. Copies in provider logs and backups expire on their own schedules.",
         "suppressed": "If your address is on my do-not-send list, it may be on Resend's as well. A deletion request takes it off both, so the block is lifted and you can subscribe again.",
         "change": "To change your address, subscribe with the new one and unsubscribe the old one."
@@ -294,7 +294,8 @@
       "honeypot": "Leave this field empty",
       "facets": "Only {facets}",
       "facetsRemove": "Remove",
-      "facetsRemoved": "Filters removed."
+      "facetsRemoved": "Filters removed.",
+      "goingAlerts": "Email me when Victor marks an event as going (at most one email a day)"
     },
     "facets": {
       "zh": "Chinese or bilingual events",
@@ -324,7 +325,7 @@
       "unavailable": "Subscriptions are unavailable right now. Try again later.",
       "subscribeAgain": "Subscribe again",
       "home": "Back to this week's picks",
-      "unsubscribeHint": "To stop the emails, use the unsubscribe link in your latest email, or the Unsubscribe button your mail app shows for this newsletter.",
+      "unsubscribeHint": "To stop the emails, use the unsubscribe link in your latest email, or the Unsubscribe button your mail app shows on a Sunday email (on a going alert, that button turns off only the alerts).",
       "unsubscribeUnavailable": "Unsubscribing isn't available right now. Try again later."
     },
     "prefs": {
@@ -362,7 +363,8 @@
       "evLangZh": "Chinese or bilingual",
       "evLangEn": "English or bilingual",
       "evLangBilingual": "Bilingual only",
-      "onlineOnly": "Online events only (incl. hybrid)"
+      "onlineOnly": "Online events only (incl. hybrid)",
+      "goingAlerts": "Email me when Victor marks an event as going (at most one email a day)"
     },
     "unsubscribe": {
       "title": "Unsubscribe",
@@ -371,11 +373,14 @@
       "stopped": "Done. No more {category}.",
       "all": "Unsubscribe from everything",
       "done": "You're unsubscribed. No more emails.",
-      "more": "More options"
+      "more": "More options",
+      "goingLead": "Turn off only the going alerts, or unsubscribe from everything.",
+      "going": "Turn off going alerts",
+      "alertsOff": "Going alerts are off. The weekly email is unchanged."
     },
     "noscript": {
       "form": "This form needs JavaScript.",
-      "links": "This page needs JavaScript. Without it, you can still stop the emails with the Unsubscribe button your mail app shows for this newsletter."
+      "links": "This page needs JavaScript. Without it, you can still stop the emails with the Unsubscribe button your mail app shows on a Sunday email (on a going alert, that button turns off only the alerts)."
     }
   }
 }

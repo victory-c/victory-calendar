@@ -5,6 +5,7 @@
 import { refresh, updateTag } from 'next/cache';
 import { after } from 'next/server';
 import { AdminError, setGoing } from '@/lib/admin/events';
+import { goingSavedMessage } from '@/lib/admin/going-message';
 import { requireAdmin } from '@/lib/admin-session';
 import { runCoverChain } from '@/lib/covers/chain';
 import {
@@ -13,6 +14,7 @@ import {
 import { bestLink, type SnoozeFor, snoozeUntil } from '@/lib/inbox/keys';
 import { FORCE_COOLDOWN_MS, PAGE_COOLDOWN_MS, syncIcsFeeds } from '@/lib/inbox/sync-ics';
 import { ingest } from '@/lib/ingest/pipeline';
+import { alertsMode } from '@/lib/newsletter/status';
 import { readSetting } from '@/lib/settings';
 
 export type InboxState = { ok: boolean; message: string } | null;
@@ -109,7 +111,9 @@ export type StampGoing = (typeof CYCLE)[number];
 
 /**
  * The row's going stamp. Going belongs to an event, so a row that isn't added yet becomes a
- * draft first; a draft is never public, so this never publishes anything.
+ * draft first; a draft is never public, so this never publishes anything. A row already added and
+ * published can become publicly going here: that queues a going alert (switch default on, F20 G5),
+ * and the status line says so.
  */
 export async function setCandidateGoing(id: string, going: StampGoing): Promise<InboxState> {
   await requireAdmin();
@@ -120,10 +124,11 @@ export async function setCandidateGoing(id: string, going: StampGoing): Promise<
   try {
     const added = await addOne(c, false);
     if (!added.eventId) return { ok: false, message: added.error === 'no_link' ? '没有链接，没法记录会去' : `添加失败（${added.error}）` };
+    // No explicit switch: a new mark defaults to alerting, and an earlier decline is left alone (G5).
     const r = await setGoing(added.eventId, going, (await readSetting('going_visibility_default')).v);
     updateTag('events');
     refresh();
-    return { ok: true, message: r.reason ? '已记录，活动结束后才公开' : '已记录' };
+    return { ok: true, message: goingSavedMessage(r, { wanted: true, mode: alertsMode() }) };
   } catch (e) {
     return { ok: false, message: e instanceof AdminError ? e.message : 'failed' };
   }

@@ -390,11 +390,11 @@ describe('devTransport', () => {
 });
 
 describe('idempotencyKey and the daily cap setting', () => {
-  it('depends only on the set of ids, fits Resend limits', () => {
-    const k = idempotencyKey('dig_0123456789abcdef', ['sub_b', 'sub_a', 'sub_c']);
-    expect(k).toBe(idempotencyKey('dig_0123456789abcdef', ['sub_c', 'sub_a', 'sub_b']));
-    expect(k).toMatch(/^digest\/dig_0123456789abcdef\/[A-Za-z0-9_-]{22}$/);
-    expect(idempotencyKey('dig_0123456789abcdef', ['sub_a', 'sub_b'])).not.toBe(k);
+  it('is the issue and the batch key fixed at claim time (not who is still in the group), within Resend limits', () => {
+    const k = idempotencyKey('dig_0123456789abcdef', 'dbk_0123456789abcdef');
+    expect(k).toBe('digest/dig_0123456789abcdef/dbk_0123456789abcdef');
+    expect(k.length).toBeLessThanOrEqual(256);
+    expect(idempotencyKey('dig_0123456789abcdef', 'dbk_fedcba9876543210')).not.toBe(k);
   });
   it('DIGEST_DAILY_CAP defaults to 60', () => {
     expect(dailyCapFromEnv(undefined)).toBe(60);
@@ -880,24 +880,40 @@ describe('runDigest: sending', () => {
     expect(tr.calls).toHaveLength(2);
     expect(tr.calls[1].key).toBe(tr.calls[0].key);
     expect(tr.calls[1].json).toBe(tr.calls[0].json);
-    expect(tr.calls[1].key).toBe(idempotencyKey(issue.id, subs.map((s) => s.id)));
+    expect(tr.calls[1].key).toBe(idempotencyKey(issue.id, (await sends(issue.id))[0].batchKey!));
+    expect(tr.calls[1].emails.map((e) => e.to).sort()).toEqual(subs.map((s) => s.email).sort());
     expect((await sends(issue.id)).every((r) => r.resendId?.startsWith('re_2_'))).toBe(true);
     expect(h.snapshots).toBe(1);
   });
 
-  it('a replay drops members who unsubscribed meanwhile (new key: the group changed)', async () => {
+  it('a replay drops members who unsubscribed meanwhile, under the same key: Resend 409s, nobody gets a second copy', async () => {
     const issue = await seedIssue();
     const subs = await seedMany(3);
-    const { tr, clock } = setup();
+    // Resend-like: the same key with the same body replays, with a different body it is a 409.
+    const seen = new Map<string, string>();
+    const { tr, clock } = setup(undefined, (call) => {
+      const first = seen.get(call.key);
+      if (first === undefined) return void seen.set(call.key, call.json);
+      return first === call.json ? undefined : err('invalid_idempotent_request', 409);
+    });
     const deps = { now: clock.now, sleep: clock.sleep, transport: tr.t, mode: 'live' as const, dailyCap: 1000 };
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // The first attempt is accepted (all three delivered), then the mark fails.
     await expect(runDigest({ ...deps, db: crashOnce(db, 'resend_id = v.rid') })).rejects.toThrow();
     await db.update(subscribers).set({ status: 'unsubscribed' }).where(eq(subscribers.id, subs[1].id));
     clock.advance(11 * MIN);
-    expect(await runDigest({ ...deps, db })).toMatchObject({ ok: true, replayed: 2, status: 'sent' });
+    expect(await runDigest({ ...deps, db })).toMatchObject({ ok: true, replayed: 0, failed: 2, status: 'sent' });
+    expect(tr.calls).toHaveLength(2);
     expect(tr.calls[1].emails.map((e) => e.to)).not.toContain(subs[1].email);
-    expect(tr.calls[1].key).not.toBe(tr.calls[0].key);
-    const rows = await sends(issue.id);
-    expect(rows.find((r) => r.subscriberId === subs[1].id)).toMatchObject({ resendId: null, error: 'ineligible' });
+    expect(tr.calls[1].key).toBe(tr.calls[0].key);
+    // Only the first call was ever accepted: each reader got exactly one copy.
+    const rows = Object.fromEntries((await sends(issue.id)).map((r) => [r.subscriberId, [r.resendId, r.error]]));
+    expect(rows).toEqual({
+      [subs[0].id]: [null, 'idem_conflict'],
+      [subs[1].id]: [null, 'ineligible'],
+      [subs[2].id]: [null, 'idem_conflict'],
+    });
   });
 
   it('a replay where a member no longer builds keeps the original key (Resend answers 409, nobody mailed twice)', async () => {
@@ -920,7 +936,7 @@ describe('runDigest: sending', () => {
     expect(await runDigest({ ...deps, db })).toMatchObject({ ok: false, reason: 'render_failed', replayed: 0, failed: 3, status: 'sent' });
     expect(tr.calls).toHaveLength(2);
     expect(tr.calls[1].key).toBe(tr.calls[0].key);
-    expect(tr.calls[1].key).toBe(idempotencyKey(issue.id, subs.map((s) => s.id)));
+    expect(tr.calls[1].key).toBe(idempotencyKey(issue.id, (await sends(issue.id))[0].batchKey!));
     expect(tr.calls[1].emails.map((e) => e.to)).not.toContain(hack.email);
     const rows = Object.fromEntries((await sends(issue.id)).map((r) => [r.subscriberId, r.error]));
     // replay_…: that reader may already have the first copy, so the code says so.
@@ -1330,7 +1346,7 @@ describe('runDigest with the real assemble.ts and render.ts', () => {
     expect(await runDigest({ ...deps, db })).toMatchObject({ ok: true, replayed: 3, sent: 0, emptyNotices: 1, status: 'sent' });
     expect(tr.calls).toHaveLength(2);
     expect(tr.calls[1].key).toBe(tr.calls[0].key);
-    expect(tr.calls[1].key).toBe(idempotencyKey(issue.id, subs.map((s) => s.id)));
+    expect(tr.calls[1].key).toBe(idempotencyKey(issue.id, (await sends(issue.id))[0].batchKey!));
     expect(tr.calls[1].json).toBe(tr.calls[0].json);
     expect((await issueRow(issue.id)).snapshot).toEqual(frozen);
     expect(h.snapshots).toBe(1);

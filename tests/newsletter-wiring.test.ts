@@ -289,7 +289,7 @@ describe('Subscribe entry points follow newsletterStatus()', () => {
       expect(going).not.toContain('site only');
     });
 
-    it('no email link on the going.ics menu (no going emails yet)', async () => {
+    it('no email link on the going.ics menu (going alerts are switched on at /subscribe or in preferences)', async () => {
       gate('open');
       expect(subscribeLinks(await menu({ locale: 'en', going: true }))).toEqual([]);
     });

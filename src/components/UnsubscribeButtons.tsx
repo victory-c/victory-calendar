@@ -8,6 +8,7 @@ type Action = (prev: UnsubscribeState, form: FormData) => Promise<UnsubscribeSta
 
 /**
  * The manual unsubscribe page's buttons (guide「退订」): one per subscribed category, plus everything.
+ * From a going alert (F20, ?list=going) the first button turns off the going alerts only.
  * Each button is a tiny form posting `c`, all sharing one action state, so the message stays put
  * while refresh() removes the button that was pressed; focus goes to that message (tabIndex -1).
  * Nothing happens until a press.
@@ -16,6 +17,7 @@ export function UnsubscribeButtons({
   action,
   done,
   categories,
+  going = null,
   text,
   messages,
 }: {
@@ -25,7 +27,10 @@ export function UnsubscribeButtons({
   done: boolean;
   /** Subscribed categories with their "Stop …" labels; empty hides the per-category buttons. */
   categories: readonly { slug: Category; label: string }[];
-  text: { all: string; done: string; stopped: Record<Category, string> };
+  /** F20 (?list=going): 'offer' the going-alerts button, or say they are already 'off'; null: neither. */
+  going?: 'offer' | 'off' | null;
+  /** `going` / `alertsOff` are needed only with `going`. */
+  text: { all: string; done: string; stopped: Record<Category, string>; going?: string; alertsOff?: string };
   /** Everything else the action can answer; "stopped" comes from `text.stopped` with its category. */
   messages: Record<Exclude<UnsubscribeKey, 'unsubscribe.stopped'>, string>;
 }) {
@@ -35,7 +40,7 @@ export function UnsubscribeButtons({
   const message = done
     ? text.done
     : !state
-      ? ''
+      ? going === 'off' ? (text.alertsOff ?? '') : ''
       : state.key === 'unsubscribe.stopped'
         ? state.category ? text.stopped[state.category] : ''
         : messages[state.key];
@@ -59,10 +64,12 @@ export function UnsubscribeButtons({
     <div className="mt-6">
       {!done && (
         <ul className="flex flex-wrap gap-3">
+          {/* The alert's own list comes first, and is the filled button: it is what the link was for. */}
+          {going === 'offer' && <li>{button('going', text.going ?? '', true)}</li>}
           {categories.map(({ slug, label }) => (
             <li key={slug}>{button(slug, label)}</li>
           ))}
-          <li>{button('all', text.all, true)}</li>
+          <li>{button('all', text.all, going !== 'offer')}</li>
         </ul>
       )}
       <p ref={status} role="status" aria-live="polite" tabIndex={-1} className={`min-h-5 ${tone}`}>

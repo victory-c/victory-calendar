@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { digestMode, hasVerifiedSender, linksWork, newsletterStatus, privacyContact } from '@/lib/newsletter/status';
+import { alertsMode, digestMode, hasVerifiedSender, linksWork, newsletterStatus, privacyContact } from '@/lib/newsletter/status';
 
 // When the form takes sign-ups (src/lib/newsletter/status.ts). On Vercel the shared resend.dev
 // sender only reaches the account owner, so the form must stay closed until RESEND_FROM is on a
@@ -179,5 +179,34 @@ describe('digestMode: the digest send gate', () => {
     env({ VERCEL: vercel, RESEND_API_KEY: key, RESEND_FROM: from });
     vi.stubEnv('DIGEST_SENDING', flag);
     expect(digestMode()).toBe(want);
+  });
+});
+
+describe('alertsMode: the going-alert send gate (F20)', () => {
+  const VERIFIED = "Victor's Picks <hi@mail.example.org>";
+  it.each([
+    // ALERTS_SENDING, DIGEST_SENDING, VERCEL, RESEND_API_KEY, RESEND_FROM → mode
+    [undefined, undefined, '1', 're_test', VERIFIED, 'live'], // follows the digest once a verified sender exists
+    [undefined, undefined, '1', undefined, undefined, 'off'], // today's production: claims nothing, opt-ins hidden
+    [undefined, undefined, '1', 're_test', 'onboarding@resend.dev', 'off'],
+    [undefined, undefined, undefined, undefined, undefined, 'dev'], // local and CI: log transport
+    ['0', undefined, '1', 're_test', VERIFIED, 'off'], // alerts alone switched off; the digest keeps sending
+    ['0', undefined, undefined, undefined, undefined, 'off'],
+    [undefined, '0', '1', 're_test', VERIFIED, 'off'], // the digest's stop stops alerts too
+    ['1', '0', undefined, undefined, undefined, 'off'], // ALERTS_SENDING can't switch on what the digest gate keeps off
+    ['false', undefined, '1', 're_test', VERIFIED, 'live'], // only the exact value 0 stops it
+    ['', undefined, undefined, 're_test', VERIFIED, 'live'],
+  ] as const)('ALERTS_SENDING=%s DIGEST_SENDING=%s VERCEL=%s key=%s from=%s → %s', (alerts, digest, vercel, key, from, want) => {
+    env({ VERCEL: vercel, RESEND_API_KEY: key, RESEND_FROM: from });
+    vi.stubEnv('ALERTS_SENDING', alerts);
+    vi.stubEnv('DIGEST_SENDING', digest);
+    expect(alertsMode()).toBe(want);
+  });
+
+  it('ALERTS_SENDING=0 leaves the digest gate alone', () => {
+    env({ RESEND_FROM: VERIFIED });
+    vi.stubEnv('ALERTS_SENDING', '0');
+    expect(alertsMode()).toBe('off');
+    expect(digestMode()).toBe('live');
   });
 });

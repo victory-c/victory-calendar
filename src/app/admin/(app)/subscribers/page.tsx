@@ -1,21 +1,23 @@
 import { connection } from 'next/server';
 import { Suspense } from 'react';
+import { NextAlertCard } from '@/components/admin/NextAlertCard';
 import { SubscriberLookup } from '@/components/admin/SubscriberLookup';
 import { btn, Chip, Screen } from '@/components/admin/ui';
 import { requireAdmin } from '@/lib/admin-session';
 import { PT } from '@/lib/format/date';
-import { hasVerifiedSender, newsletterStatus, privacyContact } from '@/lib/newsletter/status';
+import { alertsMode, hasVerifiedSender, newsletterStatus, privacyContact } from '@/lib/newsletter/status';
 import {
-  categoryMatrix, facetMatrix, G3_CONFIRMED, gateStatus, type IssueGate, type LocaleCounts, ON_TIME_MS, optInRate, statusCounts,
-  type SubscriberStatus,
+  categoryMatrix, facetMatrix, G3_CONFIRMED, gateStatus, goingAlertsOn, type IssueGate, type LocaleCounts, nextGoingAlert, ON_TIME_MS,
+  optInRate, statusCounts, type SubscriberStatus,
 } from '@/lib/subscribers/admin';
 import { CATEGORIES, CATEGORY_SLUGS } from '@/lib/taxonomy';
 
 export const metadata = { title: 'Subscribers' };
 
-// Guide row「/admin/subscribers」: counts by status, language and category, the G3 gate, an exact
-// lookup with manual suppress and delete, and the CSV export. Counts only on the page: no address
-// is ever listed (the lookup shows the one row you asked for; the export needs the admin session).
+// Guide row「/admin/subscribers」: counts by status, language and category, the G3 gate, the F20
+// going-alert card, an exact lookup with manual suppress and delete, and the CSV export. Counts only
+// on the page: no address is ever listed (the lookup shows the one row you asked for; the export
+// needs the admin session).
 
 const STATUS: Record<SubscriberStatus, string> = {
   pending: 'Pending · 待确认',
@@ -105,8 +107,9 @@ async function Subscribers() {
   await requireAdmin();
   await connection();
   const now = new Date();
-  const [counts, matrix, facets, gate, optIn] = await Promise.all([
-    statusCounts(), categoryMatrix({ now }), facetMatrix({ now }), gateStatus({ now }), optInRate(),
+  const [counts, matrix, facets, gate, optIn, alertsOn, nextAlert] = await Promise.all([
+    statusCounts(), categoryMatrix({ now }), facetMatrix({ now }), gateStatus({ now }), optInRate(), goingAlertsOn({ now }),
+    nextGoingAlert({ now }),
   ]);
   const closed = newsletterStatus() === 'closed';
   // Names only, never values. On Vercel the form also waits for the sender and the /privacy contact.
@@ -206,6 +209,8 @@ async function Subscribers() {
           digest, then look it up below; it should show Unsubscribed · Gmail 一键退订需手动验证：用真实表单订阅 Gmail 种子邮箱，在周日周报里点 Gmail 的退订，再在下面查到它显示「已退订」
         </p>
       </section>
+
+      <NextAlertCard on={alertsOn} next={nextAlert} mode={alertsMode()} />
 
       <section aria-labelledby="subs-optin" className="text-sm">
         <h2 id="subs-optin" className={H2}>Double opt-in rate · 双重确认率（approx · 约）</h2>

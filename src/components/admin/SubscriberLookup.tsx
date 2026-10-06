@@ -162,7 +162,7 @@ function Result({ sub, action, onSubmit, pending }: {
           Delete · 删除
         </button>
       </form>
-      {sub.inFlight && <p className="mt-1 text-xs text-muted">A digest is being sent to them; Delete waits until it finishes · 正在发周报，发完才能删除</p>}
+      {sub.inFlight && <p className="mt-1 text-xs text-muted">An email is being sent to them; Delete waits until it finishes · 正在给他们发邮件，发完才能删除</p>}
     </article>
   );
 }

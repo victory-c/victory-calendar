@@ -136,7 +136,8 @@ describe('status', () => {
 
 describe('setGoing (safety rules)', () => {
   it('keeps a public going on a listed platform and public venue', async () => {
-    expect(await setGoing('evt_1', 'going', 'public', db)).toEqual({ going: 'going', visibility: 'public', reason: null });
+    // A draft: nothing is publicly going yet, so no alert (tests/alerts-marks.test.ts covers marks).
+    expect(await setGoing('evt_1', 'going', 'public', db)).toEqual({ going: 'going', visibility: 'public', reason: null, alert: 'none', startAt: expect.any(Date) });
   });
 
   it('downgrades to after_event with the reason', async () => {

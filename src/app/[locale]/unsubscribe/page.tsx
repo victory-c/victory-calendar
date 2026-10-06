@@ -6,7 +6,7 @@ import { LinkProblem } from '@/components/LinkProblem';
 import { PageShell } from '@/components/PageShell';
 import { UnsubscribeButtons } from '@/components/UnsubscribeButtons';
 import { Link } from '@/i18n/navigation';
-import { unsubscribeChoices } from '@/lib/newsletter/prefs-view';
+import { goingChoice, isGoingList, unsubscribeChoices } from '@/lib/newsletter/prefs-view';
 import { linksWork } from '@/lib/newsletter/status';
 import { type Subscriber, subscriberFromToken, viewOf } from '@/lib/subscribers/service';
 import { CATEGORIES, type Category, CATEGORY_SLUGS, type Locale } from '@/lib/taxonomy';
@@ -14,7 +14,8 @@ import { type UnsubscribeKey, unsubscribeFrom } from '../prefs/actions';
 
 // Manual unsubscribe page (guide「退订」), linked visibly from every email; GET /api/unsubscribe
 // redirects here. Loading it changes nothing (mail scanners fetch links and run scripts); only a
-// button press does. The RFC 8058 one-click POST lives at /api/unsubscribe.
+// button press does. The RFC 8058 one-click POST lives at /api/unsubscribe. From a going alert
+// (F20, ?list=going) it offers turning off the alerts only, and still everything.
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -52,8 +53,10 @@ export default async function UnsubscribePage({ searchParams }: Props) {
 async function Unsubscribe({ locale, searchParams }: Props & { locale: Locale }) {
   await connection();
   if (!linksWork()) return <LinkProblem locale={locale} kind="unavailable" context="unsubscribe" />;
-  const raw = (await searchParams).t;
+  const sp = await searchParams;
+  const raw = sp.t;
   const token = typeof raw === 'string' ? raw : null;
+  const fromAlert = isGoingList(sp.list);
   let sub: Subscriber | null;
   try {
     sub = token ? await subscriberFromToken(token) : null;
@@ -69,11 +72,13 @@ async function Unsubscribe({ locale, searchParams }: Props & { locale: Locale })
 
   const done = view.status === 'unsubscribed';
   const label = (c: Category) => CATEGORIES[c][locale];
-  // Per-category buttons only with more than one category (see unsubscribeChoices).
-  const categories = unsubscribeChoices(view).map((c) => ({ slug: c, label: t('unsubscribe.category', { category: label(c) }) }));
+  // Per-category buttons only with more than one category, and not from an alert (see unsubscribeChoices).
+  const categories = unsubscribeChoices(view, fromAlert).map((c) => ({ slug: c, label: t('unsubscribe.category', { category: label(c) }) }));
+  const going = goingChoice(view, fromAlert);
   const stopped = Object.fromEntries(CATEGORY_SLUGS.map((c) => [c, t('unsubscribe.stopped', { category: label(c) })])) as Record<Category, string>;
   const messages: Record<Exclude<UnsubscribeKey, 'unsubscribe.stopped'>, string> = {
     'unsubscribe.done': t('unsubscribe.done'),
+    'unsubscribe.alertsOff': t('unsubscribe.alertsOff'),
     'prefs.linkExpired': t('prefs.linkExpired'),
     'prefs.statusSuppressed': t('prefs.statusSuppressed'),
     'link.unavailable': t('link.unavailable'),
@@ -82,13 +87,21 @@ async function Unsubscribe({ locale, searchParams }: Props & { locale: Locale })
 
   return (
     <>
-      {/* "Stop one category, or everything" only when there is a category to pick. */}
+      {/* "Stop one category, or everything" only when there is a category to pick; from an alert, "alerts or everything". */}
+      {going === 'offer' && <p className="mt-4 text-muted">{t('unsubscribe.goingLead')}</p>}
       {categories.length > 0 && <p className="mt-4 text-muted">{t('unsubscribe.lead')}</p>}
       <UnsubscribeButtons
         action={unsubscribeFrom.bind(null, token)}
         done={done}
         categories={categories}
-        text={{ all: t('unsubscribe.all'), done: t('unsubscribe.done'), stopped }}
+        going={going}
+        text={{
+          all: t('unsubscribe.all'),
+          done: t('unsubscribe.done'),
+          stopped,
+          going: t('unsubscribe.going'),
+          alertsOff: t('unsubscribe.alertsOff'),
+        }}
         messages={messages}
       />
       {/* Pause, language, and (once unsubscribed) "Subscribe again" live in the preference center. */}

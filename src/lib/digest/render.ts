@@ -79,29 +79,36 @@ function assertSnapshot(snap: DigestSnapshot) {
 }
 
 /** React can't write conditional comments: swap the template's markers for the Outlook-only markup. */
-function withMso(html: string) {
+function withMso(html: string, label: string) {
   let out = html;
   for (const [marker, markup] of MSO_SWAPS) {
-    if (count(out, marker) !== 1) throw new Error(`digest template: expected exactly one ${marker}`);
+    if (count(out, marker) !== 1) throw new Error(`${label} template: expected exactly one ${marker}`);
     out = out.replace(marker, () => markup);
   }
   return out;
 }
 
-async function finish(
+/**
+ * A newsletter template element → the email: Outlook markup in, the plain-text part (links as
+ * `label <url>`), exactly `links` placeholders in each part, and the size as delivered under
+ * MAX_HTML_BYTES (DigestTooLargeError otherwise). Shared with the going alert (lib/alerts/render.ts);
+ * `label` only names the template in errors.
+ */
+export async function finishEmail(
   element: ReactElement,
   meta: { subject: string; preheader: string; picks: number; going: number },
   links: number,
+  label = 'digest',
 ): Promise<RenderedEmail> {
-  const html = withMso(await render(element, { pretty: false }));
+  const html = withMso(await render(element, { pretty: false }), label);
   const text = toPlainText(html, TEXT_OPTIONS);
   const found = [count(html, TOKEN), count(text, TOKEN)];
   if (found.some((n) => n !== links)) {
-    throw new Error(`digest template: ${found.join(' / ')} placeholder links in html / text, expected ${links}`);
+    throw new Error(`${label} template: ${found.join(' / ')} placeholder links in html / text, expected ${links}`);
   }
   // Size as delivered: each placeholder becomes a 64-character token.
   const bytes = Buffer.byteLength(html, 'utf8') + links * (REAL_TOKEN_LENGTH - TOKEN.length);
-  if (bytes > MAX_HTML_BYTES) throw new DigestTooLargeError(`digest html is ${bytes} bytes (limit ${MAX_HTML_BYTES})`);
+  if (bytes > MAX_HTML_BYTES) throw new DigestTooLargeError(`${label} html is ${bytes} bytes (limit ${MAX_HTML_BYTES})`);
   return { ...meta, html, text, bytes };
 }
 
@@ -129,7 +136,7 @@ export async function renderVariant(snap: DigestSnapshot, variant: Variant): Pro
     links: digestLinks(snap, locale, TOKEN),
     facetNote: facetNote(locale, facets),
   });
-  return finish(element, { subject, preheader, picks: selection.picks, going }, LINKS.digest);
+  return finishEmail(element, { subject, preheader, picks: selection.picks, going }, LINKS.digest);
 }
 
 /** "Nothing I'd recommend this week": sent at most once a month per reader (claim.ts decides). */
@@ -140,17 +147,21 @@ export async function renderEmptyNotice(snap: DigestSnapshot, variant: Variant):
   const subject = COPY[locale].emptySubject;
   const preheader = note ? COPY[locale].emptyBodyFiltered : COPY[locale].emptyBody;
   const element = createElement(EmptyNoticeEmail, { locale, snap, subject, preheader, links: digestLinks(snap, locale, TOKEN), facetNote: note });
-  return finish(element, { subject, preheader, picks: 0, going: 0 }, LINKS.empty);
+  return finishEmail(element, { subject, preheader, picks: 0, going: 0 }, LINKS.empty);
 }
 
 /**
  * One recipient's copy: every placeholder replaced by their link token, nothing else changed.
- * Refuses an email whose placeholder count isn't exactly the links we render (picks = 0 is the
- * empty notice; renderVariant never returns a digest without picks).
+ * Refuses an email whose placeholder count isn't exactly the links we render. Other emails pass
+ * their count (`expectedLinks`, e.g. the going alert's ALERT_LINKS); without it the digest's rule
+ * applies: picks = 0 is the empty notice, since renderVariant never returns a digest without picks.
  */
-export function personalize(email: RenderedEmail, token: string): { subject: string; html: string; text: string } {
+export function personalize(email: RenderedEmail, token: string, expectedLinks?: number): { subject: string; html: string; text: string } {
   if (!TOKEN_SHAPE.test(token) || token.includes(TOKEN)) throw new Error('personalize: unexpected token shape');
-  const links = email.picks > 0 ? LINKS.digest : LINKS.empty;
+  if (expectedLinks !== undefined && !(Number.isInteger(expectedLinks) && expectedLinks > 0)) {
+    throw new Error('personalize: expected link count must be a positive integer');
+  }
+  const links = expectedLinks ?? (email.picks > 0 ? LINKS.digest : LINKS.empty);
   if (count(email.html, TOKEN) !== links || count(email.text, TOKEN) !== links || email.subject.includes(TOKEN)) {
     throw new Error('personalize: unexpected placeholder count');
   }

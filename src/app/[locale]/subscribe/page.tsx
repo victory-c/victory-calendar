@@ -6,7 +6,7 @@ import { PageShell } from '@/components/PageShell';
 import { type SubscribeCopy, type SubscribeFacets, SubscribeForm } from '@/components/SubscribeForm';
 import { SubscribeMenu } from '@/components/SubscribeMenu';
 import { hasFacets } from '@/lib/events/facets';
-import { newsletterStatus } from '@/lib/newsletter/status';
+import { alertsMode, newsletterStatus } from '@/lib/newsletter/status';
 import { parseSubscribeParams } from '@/lib/newsletter/subscribe-state';
 import { pageMeta } from '@/lib/seo';
 import { CATEGORY_SLUGS, type Locale } from '@/lib/taxonomy';
@@ -95,6 +95,8 @@ async function Body({ locale, open, searchParams }: { locale: Locale; open: bool
     pending: t('state.pending'),
     pendingHint: t('state.pendingHint'),
     again: t('link.subscribeAgain'),
+    // F20: offered (unticked) only while alerts can actually be sent.
+    goingAlerts: alertsMode() === 'off' ? undefined : t('form.goingAlerts'),
     errors: {
       invalid_email: t('state.invalidEmail'),
       no_category: t('state.noCategory'),

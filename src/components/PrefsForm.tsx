@@ -20,6 +20,8 @@ export type PrefsText = {
   evLangEn: string;
   evLangBilingual: string;
   onlineOnly: string;
+  /** F20: the going-alerts checkbox. */
+  goingAlerts: string;
   save: string;
   saving: string;
   pauseTitle: string;
@@ -58,11 +60,12 @@ export function useRefocus(pending: boolean, ...targets: RefObject<HTMLElement |
 }
 
 /**
- * Preference center controls (guide「偏好中心」): language, categories and the F19 facets (event
- * language, online only), pause, unsubscribe or resubscribe, plus a one-tap language switch when
- * the page was opened from an email's language link. Each section is its own form and Server Action (already bound to the link token); the
- * action's refresh() re-renders the page, which swaps the buttons. Suppressed rows get no controls
- * at all; the page shows only their status.
+ * Preference center controls (guide「偏好中心」): language, categories, the F19 facets (event
+ * language, online only) and the F20 going alerts, pause, unsubscribe or resubscribe, plus a
+ * one-tap language switch when the page was opened from an email's language link. Each section is
+ * its own form and Server Action (already bound to the link token); the action's refresh()
+ * re-renders the page, which swaps the buttons. Suppressed rows get no controls at all; the page
+ * shows only their status.
  */
 export function PrefsForm({
   locale,
@@ -70,6 +73,7 @@ export function PrefsForm({
   emailLocale,
   categories,
   facets,
+  goingAlerts,
   actions,
   text,
   messages,
@@ -82,6 +86,8 @@ export function PrefsForm({
   emailLocale: Locale;
   categories: readonly Category[];
   facets: { evLang: EvLang | null; onlineOnly: boolean };
+  /** F20: the stored going-alerts choice; undefined hides the checkbox (alerts off on this deployment). */
+  goingAlerts?: boolean;
   actions: { save: Action; pause: Action; leave: Action };
   text: PrefsText;
   messages: Messages;
@@ -113,6 +119,7 @@ export function PrefsForm({
           emailLocale={emailLocale}
           categories={categories}
           facets={facets}
+          goingAlerts={goingAlerts}
           slot={{ state: last === 'leave' ? null : saved, action: save, pending: saving, onSubmit: () => setLast('save') }}
           buttonRef={saveButton}
           messageRef={saveMessage}
@@ -141,6 +148,7 @@ function Preferences({
   emailLocale,
   categories,
   facets,
+  goingAlerts,
   slot,
   buttonRef,
   messageRef,
@@ -151,6 +159,7 @@ function Preferences({
   emailLocale: Locale;
   categories: readonly Category[];
   facets: { evLang: EvLang | null; onlineOnly: boolean };
+  goingAlerts?: boolean;
   slot: Slot;
   text: PrefsText;
   messages: Messages;
@@ -170,6 +179,7 @@ function Preferences({
       </fieldset>
       <CategoryCheckboxes locale={locale} legend={text.categories} selected={categories} />
       <Facets facets={facets} text={text} />
+      {goingAlerts !== undefined && <GoingAlerts on={goingAlerts} label={text.goingAlerts} />}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <button ref={buttonRef} className={primary} disabled={slot.pending}>
           {slot.pending ? text.saving : text.save}
@@ -210,6 +220,23 @@ function Facets({ facets, text }: { facets: { evLang: EvLang | null; onlineOnly:
       <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 md:min-h-8">
         <input type="checkbox" name="online" value="1" defaultChecked={facets.onlineOnly} className="size-5 accent-ink" />
         <span>{text.onlineOnly}</span>
+      </label>
+    </div>
+  );
+}
+
+/**
+ * F20: "Email me when Victor marks an event as going (at most one email a day)". Only rendered while
+ * alerts can actually be sent; `alerts_present` tells the action it was on the page, so an unticked
+ * box means off rather than "not shown".
+ */
+function GoingAlerts({ on, label }: { on: boolean; label: string }) {
+  return (
+    <div>
+      <input type="hidden" name="alerts_present" value="1" />
+      <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 md:min-h-8">
+        <input type="checkbox" name="alerts" value="1" defaultChecked={on} className="size-5 shrink-0 accent-ink" />
+        <span>{label}</span>
       </label>
     </div>
   );

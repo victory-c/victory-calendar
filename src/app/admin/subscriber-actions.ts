@@ -101,5 +101,5 @@ async function remove(id: string, ack: boolean): Promise<LookupState> {
       sub,
     };
   }
-  return { ok: false, message: 'A digest is being sent to them: try again after this send finishes · 正在给这个订阅者发周报，发完再删', sub };
+  return { ok: false, message: 'An email is being sent to them: try again after this send finishes · 正在给这个订阅者发邮件，发完再删', sub };
 }

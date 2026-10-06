@@ -134,3 +134,44 @@ export function facetNote(l: Locale, f: Facets): string | null {
 
 export const other = (l: Locale): Locale => (l === 'zh' ? 'en' : 'zh');
 export const htmlLang = (l: Locale) => (l === 'zh' ? 'zh-Hans' : 'en');
+
+// ---- F20 going alert (going-alert.tsx) ---------------------------------------------------------
+// The day only, never a clock time; "plan to go", never "invited" (guide「邮件」「Going 状态安全规则」).
+
+type AlertCopy = {
+  /** Masthead after the site name: what kind of email this is. */
+  kicker: string;
+  /** One event: its title (in the email's language, falling back to the other). */
+  subjectOne: (title: string) => string;
+  subjectMany: (n: number) => string;
+  introOne: string;
+  introMany: string;
+  /** Footer line: why the reader gets this, in the prefs checkbox's words. */
+  why: string;
+  /** Footer link labels (printed in both languages, like the digest's). */
+  offAlerts: string;
+  unsubscribeAll: string;
+};
+
+export const ALERT_COPY: Record<Locale, AlertCopy> = {
+  zh: {
+    kicker: '会去提醒',
+    subjectOne: (t) => `Victor 打算去：${t}`,
+    subjectMany: (n) => `Victor 打算去 ${n} 场活动`,
+    introOne: '这场活动我打算去。感兴趣的话，在活动官方页面报名。',
+    introMany: '这几场活动我打算去。感兴趣的话，在各自的官方页面报名。',
+    why: '你收到这封邮件，是因为选了「Victor 标记会去时提醒我」（每天最多一封）。',
+    offAlerts: '关闭会去提醒',
+    unsubscribeAll: '全部退订',
+  },
+  en: {
+    kicker: 'Going alert',
+    subjectOne: (t) => `Victor plans to go: ${t}`,
+    subjectMany: (n) => `Victor plans to go to ${n} events`,
+    introOne: "I plan to go to this one. If it interests you, RSVP on the event's own page.",
+    introMany: "I plan to go to these. If one interests you, RSVP on the event's own page.",
+    why: 'You get this because you asked for an email when Victor marks an event as going (at most one a day).',
+    offAlerts: 'Turn off going alerts',
+    unsubscribeAll: 'Unsubscribe from everything',
+  },
+};

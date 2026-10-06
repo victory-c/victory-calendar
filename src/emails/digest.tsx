@@ -28,6 +28,8 @@ import { C, categoryHex, DARK_CSS, FONT, OUTLOOK_DARK_CSS } from './tokens';
 //   so does every element with an inline background (react-email's <Body> isn't used: it copies the
 //   paper colour onto a class-less full-width td that stays light around the dark column).
 // - Classic Outlook ignores max-width: an MSO-only 600 px ghost table holds the column (MSO_SWAPS).
+// The going alert (going-alert.tsx) is built from the exported pieces below, so both emails follow
+// these rules the same way; the exports change nothing in the digest's own markup.
 
 type Snap = Pick<DigestSnapshot, 'origin' | 'isoWeek' | 'from' | 'showAttendance'>;
 
@@ -48,7 +50,7 @@ export type EmptyNoticeProps = Omit<DigestEmailProps, 'intro' | 'selection'>;
 
 const hidden = { display: 'none', msoHide: 'all' } as CSSProperties;
 
-function styles(l: Locale) {
+export function styles(l: Locale) {
   const f = FONT[l];
   return {
     /** Every text cell: font, size, leading and colour (Outlook inherits none of them into tables). */
@@ -68,7 +70,7 @@ function styles(l: Locale) {
 type S = ReturnType<typeof styles>;
 
 /** A presentation table of rows (Outlook ignores margins on tables, so spacing goes on cells). */
-function Table({ children, style }: { children: ReactNode; style?: CSSProperties }) {
+export function Table({ children, style }: { children: ReactNode; style?: CSSProperties }) {
   return (
     <table role="presentation" width="100%" cellPadding={0} cellSpacing={0} style={style}>
       <tbody>{children}</tbody>
@@ -76,7 +78,7 @@ function Table({ children, style }: { children: ReactNode; style?: CSSProperties
   );
 }
 
-const eventUrl = (origin: string, l: Locale, slug: string) => `${origin}${l === 'zh' ? '/zh' : ''}/events/${encodeURIComponent(slug)}`;
+export const eventUrl = (origin: string, l: Locale, slug: string) => `${origin}${l === 'zh' ? '/zh' : ''}/events/${encodeURIComponent(slug)}`;
 const sealUrl = (origin: string, l: Locale, seal: string) => `${origin}/og/seal/${seal}?l=${l}`;
 /** Only tag text whose language differs from the email's. */
 const langIf = (lang: string, l: Locale) => (lang === htmlLang(l) ? undefined : lang);
@@ -140,9 +142,34 @@ function SealText({ e, l }: { e: DigestEvent; l: Locale }) {
   return isDigestSeal(e.seal) ? <span style={hidden}>{`${sealAlt(e.seal, l)} `}</span> : null;
 }
 
+type NoteLang = keyof typeof NOTE_MAX;
+
+/** Victor's note (other language tagged), clipped to `max` characters, signed; nothing without one. */
+export function NoteBlock({ e, l, s, max }: { e: DigestEvent; l: Locale; s: S; max: Record<NoteLang, number> }) {
+  const n = note(e, l);
+  if (!n) return null;
+  return (
+    <div className="note" style={s.note}>
+      {langIf(n.lang, l) ? <span lang={n.lang}>{clip(n.text, max[n.lang])}</span> : clip(n.text, max[n.lang])}
+      <br />
+      <span className="mut" style={{ fontSize: '12px', color: C.muted }}>
+        {COPY[l].signature}
+      </span>
+    </div>
+  );
+}
+
+/** The RSVP button to the official page ("RSVP on Luma"); a link that isn't http(s) opens `fallback`. */
+export function Rsvp({ e, l, s, fallback }: { e: DigestEvent; l: Locale; s: S; fallback: string }) {
+  return (
+    <a href={httpOr(e.sourceUrl, fallback)} className="btn" style={s.btn}>
+      {e.platform ? COPY[l].rsvpAt(e.platform) : COPY[l].rsvp}
+    </a>
+  );
+}
+
 function Item({ e, l, s, snap }: { e: DigestEvent; l: Locale; s: S; snap: Snap }) {
   const t = titles(e, l);
-  const n = note(e, l);
   const c = chips(e, l);
   const href = eventUrl(snap.origin, l, e.slug);
   const seal = snap.showAttendance && isDigestSeal(e.seal) ? e : null;
@@ -187,18 +214,8 @@ function Item({ e, l, s, snap }: { e: DigestEvent; l: Locale; s: S; snap: Snap }
             ))}
           </div>
         )}
-        {n && (
-          <div className="note" style={s.note}>
-            {langIf(n.lang, l) ? <span lang={n.lang}>{clip(n.text, NOTE_MAX[n.lang])}</span> : clip(n.text, NOTE_MAX[n.lang])}
-            <br />
-            <span className="mut" style={{ fontSize: '12px', color: C.muted }}>
-              {COPY[l].signature}
-            </span>
-          </div>
-        )}
-        <a href={httpOr(e.sourceUrl, href)} className="btn" style={s.btn}>
-          {e.platform ? COPY[l].rsvpAt(e.platform) : COPY[l].rsvp}
-        </a>
+        <NoteBlock e={e} l={l} s={s} max={NOTE_MAX} />
+        <Rsvp e={e} l={l} s={s} fallback={href} />
         {e.coverCredit && (
           <div className="mut" style={{ marginTop: '6px', fontSize: '11px', color: C.muted }}>
             <CoverCredit e={e} s={s} />
@@ -214,15 +231,25 @@ function Item({ e, l, s, snap }: { e: DigestEvent; l: Locale; s: S; snap: Snap }
   );
 }
 
-/** Compact going row: seal, title, "打算去 · 10月14日周三" (the day, never an arrival time). */
-function GoingRow({ e, l, s, origin }: { e: DigestEvent; l: Locale; s: S; origin: string }) {
+/**
+ * Compact going row: seal, title, "打算去 · 10月14日周三" (the day, never an arrival time). The going
+ * alert puts the note and the RSVP button under it (`children`) and spaces its rows wider (`gap`).
+ */
+export function GoingRow({ e, l, s, origin, children, gap = '14px' }: {
+  e: DigestEvent;
+  l: Locale;
+  s: S;
+  origin: string;
+  children?: ReactNode;
+  gap?: string;
+}) {
   const t = titles(e, l);
   return (
     <tr>
-      <td width={48} valign="top" style={{ paddingBottom: '14px' }}>
+      <td width={48} valign="top" style={{ paddingBottom: gap }}>
         <SealImg e={e} l={l} origin={origin} />
       </td>
-      <td valign="middle" className="fg" style={{ ...s.td, padding: '0 0 14px 12px' }}>
+      <td valign="middle" className="fg" style={{ ...s.td, padding: `0 0 ${gap} 12px` }}>
         <SealText e={e} l={l} />
         <a href={eventUrl(origin, l, e.slug)} lang={langIf(t.primaryLang, l)} className="fg" style={{ ...s.title, fontSize: '16px' }}>
           {t.primary}
@@ -230,6 +257,7 @@ function GoingRow({ e, l, s, origin }: { e: DigestEvent; l: Locale; s: S; origin
         <div className="mut" style={s.meta}>
           {[COPY[l].planToGo, dayLabel(new Date(e.startAt), l), ...where(e, l)].join(' · ')}
         </div>
+        {children}
       </td>
     </tr>
   );
@@ -260,20 +288,31 @@ function Heading({ children, s, color, gap = '4px' }: { children: ReactNode; s: 
   );
 }
 
-/**
- * Both languages, always (PRD §8 footer): sender, no paid placements, links. No mailing address.
- * A reader with F19 facets first gets one line in their language saying what the email leaves out.
- */
+/** A footer link label in the email's language, then the other one: "订阅设置 Preferences". */
+export function bothLabels(l: Locale, pick: (c: (typeof COPY)[Locale]) => string) {
+  return `${pick(COPY[l])} ${pick(COPY[other(l)])}`;
+}
+
+/** The digest's footer links: preferences, unsubscribe, the other language, the archive, privacy. */
 function Footer({ l, s, links, note }: { l: Locale; s: S; links: DigestLinks; note?: string | null }) {
   const o = other(l);
-  const both = (pick: (c: (typeof COPY)[Locale]) => string) => `${pick(COPY[l])} ${pick(COPY[o])}`;
   const items: [string, string][] = [
-    [both((c) => c.prefs), links.prefs],
-    [both((c) => c.unsubscribe), links.unsubscribe],
+    [bothLabels(l, (c) => c.prefs), links.prefs],
+    [bothLabels(l, (c) => c.unsubscribe), links.unsubscribe],
     [`${COPY[l].switchLang[l]} ${COPY[o].switchLang[l]}`, links.otherLanguage],
-    [both((c) => c.web), links.web],
-    [both((c) => c.privacy), links.privacy],
+    [bothLabels(l, (c) => c.web), links.web],
+    [bothLabels(l, (c) => c.privacy), links.privacy],
   ];
+  return <FooterBlock l={l} s={s} items={items} note={note} />;
+}
+
+/**
+ * Both languages, always (PRD §8 footer): sender, no paid placements, links. No mailing address.
+ * An optional first line in the reader's language says why they get this email or what it leaves
+ * out (the digest's F19 facet line). `items` are [label, href] pairs, hrefs unique.
+ */
+export function FooterBlock({ l, s, items, note }: { l: Locale; s: S; items: readonly (readonly [string, string])[]; note?: string | null }) {
+  const o = other(l);
   return (
     <Table style={{ marginTop: '28px' }}>
       <tr>
@@ -345,10 +384,37 @@ const MsoMarker = ({ edge }: { edge: 'open' | 'close' }) => <span data-vp-mso={e
 const OFFICE_NS = { 'xmlns:o': 'urn:schemas-microsoft-com:office:office' } as Record<string, string>;
 
 function Shell({ locale: l, snap, subject, preheader, links, facetNote, children }: EmptyNoticeProps & { children: ReactNode }) {
-  const s = styles(l);
-  const lang = htmlLang(l);
   // The covered week's Monday at noon PT, always the right calendar day whatever the DST offset.
   const monday = fmtDayHeader(new Date(Date.parse(snap.from) + 12 * 3600_000), l).date;
+  return (
+    <EmailFrame
+      locale={l}
+      subject={subject}
+      preheader={preheader}
+      kicker={COPY[l].weekOf(monday)}
+      footer={<Footer l={l} s={styles(l)} links={links} note={facetNote} />}
+    >
+      {children}
+    </EmailFrame>
+  );
+}
+
+/**
+ * Every newsletter email's page: head (dark mode, Outlook), preheader, full-width paper, the 600 px
+ * column (with its Outlook ghost table) holding the masthead "Victor 精选 · {kicker}", the body and
+ * the footer.
+ */
+export function EmailFrame({ locale: l, subject, preheader, kicker, footer, children }: {
+  locale: Locale;
+  subject: string;
+  preheader: string;
+  /** The masthead's grey second half: the covered week, or what kind of email this is. */
+  kicker: string;
+  footer: ReactNode;
+  children: ReactNode;
+}) {
+  const s = styles(l);
+  const lang = htmlLang(l);
   return (
     <Html lang={lang} dir="ltr" {...OFFICE_NS}>
       <Head>
@@ -385,11 +451,11 @@ function Shell({ locale: l, snap, subject, preheader, links, facetNote, children
                         <p className="fg" style={{ margin: '0 0 20px', fontFamily: FONT[l].title, fontSize: '22px', lineHeight: 1.3, fontWeight: 700 }}>
                           {COPY[l].site}
                           <span className="mut" style={{ fontFamily: FONT[l].body, fontSize: '14px', fontWeight: 400, color: C.muted }}>
-                            {` · ${COPY[l].weekOf(monday)}`}
+                            {` · ${kicker}`}
                           </span>
                         </p>
                         {children}
-                        <Footer l={l} s={s} links={links} note={facetNote} />
+                        {footer}
                       </td>
                     </tr>
                   </tbody>

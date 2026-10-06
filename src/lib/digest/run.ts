@@ -1,5 +1,4 @@
 import 'server-only';
-import { createHash } from 'node:crypto';
 import { and, asc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { db as defaultDb, type DB } from '../db';
 import { covers, digestIssues, digestSends, syncState } from '../db/schema';
@@ -38,9 +37,9 @@ import { LATE_LIMIT_MS, monthStartPT } from './week';
 //   empty notices) → send → mark → finalize
 //
 // Correctness never depends on timing. A subscriber is claimed at most once per issue (primary key),
-// a claimed group is only ever re-sent as the same group under the same Resend idempotency key
-// (sorted ids of the group as claimed), with the same bytes unless a kill switch narrowed the
-// snapshot in between (Resend then answers 409 and the group is marked idem_conflict, never sent
+// a claimed group is only ever re-sent under the Resend idempotency key fixed when it was claimed
+// (its batch key), with the same bytes unless a kill switch narrowed the snapshot or a member
+// dropped out in between (Resend then answers 409 and the group is marked idem_conflict, never sent
 // twice), and a run that dies leaves claims the next run picks up after 10 minutes. Results carry
 // counts and codes only: never an address or a token.
 
@@ -92,7 +91,7 @@ export type RunDeps = {
   mode?: DigestMode;
   /** Stop starting new work after this long (default 240 s, under maxDuration 300 s). */
   budgetMs?: number;
-  /** Digest emails per UTC day (default DIGEST_DAILY_CAP or 60; Resend Free is 100/day for everything). */
+  /** Newsletter emails (digest + F20 going alerts) per UTC day (default DIGEST_DAILY_CAP or 60; Resend Free is 100/day for everything). */
   dailyCap?: number;
 };
 
@@ -102,6 +101,10 @@ export const DEFAULT_DAILY_CAP = 60;
 export const PACE_MS = 1_000;
 /** Longer than maxDuration, so a run that is still alive keeps the lease. */
 export const LEASE_MS = 330_000;
+/**
+ * The newsletter send lease. The going-alert cron (alerts/run.ts) takes this same one, so digest
+ * and alert sends never overlap and the shared daily cap (sentTodayCount) can't be raced.
+ */
 export const LEASE = 'digest_run';
 /** Missed issues are reported for a week after the late limit, then ignored (no daily noise forever). */
 const TOO_LATE_REPORT_MS = 7 * 864e5;
@@ -117,10 +120,12 @@ export function dailyCapFromEnv(raw = process.env.DIGEST_DAILY_CAP): number {
   return raw && Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_DAILY_CAP;
 }
 
-/** `digest/{issueId}/{22 chars of base64url sha256 over the sorted subscriber ids}`: 1–256 chars, stable per group. */
-export function idempotencyKey(issueId: string, subscriberIds: readonly string[]): string {
-  const ids = [...subscriberIds].sort();
-  return `digest/${issueId}/${createHash('sha256').update(ids.join(',')).digest('base64url').slice(0, 22)}`;
+/**
+ * `digest/{issueId}/{batch key}`: fixed when the group is claimed (digest_sends.batch_key), so every
+ * attempt and replay of a group uses it whoever is still in the group; 1–256 chars.
+ */
+export function idempotencyKey(issueId: string, batchKey: string): string {
+  return `digest/${issueId}/${batchKey}`;
 }
 
 export async function runDigest(deps: RunDeps = {}): Promise<RunResult> {
@@ -152,15 +157,18 @@ export async function runDigest(deps: RunDeps = {}): Promise<RunResult> {
   }
 }
 
-/** One runner at a time (same pattern as claimSyncRun): a conditional UPDATE on a sync_state row. */
-async function takeLease(db: DB, at: Date): Promise<boolean> {
-  await db.insert(syncState).values({ source: LEASE }).onConflictDoNothing();
+/**
+ * One runner at a time (same pattern as claimSyncRun): a conditional UPDATE on the sync_state row
+ * `name`. The holder is identified by `at`, its start time, which releaseLease() must match.
+ */
+export async function takeLease(db: DB, at: Date, name: string = LEASE): Promise<boolean> {
+  await db.insert(syncState).values({ source: name }).onConflictDoNothing();
   const won = await db
     .update(syncState)
     .set({ lastRunAt: at })
     .where(
       and(
-        eq(syncState.source, LEASE),
+        eq(syncState.source, name),
         or(isNull(syncState.lastRunAt), lte(syncState.lastRunAt, new Date(at.getTime() - LEASE_MS))),
       ),
     )
@@ -169,11 +177,11 @@ async function takeLease(db: DB, at: Date): Promise<boolean> {
 }
 
 /** Only our own lease: a run that outlived it must not free a newer runner's. */
-async function releaseLease(db: DB, at: Date) {
+export async function releaseLease(db: DB, at: Date, name: string = LEASE) {
   await db
     .update(syncState)
     .set({ lastRunAt: null })
-    .where(and(eq(syncState.source, LEASE), eq(syncState.lastRunAt, at)));
+    .where(and(eq(syncState.source, name), eq(syncState.lastRunAt, at)));
 }
 
 type Issue = typeof digestIssues.$inferSelect;
@@ -403,7 +411,7 @@ class Run {
       if (!group) break;
       replayed.push(group.batchKey);
       if (group.rows.length === 0) continue; // everyone in it became ineligible
-      if ((await this.send(group.rows, true)) === 'stop') return;
+      if ((await this.send(group.batchKey, group.rows, true)) === 'stop') return;
     }
 
     // 2. Fresh claims, oldest subscribers first, up to 100 per call across variants, topped up
@@ -425,7 +433,7 @@ class Run {
       if (rows.length < limit) rows = rows.concat(await claimFresh(id, empty, limit - rows.length, batchKey, at, this.db));
       if (rows.length === 0) break;
       this.out.claimed += rows.length;
-      if ((await this.send(rows, false)) === 'stop') return;
+      if ((await this.send(batchKey, rows, false)) === 'stop') return;
     }
 
     // 3. Nobody left to claim: the issue is sent once no claim is still waiting.
@@ -447,11 +455,12 @@ class Run {
 
   /**
    * Send one claimed group. 'stop' ends the run and leaves the group's claims for a later run.
-   * The idempotency key covers the group as handed in, so a replay repeats the first attempt's key
-   * even when some members now fail to build: Resend then answers 409 for a batch it already took
-   * (idem_conflict, no second copy) instead of mailing the rest again under a new key.
+   * The idempotency key is the group's batch key, fixed at claim time, so a replay repeats the
+   * first attempt's key even when members dropped out since (ineligible) or now fail to build:
+   * Resend then answers 409 for a batch it already took (idem_conflict, no second copy) instead of
+   * mailing the rest again under a new key.
    */
-  private async send(group: Claimed[], replay: boolean): Promise<'ok' | 'stop'> {
+  private async send(batchKey: string, group: Claimed[], replay: boolean): Promise<'ok' | 'stop'> {
     const sorted = [...group].sort(byId);
     const built = await Promise.all(sorted.map((row) => this.build(row)));
     const broken = new Map<BuildError, Claimed[]>();
@@ -475,7 +484,7 @@ class Run {
     if (emails.length === 0) return 'ok';
 
     const ids = members.map((m) => m.id);
-    const key = idempotencyKey(this.issue.id, (replay ? sorted : members).map((m) => m.id));
+    const key = idempotencyKey(this.issue.id, batchKey);
     let mode: BatchMode = 'strict';
     let last = '';
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {

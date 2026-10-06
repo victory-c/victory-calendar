@@ -1,3 +1,4 @@
+import { load } from 'cheerio';
 import { eq } from 'drizzle-orm';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -33,6 +34,9 @@ const { newId } = await import('@/lib/ids');
 const { linkToken } = await import('@/lib/subscribers/token');
 const { subscriberLinks } = await import('@/lib/subscribers/links');
 const { UNSUBSCRIBED_TTL_MS } = await import('@/lib/subscribers/service');
+const { covers, events, goingMarks } = await import('@/lib/db/schema');
+const { templateCoverRow } = await import('@/lib/covers/template');
+const { NextAlertCard } = await import('@/components/admin/NextAlertCard');
 type DB = import('@/lib/db').DB;
 type Subscriber = import('@/lib/subscribers/service').Subscriber;
 
@@ -359,14 +363,35 @@ describe('subscriberDetail', () => {
     expect(await admin.subscriberDetail({ id: odd.id }, { db: db() })).toMatchObject({ evLang: null, onlineOnly: false });
   });
 
-  it('flags a claim in flight, even one older than the last three sends', async () => {
+  it('flags a claim in flight, even one older than the last three sends; past 23 h it can no longer be sent and stops counting', async () => {
     const sub = await seed();
     const first = await issue({ isoWeek: '2026-W20', status: 'sending' });
-    await send(first.id, sub, 'inFlight', { claimedAt: ago(30 * DAY) });
-    for (const isoWeek of ['2026-W21', '2026-W22', '2026-W23']) await send((await issue({ isoWeek })).id, sub);
-    const d = await admin.subscriberDetail({ id: sub.id }, { db: db() });
+    await send(first.id, sub, 'inFlight', { claimedAt: ago(3 * HOUR) });
+    for (const isoWeek of ['2026-W21', '2026-W22', '2026-W23']) await send((await issue({ isoWeek })).id, sub, 'sent', { claimedAt: ago(HOUR) });
+    const d = await admin.subscriberDetail({ id: sub.id }, { db: db(), now: NOW });
     expect(d!.inFlight).toBe(true);
     expect(d!.sends.map((s) => s.isoWeek)).toEqual(['2026-W23', '2026-W22', '2026-W21']);
+    // The same unresolved claim a day later: nothing sends or replays it (EXPIRE_MS), so it no longer blocks Delete.
+    expect((await admin.subscriberDetail({ id: sub.id }, { db: db(), now: new Date(NOW.getTime() + DAY) }))!.inFlight).toBe(false);
+  });
+
+  it('a going alert claimed but not yet sent also counts as in flight (the delete guard does too)', async () => {
+    const { alertSends } = await import('@/lib/db/schema');
+    const sub = await seed();
+    expect((await admin.subscriberDetail({ id: sub.id }, { db: db() }))!.inFlight).toBe(false);
+    await db().insert(alertSends).values({ alertDay: '2026-10-06', subscriberId: sub.id, eventIds: ['evt_1'], variantKey: 'en:evt_1' });
+    expect((await admin.subscriberDetail({ id: sub.id }, { db: db() }))!.inFlight).toBe(true);
+    await db().update(alertSends).set({ resendId: 'dev', sentAt: NOW }).where(eq(alertSends.subscriberId, sub.id));
+    expect((await admin.subscriberDetail({ id: sub.id }, { db: db() }))!.inFlight).toBe(false);
+  });
+
+  it('an alert claim left unresolved for 23 h stops counting (alerts switched off since, so no run marks it expired)', async () => {
+    const { alertSends } = await import('@/lib/db/schema');
+    const { EXPIRE_MS } = await import('@/lib/digest/claim');
+    const sub = await seed();
+    await db().insert(alertSends).values({ alertDay: '2026-10-05', subscriberId: sub.id, eventIds: ['evt_1'], variantKey: 'en:evt_1', claimedAt: ago(EXPIRE_MS - 60_000) });
+    expect((await admin.subscriberDetail({ id: sub.id }, { db: db(), now: NOW }))!.inFlight).toBe(true);
+    expect((await admin.subscriberDetail({ id: sub.id }, { db: db(), now: new Date(NOW.getTime() + 60_000) }))!.inFlight).toBe(false);
   });
 });
 
@@ -477,7 +502,8 @@ describe('subscriberAction: delete', () => {
 
   it('refuses while a send is in flight', async () => {
     const sub = await seed();
-    await send((await issue({ status: 'sending' })).id, sub, 'inFlight');
+    // Claimed just now (the action reads the real clock): a claim past 23 h no longer counts as in flight.
+    await send((await issue({ status: 'sending' })).id, sub, 'inFlight', { claimedAt: new Date() });
     const r = await act({ _op: 'delete', id: sub.id });
     expect(r).toMatchObject({ ok: false, sub: { id: sub.id, inFlight: true } });
     expect(r?.message).toContain('try again after this send finishes');
@@ -641,5 +667,152 @@ describe('GET /api/cron/sync: unsubscribed retention', () => {
     expect(await reload(stale.id)).toBeUndefined();
     expect(await jobs('subscribers_retention')).toMatchObject([{ ok: false, detail: { error: 'TypeError' } }]);
     expect(await jobs('subscribers_purge')).toMatchObject([{ ok: true, detail: { deleted: 1 } }]);
+  });
+});
+
+// ---- F20 going alerts (DESIGN-F20 G15) ---------------------------------------------------------
+
+describe('goingAlertsOn', () => {
+  it('readers the digest goes to with going alerts on, per language', async () => {
+    await seed({ goingAlerts: true });
+    await seed({ goingAlerts: true, locale: 'zh' });
+    await seed({ goingAlerts: true, locale: 'zh', status: 'paused', pausedUntil: ago(DAY) }); // pause over: counts
+    await seed({ goingAlerts: false });
+    for (const over of [
+      { status: 'paused' as const, pausedUntil: new Date(NOW.getTime() + DAY) },
+      { status: 'unsubscribed' as const, unsubscribedAt: ago(DAY) },
+      { status: 'suppressed' as const },
+      { status: 'pending' as const, confirmedAt: null },
+      { categories: ['nonsense'] },
+    ]) {
+      await seed({ goingAlerts: true, ...over });
+    }
+    expect(await admin.goingAlertsOn({ db: db(), now: NOW })).toEqual({ en: 1, zh: 2, total: 3 });
+  });
+});
+
+describe('nextAlertRun', () => {
+  it('the next of the two daily alert crons (15:00 and 16:00 UTC), whatever the Pacific offset', () => {
+    const at = (iso: string) => admin.nextAlertRun(new Date(iso)).toISOString();
+    expect(at('2026-10-05T12:00:00Z')).toBe('2026-10-05T15:00:00.000Z');
+    expect(at('2026-10-05T15:00:00Z')).toBe('2026-10-05T16:00:00.000Z'); // the first just fired: the retry run
+    expect(at('2026-10-05T15:30:00Z')).toBe('2026-10-05T16:00:00.000Z');
+    expect(at('2026-10-05T16:00:00Z')).toBe('2026-10-06T15:00:00.000Z');
+    expect(at('2026-12-31T23:59:59Z')).toBe('2027-01-01T15:00:00.000Z');
+    expect(at('2026-11-01T14:00:00Z')).toBe('2026-11-01T15:00:00.000Z'); // DST ends that morning: 07:00 PST
+  });
+});
+
+describe('nextGoingAlert', () => {
+  // Monday 2026-10-05 13:00 PDT: today's runs are over, so the next one is Tuesday 08:00 PDT. It
+  // takes marks made before Tuesday 00:00 PT (today's included) and events from Wednesday on.
+  const AFTERNOON = new Date('2026-10-05T20:00:00Z');
+  let k = 0;
+  async function marked(over: Partial<typeof events.$inferInsert>, markedAt: Date | null, alert = true) {
+    const id = `evt_${String(++k).padStart(16, '0')}`;
+    await db().insert(covers).values({ id: `cov_${id.slice(4)}`, ...templateCoverRow('ai', null) });
+    await db().insert(events).values({
+      id, slug: `alert-${k}`, status: 'published', sourceUrl: `https://luma.com/alert${k}`, titleEn: `Event ${k}`, titleZh: `活动 ${k}`,
+      category: 'ai', startAt: new Date('2026-10-09T01:00:00Z'), tz: 'America/Los_Angeles', city: 'San Francisco', format: 'in_person',
+      noteEn: 'Worth it.', going: 'going', goingVisibility: 'public', coverId: `cov_${id.slice(4)}`, publishedAt: ago(5 * DAY), ...over,
+    });
+    if (markedAt) await db().insert(goingMarks).values({ eventId: id, markedAt, alert });
+    return id;
+  }
+
+  it("the pool as of the next run, its cutoff and day; no digest that day; no logged run yet", async () => {
+    const today = await marked({}, new Date('2026-10-05T18:00:00Z')); // marked today: in Tuesday's alert
+    const hosting = await marked({ going: 'hosting', startAt: new Date('2026-10-10T01:00:00Z') }, new Date('2026-10-04T18:00:00Z'));
+    await marked({ startAt: new Date('2026-10-06T20:00:00Z') }, new Date('2026-10-04T18:00:00Z')); // Tuesday itself: never same-day
+    await marked({}, new Date('2026-10-04T18:00:00Z'), false); // Victor's switch off
+    await marked({ goingVisibility: 'after_event' }, new Date('2026-10-04T18:00:00Z')); // not public
+    await marked({}, new Date('2026-09-28T18:00:00Z')); // older than 7 days before the run
+    await marked({}, null); // going, never marked
+    const next = await admin.nextGoingAlert({ db: db(), now: AFTERNOON });
+    expect(next.runAt.toISOString()).toBe('2026-10-06T15:00:00.000Z');
+    expect(next.day).toBe('2026-10-06');
+    expect(next.cutoff.toISOString()).toBe('2026-10-06T07:00:00.000Z');
+    expect(next.events.map((e) => [e.id, e.seal])).toEqual([[today, 'going'], [hosting, 'hosting']]);
+    expect(next.digestDay).toBe(false);
+    expect(next.lastRun).toBeNull();
+  });
+
+  it('a digest scheduled for that Pacific day holds the alert back', async () => {
+    await issue({ status: 'scheduled', sendAfter: new Date('2026-10-07T00:00:00Z') }); // Tuesday 17:00 PDT
+    expect((await admin.nextGoingAlert({ db: db(), now: AFTERNOON })).digestDay).toBe(true);
+  });
+
+  it('a digest on another day, or already sent, does not', async () => {
+    await issue({ status: 'scheduled', sendAfter: new Date('2026-10-12T00:00:00Z') });
+    await issue({ status: 'sent', sendAfter: new Date('2026-10-07T00:00:00Z') });
+    expect((await admin.nextGoingAlert({ db: db(), now: AFTERNOON })).digestDay).toBe(false);
+  });
+
+  it("the newest 'alerts' jobs_log row, counts and codes only", async () => {
+    await db().insert(jobsLog).values([
+      { job: 'alerts', ok: true, startedAt: new Date('2026-10-04T15:00:00Z'), detail: { day: '2026-10-04', sent: 9 } },
+      {
+        job: 'alerts', ok: true, startedAt: new Date('2026-10-05T15:01:00Z'),
+        detail: { day: '2026-10-05', pool: 2, claimed: 3, sent: 2, replayed: 1, failed: 1, ineligible: 0, reason: 'daily_cap', partial: true, batches: 1, htmlMaxBytes: 9000 },
+      },
+      { job: 'digest', ok: true, startedAt: new Date('2026-10-05T16:00:00Z'), detail: { sent: 50 } },
+    ]);
+    const { lastRun } = await admin.nextGoingAlert({ db: db(), now: AFTERNOON });
+    expect(lastRun).toEqual({
+      startedAt: new Date('2026-10-05T15:01:00Z'), ok: true, day: '2026-10-05', pool: 2, claimed: 3, sent: 2, replayed: 1, failed: 1,
+      skipped: null, reason: 'daily_cap', partial: true,
+    });
+    // Whatever a row holds, only short codes come through: never free text such as an address.
+    await db().insert(jobsLog).values({ job: 'alerts', ok: false, startedAt: new Date('2026-10-05T16:01:00Z'), detail: { skipped: 'digest_day', reason: 'me@example.org failed', day: 'x', sent: '3' } });
+    expect((await admin.nextGoingAlert({ db: db(), now: AFTERNOON })).lastRun).toMatchObject({
+      ok: false, skipped: 'digest_day', reason: null, day: null, sent: 0,
+    });
+  });
+});
+
+describe('NextAlertCard', () => {
+  const ev = (id: string, seal: 'going' | 'hosting', startAt: string) => ({
+    id, slug: id, category: 'ai' as const, startAt, endAt: null, tz: 'America/Los_Angeles', allDay: false, format: 'in_person' as const, titleEn: `Night ${id}`,
+    titleZh: `之夜 ${id}`, noteEn: null, noteZh: null, place: 'SoMa', priceText: null, access: 'open' as const, sourceUrl: 'https://luma.com/x', platform: 'Luma',
+    coverUrl: 'https://picks.example.com/og/template/ai?s=192', coverCredit: null, seal, featured: false,
+  });
+  const next = (over: Partial<import('@/lib/subscribers/admin').NextAlert> = {}) => ({
+    runAt: new Date('2026-10-06T15:00:00Z'), day: '2026-10-06', digestDay: false, cutoff: new Date('2026-10-06T07:00:00Z'), lastRun: null,
+    events: [ev('a', 'going', '2026-10-08T01:30:00Z'), ev('b', 'hosting', '2026-10-10T17:00:00Z')], ...over,
+  });
+  const html = (n = next(), mode: 'live' | 'dev' | 'off' = 'live') =>
+    renderToStaticMarkup(createElement(NextAlertCard, { on: { en: 2, zh: 1, total: 3 }, next: n, mode }));
+
+  it('count, next run and cutoff, the pool with seals and days, and both subjects', () => {
+    const out = load(html()).text();
+    expect(out).toContain('Next going alert · 下一封会去提醒');
+    expect(out).toContain('Going alerts on · 开了会去提醒: 3 (EN 2 · 中文 1)');
+    expect(out).toContain('Next run · 下次运行: Tue, Oct 6, 08:00 PT');
+    expect(out).toContain('Takes marks made before · 收录此前的标记: Tue, Oct 6, 00:00 PT');
+    expect(out).toMatch(/会去之夜 a10月7日周三/);
+    expect(out).toMatch(/主办之夜 b10月10日周六/);
+    expect(out).toContain('Subject · 主题: Victor plans to go to 2 events / Victor 打算去 2 场活动');
+    expect(out).toContain('No run logged yet · 还没有运行记录');
+    expect(out).not.toMatch(/Sending is off|Dev mode|digest goes out/);
+  });
+
+  it('says when sending is off or only logged, when a digest holds it back, and when there is nothing', () => {
+    expect(load(html(next(), 'off')).text()).toContain('Sending is off');
+    expect(load(html(next(), 'dev')).text()).toContain('Dev mode');
+    expect(load(html(next({ digestDay: true }))).text()).toContain('A digest goes out that day, so no alert is sent');
+    const empty = load(html(next({ events: [] }))).text();
+    expect(empty).toContain('Nothing to alert · 没有要提醒的活动');
+    expect(empty).not.toContain('Subject');
+  });
+
+  it('the last run: when, the day, sent (fresh + replayed), claimed, failures, skips and leftovers', () => {
+    const lastRun = {
+      startedAt: new Date('2026-10-05T15:01:00Z'), ok: false, day: '2026-10-05', pool: 2, claimed: 3, sent: 2, replayed: 1, failed: 1,
+      skipped: 'digest_day', reason: 'daily_cap', partial: true,
+    };
+    const out = load(html(next({ lastRun }))).text();
+    expect(out).toContain('Last logged run · 上次运行记录: Mon, Oct 5, 08:01 PT (2026-10-05) · failed · 失败');
+    expect(out).toContain('skipped · 跳过：digest day · 周报日');
+    expect(out).toContain('sent · 发出 3 · claimed · 领取 3 · failed rows · 失败 1 · daily_cap · unfinished, the next run continues · 未完成，下次继续');
   });
 });

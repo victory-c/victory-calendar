@@ -1,0 +1,27 @@
+Victor's Picks · Going alert
+
+I plan to go to these. If one interests you, RSVP on the event's own page.
+
+[GOING] Bay Area AI Builders Night <https://picks.example.com/events/ai-builders-night>
+I plan to go · Tue, Oct 13 · SoMa
+Small room, strong demos. Go for the agents panel.
+— Victor
+RSVP on Partiful <https://partiful.com/e/abc>
+
+[TALK] Founder Office Hours <https://picks.example.com/events/founder-office-hours>
+I plan to go · Wed, Oct 14 · Palo Alto · Hybrid
+这次分享讲早期融资。
+— Victor
+RSVP on Eventbrite <https://www.eventbrite.com/e/123>
+
+[HOST] Cal Hacks Weekend <https://picks.example.com/events/cal-hacks-weekend>
+I plan to go · Sat, Oct 17 · Berkeley
+RSVP <https://example.org/cal-hacks>
+
+You get this because you asked for an email when Victor marks an event as going (at most one a day).
+
+Victor's Picks · Bay Area tech events, picked by Victor · No paid placements.
+
+Victor 精选 · Victor 亲自挑选的湾区 tech 活动 · 无付费植入。
+
+Turn off going alerts 关闭会去提醒 <https://picks.example.com/unsubscribe?t=__VP_TOKEN__&list=going> · Preferences 订阅设置 <https://picks.example.com/prefs/__VP_TOKEN__> · Unsubscribe from everything 全部退订 <https://picks.example.com/unsubscribe?t=__VP_TOKEN__> · Privacy 隐私 <https://picks.example.com/privacy>

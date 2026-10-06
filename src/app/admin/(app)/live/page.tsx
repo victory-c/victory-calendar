@@ -2,6 +2,7 @@ import { connection } from 'next/server';
 import { Suspense } from 'react';
 import { quickAction } from '@/app/admin/actions';
 import { EventRow } from '@/components/admin/EventRow';
+import { QuickGoing } from '@/components/admin/QuickGoing';
 import { btn, Chip, Screen } from '@/components/admin/ui';
 import { type AdminEvent, listLive } from '@/lib/admin/events';
 import { requireAdmin } from '@/lib/admin-session';
@@ -31,13 +32,7 @@ function Section({ title, list }: { title: string; list: AdminEvent[] }) {
             }
             actions={
               <>
-                {e.going === 'interested' || e.going === 'going' ? (
-                  <form action={quickAction.bind(null, e.id, e.going === 'going' ? 'interested' : 'going')}>
-                    <button className={btn.small} aria-pressed={e.going === 'going'}>
-                      {e.going === 'going' ? '会去 ✓' : '标为会去'}
-                    </button>
-                  </form>
-                ) : null}
+                {e.going === 'interested' || e.going === 'going' ? <QuickGoing id={e.id} going={e.going} /> : null}
                 <form action={quickAction.bind(null, e.id, 'unpublish')}>
                   <button className={btn.small}>Take down · 下架</button>
                 </form>
