@@ -11,7 +11,9 @@ import { Agent, request } from 'undici';
 // and every address checked (ipaddr.js range 'unicast' only); the socket connects to the
 // address that was checked (custom lookup, so DNS rebinding can't swap it); redirects are
 // followed by hand, at most 3, re-checking each hop; 10 s timeout; byte caps; Chrome UA
-// because Eventbrite answers curl-like UAs with 429.
+// because Eventbrite answers curl-like UAs with 429. Extra request headers (an API key) only go
+// to the host they were meant for: `pinHost` refuses any other host, and without it they are
+// dropped on a redirect to another host.
 
 export const PLATFORM_HOSTS = [
   'luma.com', 'lu.ma', 'luma.link', 'partiful.com', 'eventbrite.com', 'meetup.com',
@@ -28,7 +30,7 @@ const TIMEOUT_MS = 10_000;
 
 export type SafeFetchErrorCode =
   | 'bad_url' | 'scheme' | 'port' | 'credentials' | 'blocked_host' | 'blocked_ip' | 'dns'
-  | 'redirects' | 'status' | 'content_type' | 'too_large' | 'timeout' | 'network';
+  | 'redirects' | 'pinned_host' | 'status' | 'content_type' | 'bad_json' | 'too_large' | 'timeout' | 'network';
 
 export class SafeFetchError extends Error {
   constructor(public code: SafeFetchErrorCode, message: string, public status?: number) {
@@ -102,26 +104,26 @@ export function guardedLookup(resolver: Resolver = systemResolver) {
   };
 }
 
-/** One request, no redirects followed. Swappable in tests. */
-export type Hop = (url: URL, signal: AbortSignal) => Promise<{
+/**
+ * One request, no redirects followed. Swappable in tests. `headers` are the caller's extra
+ * request headers (lower-case names) for this hop; the defaults below fill in the rest.
+ */
+export type Hop = (url: URL, signal: AbortSignal, headers: Record<string, string>) => Promise<{
   status: number;
   headers: Record<string, string | string[] | undefined>;
   body: AsyncIterable<Uint8Array> & { destroy?: (err?: Error) => void };
 }>;
 
+const DEFAULT_HEADERS: Record<string, string> = {
+  'user-agent': CHROME_UA,
+  accept: 'text/html,application/xhtml+xml,image/avif,image/webp,image/*;q=0.9,*/*;q=0.8',
+  'accept-language': 'en-US,en;q=0.9',
+};
+
 let agent: Agent | undefined;
-const undiciHop: Hop = async (url, signal) => {
+const undiciHop: Hop = async (url, signal, headers) => {
   agent ??= new Agent({ connect: { lookup: guardedLookup(), timeout: TIMEOUT_MS }, headersTimeout: TIMEOUT_MS, bodyTimeout: TIMEOUT_MS });
-  const res = await request(url, {
-    dispatcher: agent,
-    method: 'GET',
-    signal,
-    headers: {
-      'user-agent': CHROME_UA,
-      accept: 'text/html,application/xhtml+xml,image/avif,image/webp,image/*;q=0.9,*/*;q=0.8',
-      'accept-language': 'en-US,en;q=0.9',
-    },
-  });
+  const res = await request(url, { dispatcher: agent, method: 'GET', signal, headers: { ...DEFAULT_HEADERS, ...headers } });
   return { status: res.statusCode, headers: res.headers, body: res.body };
 };
 
@@ -139,7 +141,14 @@ const header = (h: Record<string, string | string[] | undefined>, name: string) 
   return Array.isArray(v) ? v[0] : v;
 };
 
-export type FetchOptions = { maxBytes: number; acceptPrefix?: string };
+export type FetchOptions = {
+  maxBytes: number;
+  acceptPrefix?: string;
+  /** Extra request headers (e.g. an API key). Never sent to a host other than the first one. */
+  headers?: Record<string, string>;
+  /** Only this exact host may be contacted, on the first request and on every redirect. */
+  pinHost?: string;
+};
 export type FetchResult = { url: string; status: number; contentType: string; bytes: Buffer };
 
 async function readCapped(body: AsyncIterable<Uint8Array> & { destroy?: (e?: Error) => void }, maxBytes: number) {
@@ -164,19 +173,27 @@ async function drain(body: AsyncIterable<Uint8Array> & { destroy?: (e?: Error) =
   }
 }
 
+const pinned = (url: URL, pinHost: string | undefined) => {
+  if (pinHost && hostOf(url) !== pinHost.toLowerCase()) throw new SafeFetchError('pinned_host', `host not allowed here: ${hostOf(url)}`);
+  return url;
+};
+
 /** GET with every SSRF rule applied. Throws SafeFetchError. */
 export async function safeFetchRaw(raw: string | URL, opts: FetchOptions): Promise<FetchResult> {
   const signal = AbortSignal.timeout(TIMEOUT_MS);
-  let url = assertFetchableUrl(raw);
+  let url = pinned(assertFetchableUrl(raw), opts.pinHost);
+  const firstHost = hostOf(url);
+  const extra = Object.fromEntries(Object.entries(opts.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
   try {
     for (let hops = 0; ; hops++) {
-      const res = await hop(url, signal);
+      // Extra headers stay with the host they were written for (like a browser's Authorization).
+      const res = await hop(url, signal, hostOf(url) === firstHost ? extra : {});
       if (res.status >= 300 && res.status < 400) {
         await drain(res.body);
         const location = header(res.headers, 'location');
         if (!location) throw new SafeFetchError('status', 'redirect without location', res.status);
         if (hops >= MAX_HOPS) throw new SafeFetchError('redirects', `more than ${MAX_HOPS} redirects`);
-        url = assertFetchableUrl(new URL(location, url));
+        url = pinned(assertFetchableUrl(new URL(location, url)), opts.pinHost);
         continue;
       }
       if (res.status < 200 || res.status >= 300) {
@@ -208,12 +225,27 @@ export async function safeFetchRaw(raw: string | URL, opts: FetchOptions): Promi
 
 /** HTML page (default cap 4 MB). Returns the decoded text and the final URL after redirects. */
 export async function safeFetch(url: string | URL, opts: Partial<FetchOptions> = {}) {
-  const res = await safeFetchRaw(url, { maxBytes: opts.maxBytes ?? 4_000_000, acceptPrefix: opts.acceptPrefix });
+  const res = await safeFetchRaw(url, { ...opts, maxBytes: opts.maxBytes ?? 4_000_000 });
   return { url: res.url, status: res.status, contentType: res.contentType, text: res.bytes.toString('utf8') };
 }
 
 /** Image bytes (default cap 15 MB, content-type must start with image/). sharp decodes later. */
 export async function safeFetchBytes(url: string | URL, opts: Partial<FetchOptions> = {}) {
-  const res = await safeFetchRaw(url, { maxBytes: opts.maxBytes ?? 15_000_000, acceptPrefix: opts.acceptPrefix ?? 'image/' });
+  const res = await safeFetchRaw(url, { ...opts, maxBytes: opts.maxBytes ?? 15_000_000, acceptPrefix: opts.acceptPrefix ?? 'image/' });
   return res.bytes;
+}
+
+/** A JSON API response (default cap 2 MB; asks for and requires application/json). Parsed, not validated. */
+export async function safeFetchJson(url: string | URL, opts: Partial<FetchOptions> = {}): Promise<unknown> {
+  const res = await safeFetchRaw(url, {
+    ...opts,
+    maxBytes: opts.maxBytes ?? 2_000_000,
+    acceptPrefix: opts.acceptPrefix ?? 'application/json',
+    headers: { accept: 'application/json', ...opts.headers },
+  });
+  try {
+    return JSON.parse(res.bytes.toString('utf8'));
+  } catch {
+    throw new SafeFetchError('bad_json', 'response is not valid JSON');
+  }
 }

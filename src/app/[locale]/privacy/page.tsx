@@ -10,7 +10,7 @@ import type { Locale } from '@/lib/taxonomy';
 // what is collected, kept or shared changes this page and its date in the same commit. Static: the
 // contact address (PRIVACY_CONTACT_EMAIL) is read at build time, so a new one takes a redeploy.
 
-const UPDATED = '2026-10-05';
+const UPDATED = '2026-10-06';
 
 // Checked 2026-10-05. neon.com/privacy-policy redirects to the Databricks notice, which covers Neon.
 const POLICIES = [

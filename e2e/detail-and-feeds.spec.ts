@@ -39,6 +39,28 @@ test('category feed filters and ignores unknown slugs', async ({ request }) => {
   expect(body).not.toContain('Agents & Evals Night');
 });
 
+test('F19: ev_lang=zh keeps Chinese and bilingual events; online=1 drops in-person; unknown values are ignored', async ({ request }) => {
+  const zh = await (await request.get('/calendar.ics?ev_lang=zh')).text();
+  expect(zh).toContain('Chinese Founders Mixer');
+  expect(zh).toContain('Bilingual AI Research Salon');
+  expect(zh).toContain('Mid-Autumn Tech Picnic');
+  expect(zh).not.toContain('Agents & Evals Night');
+  expect(zh).toContain('X-WR-CALNAME:Victor\'s Picks · Chinese or bilingual');
+  const online = await (await request.get('/calendar.ics?online=1')).text();
+  expect(online).toContain('Retrieval Is Still Hard');
+  expect(online).not.toContain('Agents & Evals Night');
+  const all = await (await request.get('/calendar.ics?ev_lang=fr&online=yes')).text();
+  expect(all).toContain('Agents & Evals Night');
+  expect(all).toContain('Chinese Founders Mixer');
+});
+
+test('F19: the subscribe menu carries the site language and online filters into the feed', async ({ page }) => {
+  await page.goto('/zh?lang=zh&fmt=online');
+  await page.getByText('订阅当前筛选').click();
+  await expect(page.locator('#subscribe input')).toHaveValue(/\/calendar\.ics\?lang=zh&ev_lang=zh&online=1$/);
+  await expect(page.locator('#subscribe ul a').first()).toHaveAttribute('href', /^webcal:\/\/.+\/calendar\.ics\?lang=zh&ev_lang=zh&online=1$/);
+});
+
 test('going.ics never includes cycling', async ({ request }) => {
   const body = await (await request.get('/calendar/going.ics')).text();
   expect(body).toContain('BEGIN:VCALENDAR');

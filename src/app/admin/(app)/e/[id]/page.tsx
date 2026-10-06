@@ -7,8 +7,12 @@ import { CoverImage } from '@/components/CoverImage';
 import { getAdminEvent, toWallTime } from '@/lib/admin/events';
 import { requireAdmin } from '@/lib/admin-session';
 import { blobConfigured } from '@/lib/covers/blob';
+import { braveConfigured } from '@/lib/covers/brave';
+import { OPENVERSE_QUERY } from '@/lib/covers/openverse';
 import { platformName } from '@/lib/events/platform';
 import { fmtRange } from '@/lib/format/date';
+import { aiConfigured } from '@/lib/ingest/extract';
+import { peekRemaining } from '@/lib/ratelimit';
 import { isCategory } from '@/lib/taxonomy';
 
 export const metadata = { title: 'Edit' };
@@ -46,6 +50,16 @@ async function Editor({ params, searchParams }: PageProps<'/admin/e/[id]'>) {
     <span className="grid size-40 place-items-center rounded-cover border border-dashed border-rule text-sm text-muted">先选类别</span>
   );
 
+  // Cover selector steps 4–6: what's configured, and today's searches / generations left.
+  const left = (name: Parameters<typeof peekRemaining>[0]) => peekRemaining(name, 'global').catch(() => null);
+  const [openverse, brave, ai] = await Promise.all([left('coverOpenverse'), left('coverBrave'), left('coverAi')]);
+  const sources = {
+    blobReady: blobConfigured(), aiReady: aiConfigured(), braveReady: braveConfigured(),
+    openverseQuery: isCategory(e.category) ? OPENVERSE_QUERY[e.category] : '',
+    braveQuery: (e.titleEn || e.titleZh || '').slice(0, 200),
+    remaining: { openverse, brave, ai },
+  };
+
   return (
     <>
       {(added || blocked.length > 0) && (
@@ -63,7 +77,7 @@ async function Editor({ params, searchParams }: PageProps<'/admin/e/[id]'>) {
         heading={e.titleZh || e.titleEn || platformName(e.sourceUrl) || 'Untitled'}
         when={e.startAt ? fmtRange(e.startAt, e.endAt, 'zh', e.tz) : null}
         publicHref={e.status === 'published' || e.status === 'cancelled' ? `/events/${e.slug}` : null}
-        cover={<CoverPanel id={e.id} preview={preview} kind={e.cover?.kind ?? null} letterboxed={e.cover?.letterboxed ?? false} attribution={e.cover?.attribution ?? null} blobReady={blobConfigured()} hasCategory={isCategory(e.category)} />}
+        cover={<CoverPanel id={e.id} preview={preview} kind={e.cover?.kind ?? null} letterboxed={e.cover?.letterboxed ?? false} attribution={e.cover?.attribution ?? null} blobReady={blobConfigured()} hasCategory={isCategory(e.category)} sources={sources} />}
         going={<GoingForm id={e.id} going={e.going} visibility={e.goingVisibility} />}
       />
     </>

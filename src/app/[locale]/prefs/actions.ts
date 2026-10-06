@@ -9,6 +9,7 @@ import { headers } from 'next/headers';
 import { hashToken } from '@/lib/api/token-hash';
 import { clientIp } from '@/lib/client-ip';
 import { sendConfirmEmail } from '@/lib/email/subscribe';
+import { type Facets, isEvLang } from '@/lib/events/facets';
 import { describeError } from '@/lib/log-safe';
 import { linksWork } from '@/lib/newsletter/status';
 import { limit } from '@/lib/ratelimit';
@@ -54,19 +55,33 @@ async function withSubscriber<K extends string>(
 
 const editable = (s: Subscriber['status']) => s === 'pending' || s === 'active' || s === 'paused';
 
-/** Language and categories. An empty selection unsubscribes (PRD F06: only the sections you picked). */
+/**
+ * The F19 facet fields: `ev_lang` ('' = any, or one event language) and the `online` checkbox.
+ * Undefined when the form had no facet section (`facets_present`, e.g. a page rendered before
+ * F19): the stored facets are then kept. 'forged' for any value the form can't produce.
+ */
+function facetsFrom(form: FormData): Facets | undefined | 'forged' {
+  if (!form.has('facets_present')) return undefined;
+  const lang = form.get('ev_lang') ?? '';
+  const online = form.getAll('online');
+  if ((lang !== '' && !isEvLang(lang)) || online.length > 1 || (online.length === 1 && online[0] !== '1')) return 'forged';
+  return { evLang: lang === '' ? null : lang, onlineOnly: online.length === 1 };
+}
+
+/** Language, categories and facets. An empty selection unsubscribes (PRD F06: only the sections you picked). */
 export async function savePreferences(token: string, _prev: PrefsState, form: FormData): Promise<PrefsState> {
   return withSubscriber<PrefsKey>(token, async (sub) => {
     const locale = form.get('locale');
     const raw = form.getAll('c');
     const categories = cleanCategories(raw);
+    const facets = facetsFrom(form);
     // Something was ticked but none of it is a category: a forged post, not a request to leave.
-    if ((locale !== 'en' && locale !== 'zh') || (raw.length > 0 && categories.length === 0)) return fail('state.error');
+    if ((locale !== 'en' && locale !== 'zh') || (raw.length > 0 && categories.length === 0) || facets === 'forged') return fail('state.error');
     if (!editable(sub.status)) {
       refresh(); // stale page: an unsubscribed row comes back only through "Subscribe again"
       return fail('state.error');
     }
-    const row = await updatePreferences(sub, { locale, categories });
+    const row = await updatePreferences(sub, { locale, categories, facets });
     refresh();
     return { ok: true, key: row.status === 'unsubscribed' ? 'prefs.unsubscribed' : 'prefs.saved' };
   });
@@ -74,7 +89,8 @@ export async function savePreferences(token: string, _prev: PrefsState, form: Fo
 
 /**
  * One-tap language switch, offered when the email footer's language link (?lang=) names the other
- * edition. Only the language changes: the categories are the row's own, read now, never a stale page's.
+ * edition. Only the language changes: the categories are the row's own, read now, never a stale
+ * page's, and the facets aren't passed, so updatePreferences leaves them as stored.
  */
 export async function changeLanguage(token: string, _prev: PrefsState, form: FormData): Promise<PrefsState> {
   return withSubscriber<PrefsKey>(token, async (sub) => {

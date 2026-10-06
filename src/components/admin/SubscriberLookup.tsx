@@ -13,6 +13,12 @@ const STATUS: Record<Detail['status'], string> = {
   unsubscribed: 'Unsubscribed · 已退订',
   suppressed: 'Suppressed · 已抑制',
 };
+/** F19 event-language preference (zh and en include bilingual events). */
+const EV_LANG: Record<NonNullable<Detail['evLang']>, string> = {
+  zh: 'Chinese or bilingual · 中文或双语',
+  en: 'English or bilingual · 英文或双语',
+  bilingual: 'Bilingual only · 仅双语',
+};
 const SEND: Record<Detail['sends'][number]['state'], string> = { sent: 'sent · 已发', failed: 'failed · 失败', pending: 'in flight · 发送中' };
 
 const SUPPRESS_CONFIRM = 'Suppress permanently? They can never resubscribe with this address · 永久抑制？此邮箱以后不能再订阅';
@@ -119,6 +125,7 @@ function Result({ sub, action, onSubmit, pending }: {
         {row('ID', sub.id)}
         {row('Language · 语言', sub.locale === 'zh' ? '中文' : 'English')}
         {row('Categories · 类别', sub.categories.map((c) => CATEGORIES[c].zh).join('、') || '—')}
+        {row('Filters · 筛选', [sub.evLang && EV_LANG[sub.evLang], sub.onlineOnly && 'Online only · 只要线上'].filter(Boolean).join(' · ') || 'None · 无')}
         {row('Created · 创建', fmt(sub.createdAt))}
         {row('Consent · 同意', `${fmt(sub.consentAt)}${sub.consentSource ? ` · ${sub.consentSource}` : ''}`)}
         {row('Confirmed · 确认', fmt(sub.confirmedAt))}

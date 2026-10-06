@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { AddToCalendarMenu } from '@/components/AddToCalendarMenu';
 import { CategoryLabel } from '@/components/CategoryLabel';
 import { CoverImage } from '@/components/CoverImage';
+import { CoverSourceCredit } from '@/components/CoverSourceCredit';
 import { CuratorNote } from '@/components/CuratorNote';
 import { DateTime } from '@/components/DateTime';
 import { LocalTime } from '@/components/LocalTime';
@@ -96,7 +97,7 @@ async function Detail({ locale, data }: { locale: Locale; data: Found }) {
             </a>
           </p>
         )}
-        {e.cover?.attribution && e.cover.kind === 'openverse' && <p className="mt-2 text-xs text-muted">{e.cover.attribution}</p>}
+        {e.cover && <CoverSourceCredit cover={e.cover} t={t} />}
 
         <h1 lang={primaryLang} className={`mt-6 min-h-[1.3em] text-h2 md:text-h1 ${cancelled ? 'line-through decoration-2 text-muted' : ''}`}>
           {primary}

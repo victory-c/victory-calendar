@@ -13,7 +13,8 @@ import { testDb } from './helpers/pglite';
 
 const h = vi.hoisted(() => {
   const TOKEN = '__VP_TOKEN__';
-  type Ev = { id: string; category: string; title: string };
+  /** lang / format: the F19 facets (absent = an 'en', in-person event, like a pre-F19 snapshot). */
+  type Ev = { id: string; category: string; title: string; lang?: string; format?: string };
   const state = {
     TOKEN,
     db: null as unknown,
@@ -47,7 +48,11 @@ vi.mock('@/lib/digest/assemble', async (orig) => {
         version: 1, issueId: issue.id, isoWeek: issue.isoWeek, from: '2026-10-12T07:00:00.000Z', to: '2026-10-19T07:00:00.000Z',
         previewWeek: '2026-W43', sendAfter: issue.sendAfter?.toISOString() ?? '', origin: 'https://picks.test',
         introEn: issue.introEn, introZh: issue.introZh, showAttendance: true,
-        events: h.events.map((e) => ({ id: e.id, slug: e.id, category: e.category, titleEn: e.title, titleZh: e.title })),
+        // Wed Oct 14 18:30 PDT, inside the covered week (select.ts only counts events inside it).
+        events: h.events.map((e) => ({
+          id: e.id, slug: e.id, category: e.category, titleEn: e.title, titleZh: e.title, startAt: '2026-10-15T01:30:00.000Z',
+          format: e.format ?? 'in_person', ...(e.lang ? { eventLanguage: e.lang } : {}),
+        })),
         preview: [],
       };
     },
@@ -56,8 +61,9 @@ vi.mock('@/lib/digest/assemble', async (orig) => {
 
 vi.mock('@/lib/digest/render', async (orig) => {
   const real = await orig<typeof import('@/lib/digest/render')>();
-  type Snap = { origin: string; events: { category: string; titleEn: string }[] };
-  type V = { key: string; locale: 'en' | 'zh'; categories: string[] };
+  const { matchesFacets } = await import('@/lib/events/facets');
+  type Snap = { origin: string; events: { category: string; titleEn: string; eventLanguage?: string; format: string }[] };
+  type V = { key: string; locale: 'en' | 'zh'; categories: string[]; evLang: 'en' | 'zh' | 'bilingual' | null; onlineOnly: boolean };
   const T = h.TOKEN;
   const email = (subject: string, body: string, snap: Snap, v: V) => {
     const pre = `${snap.origin}${v.locale === 'zh' ? '/zh' : ''}`;
@@ -72,7 +78,7 @@ vi.mock('@/lib/digest/render', async (orig) => {
       if (h.failVariant === v.key) throw new Error('render exploded');
       // As the real finish(): a variant over the limit is refused, not clipped.
       if (h.hugeVariant === v.key) throw new real.DigestTooLargeError(`digest html is 95000 bytes (limit ${real.MAX_HTML_BYTES})`);
-      const picks = snap.events.filter((e) => v.categories.includes(e.category));
+      const picks = snap.events.filter((e) => v.categories.includes(e.category) && matchesFacets(e, v));
       if (picks.length === 0 || h.nullVariant === v.key) return null;
       return { ...email(`${v.key} · ${picks.length} picks`, picks.map((e) => `<p>${e.titleEn}</p>`).join(''), snap, v), picks: picks.length };
     },
@@ -109,7 +115,11 @@ const { templateCoverRow } = await import('@/lib/covers/template');
 const { COPY } = await import('@/emails/copy');
 const { newId } = await import('@/lib/ids');
 const { linkToken } = await import('@/lib/subscribers/token');
-const { variantKey } = await import('@/lib/digest/variant');
+const { parseVariantKey, variantKey } = await import('@/lib/digest/variant');
+const { isEmptyFor, pickCells } = await import('@/lib/digest/select');
+const { facetsOf } = await import('@/lib/events/facets');
+const fixtures = await import('./helpers/digest-fixtures');
+type DigestEvent = import('@/lib/digest/types').DigestEvent;
 const { sendAfterFor } = await import('@/lib/digest/week');
 const { CATEGORY_SLUGS } = await import('@/lib/taxonomy');
 type DB = import('@/lib/db').DB;
@@ -211,6 +221,11 @@ const err = (name: string, statusCode: number | null, retryAfterMs: number | nul
 const sends = (issueId?: string) =>
   issueId ? db.select().from(digestSends).where(eq(digestSends.issueId, issueId)) : db.select().from(digestSends);
 const issueRow = async (id: string) => (await db.select().from(digestIssues).where(eq(digestIssues.id, id)))[0];
+
+type PickCell = import('@/lib/digest/select').PickCell;
+/** Claim cells for events in these categories: English and in person unless told otherwise. */
+const cellsOf = (cats: readonly string[], lang: PickCell['lang'] = 'en', online = false): PickCell[] =>
+  cats.map((c) => ({ category: c as PickCell['category'], lang, online }));
 
 /** Fails `execute` once when the statement contains `needle`: a crash at that exact point. */
 function crashOnce(real: DB, needle: string) {
@@ -424,7 +439,7 @@ describe('claims', () => {
       await seedSub({ categories: ['bogus'] }),
       await seedSub({ categories: ['cycling'] }), // no overlap with this week's categories
     ];
-    const got = await claim.claimFresh(issue.id, { kind: 'digest', categories: ['ai', 'hackathon'] }, 100, 'dbk_1', at, db);
+    const got = await claim.claimFresh(issue.id, { kind: 'digest', cells: cellsOf(['ai', 'hackathon']) }, 100, 'dbk_1', at, db);
     expect(got.map((r) => r.id).sort()).toEqual(ok.map((s) => s.id).sort());
     expect(got.every((r) => r.kind === 'digest' && r.variantKey === 'en:ai')).toBe(true);
     expect(notOk.length).toBe(7);
@@ -438,20 +453,20 @@ describe('claims', () => {
     const late = await seedSub({ confirmedAt: new Date(at.getTime() - DAY) });
     const early = await seedSub({ confirmedAt: new Date(at.getTime() - 9 * DAY) });
     const none = await seedSub({ confirmedAt: null });
-    const first = await claim.claimFresh(issue.id, { kind: 'digest', categories: ['ai'] }, 2, 'dbk_a', at, db);
+    const first = await claim.claimFresh(issue.id, { kind: 'digest', cells: cellsOf(['ai']) }, 2, 'dbk_a', at, db);
     expect(first.map((r) => r.id).sort()).toEqual([early.id, late.id].sort());
-    const second = await claim.claimFresh(issue.id, { kind: 'digest', categories: ['ai'] }, 2, 'dbk_b', at, db);
+    const second = await claim.claimFresh(issue.id, { kind: 'digest', cells: cellsOf(['ai']) }, 2, 'dbk_b', at, db);
     expect(second.map((r) => r.id)).toEqual([none.id]);
-    expect(await claim.claimFresh(issue.id, { kind: 'digest', categories: ['ai'] }, 2, 'dbk_c', at, db)).toEqual([]);
-    expect(await claim.claimFresh(issue.id, { kind: 'digest', categories: [] }, 2, 'dbk_d', at, db)).toEqual([]);
-    expect(await claim.claimFresh(issue.id, { kind: 'digest', categories: ['ai'] }, 0, 'dbk_e', at, db)).toEqual([]);
+    expect(await claim.claimFresh(issue.id, { kind: 'digest', cells: cellsOf(['ai']) }, 2, 'dbk_c', at, db)).toEqual([]);
+    expect(await claim.claimFresh(issue.id, { kind: 'digest', cells: cellsOf([]) }, 2, 'dbk_d', at, db)).toEqual([]);
+    expect(await claim.claimFresh(issue.id, { kind: 'digest', cells: cellsOf(['ai']) }, 0, 'dbk_e', at, db)).toEqual([]);
   });
 
   it('racing claims never overlap and together cover everyone', async () => {
     const issue = await seedIssue({ status: 'sending' });
     const all = await seedMany(30, (i) => ({ categories: i % 2 ? ['ai'] : ['ai', 'vc'], locale: i % 3 ? 'en' : 'zh' }));
     const results = await Promise.all(
-      Array.from({ length: 4 }, (_, i) => claim.claimFresh(issue.id, { kind: 'digest', categories: ['ai'] }, 30, `dbk_${i}`, at, db)),
+      Array.from({ length: 4 }, (_, i) => claim.claimFresh(issue.id, { kind: 'digest', cells: cellsOf(['ai']) }, 30, `dbk_${i}`, at, db)),
     );
     const ids = results.flat().map((r) => r.id);
     expect(new Set(ids).size).toBe(ids.length);
@@ -465,12 +480,12 @@ describe('claims', () => {
     const cyclist = await seedSub({ categories: ['cycling'], locale: 'zh' });
     await seedSub({ categories: ['ai'] });
     const monthStart = new Date('2026-10-01T07:00:00Z');
-    const target = { kind: 'empty' as const, categories: ['ai'], monthStart };
+    const target = { kind: 'empty' as const, cells: cellsOf(['ai']), monthStart };
     const got = await claim.claimFresh(issue.id, target, 100, 'dbk_e1', at, db);
     expect(got).toMatchObject([{ id: cyclist.id, kind: 'empty', variantKey: 'zh:cycling' }]);
     // The next issue in the same month: already had one.
     expect(await claim.claimFresh(later.id, target, 100, 'dbk_e2', new Date(at.getTime() + 7 * DAY), db)).toEqual([]);
-    expect(await claim.countSkippedEmpty(later.id, ['ai'], monthStart, at, db)).toBe(1);
+    expect(await claim.countSkippedEmpty(later.id, cellsOf(['ai']), monthStart, at, db)).toBe(1);
     // A new month.
     const nov = { ...target, monthStart: new Date('2026-11-01T07:00:00Z') };
     expect((await claim.claimFresh(later.id, nov, 100, 'dbk_e3', new Date('2026-11-02T02:00:00Z'), db)).map((r) => r.id)).toEqual([cyclist.id]);
@@ -478,7 +493,7 @@ describe('claims', () => {
 
   it("an empty notice that provably never went out doesn't use up the month; one that may have did", async () => {
     const monthStart = new Date('2026-10-01T07:00:00Z');
-    const target = { kind: 'empty' as const, categories: ['ai'], monthStart };
+    const target = { kind: 'empty' as const, cells: cellsOf(['ai']), monthStart };
     const w42 = await seedIssue({ status: 'sending' });
     const w43 = await seedIssue({ isoWeek: '2026-W43', status: 'sending' });
     const errors = ['failed:reached_daily_quota', 'render_failed', 'too_large', 'invalid', 'no_picks'] as const;
@@ -497,7 +512,7 @@ describe('claims', () => {
       if (maybeDelivered[i]) await db.update(digestSends).set({ error: maybeDelivered[i] }).where(eq(digestSends.subscriberId, s.id));
     }
     const week43 = new Date(at.getTime() + 7 * DAY);
-    expect(await claim.countSkippedEmpty(w43.id, ['ai'], monthStart, week43, db)).toBe(kept.length);
+    expect(await claim.countSkippedEmpty(w43.id, cellsOf(['ai']), monthStart, week43, db)).toBe(kept.length);
     const again = await claim.claimFresh(w43.id, target, 100, 'dbk_m2', week43, db);
     expect(again.map((r) => r.id).sort()).toEqual(freed.map((s) => s.id).sort());
   });
@@ -507,8 +522,8 @@ describe('claims', () => {
     const subs = await seedMany(4);
     const [a, b, c, d] = subs;
     const t0 = at;
-    await claim.claimFresh(issue.id, { kind: 'digest', categories: ['ai'] }, 3, 'dbk_g1', t0, db);
-    await claim.claimFresh(issue.id, { kind: 'digest', categories: ['ai'] }, 1, 'dbk_g2', new Date(t0.getTime() + MIN), db);
+    await claim.claimFresh(issue.id, { kind: 'digest', cells: cellsOf(['ai']) }, 3, 'dbk_g1', t0, db);
+    await claim.claimFresh(issue.id, { kind: 'digest', cells: cellsOf(['ai']) }, 1, 'dbk_g2', new Date(t0.getTime() + MIN), db);
     expect(await claim.reclaimStale(issue.id, new Date(t0.getTime() + 9 * MIN), db)).toBeNull();
     await db.update(subscribers).set({ status: 'unsubscribed' }).where(eq(subscribers.id, b.id));
     const later = new Date(t0.getTime() + 11 * MIN);
@@ -534,7 +549,7 @@ describe('claims', () => {
   it('markSent, markError and the daily count', async () => {
     const issue = await seedIssue({ status: 'sending' });
     const subs = await seedMany(3);
-    await claim.claimFresh(issue.id, { kind: 'digest', categories: ['ai'] }, 3, 'dbk_m', at, db);
+    await claim.claimFresh(issue.id, { kind: 'digest', cells: cellsOf(['ai']) }, 3, 'dbk_m', at, db);
     expect(await claim.sentTodayCount(at, db)).toBe(3); // claimed today, waiting
     expect(await claim.markSent(issue.id, [{ subscriberId: subs[0].id, resendId: 'e0' }], at, db)).toBe(1);
     expect(await claim.markSent(issue.id, [{ subscriberId: subs[0].id, resendId: 'other' }], at, db)).toBe(0);
@@ -550,6 +565,141 @@ describe('claims', () => {
       [subs[2].id]: [null, 'window_closed'],
     });
     expect(rows.find((r) => r.subscriberId === subs[0].id)?.sentAt?.getTime()).toBe(at.getTime());
+  });
+});
+
+// ---- F19 facets in claims ---------------------------------------------------------------------
+
+describe('claims with F19 facets (event language, online only)', () => {
+  const at = new Date(SEND_AFTER.getTime() + HOUR);
+  const monthStart = new Date('2026-10-01T07:00:00Z');
+  /** Every stored ev_lang_pref shape: the valid one-element arrays and the ones read as "none". */
+  const STORED: ((string | null)[] | null)[] = [null, [], ['en'], ['zh'], ['bilingual'], ['xx'], ['en', 'zh'], [null]];
+  const ONLINE = [null, false, true] as const;
+
+  it('the SQL variant key equals variantKey() for every stored facet shape × online × category sets × language', async () => {
+    const sets = [['ai'], ['social', 'ai', 'ai', 'bogus'], [...CATEGORY_SLUGS], ['cycling', 'vc']];
+    const pref = (p: (string | null)[] | null) =>
+      p === null ? sql`null::text[]` : p.some((x) => x === null) ? sql`array[null]::text[]` : claim.textArray(p as string[]);
+    const online = (o: boolean | null) => (o === null ? sql`null::boolean` : sql`${o}::boolean`);
+    for (const locale of ['en', 'zh'] as const) {
+      for (const cats of sets) {
+        for (const p of STORED) {
+          for (const o of ONLINE) {
+            const r = (await db.execute(
+              sql`select ${claim.variantKeyExpr(sql`${locale}::text`, claim.textArray(cats), pref(p), online(o))} as k`,
+            )) as unknown as { rows: { k: string }[] };
+            expect(r.rows[0].k).toBe(variantKey(locale, cats, facetsOf({ evLangPref: p, onlineOnly: o })));
+          }
+        }
+      }
+    }
+    // Without facets, exactly the pre-F19 key.
+    expect(variantKey('en', ['ai'], facetsOf({ evLangPref: null, onlineOnly: null }))).toBe('en:ai');
+    expect(variantKey('zh', ['vc', 'ai'], { evLang: 'zh', onlineOnly: true })).toBe('zh:ai,vc;l=zh;o');
+  });
+
+  // Invariant: a digest claim always has picks for its variant, an empty claim never does, so a run
+  // never fails a claimed row with no_picks. Checked over a matrix of subscribers for several weeks.
+  const weeks: [name: string, events: Partial<DigestEvent>[]][] = [
+    ['mixed', [
+      { category: 'ai' },
+      { category: 'ai', eventLanguage: 'zh', format: 'online' },
+      { category: 'hackathon', eventLanguage: 'bilingual', format: 'hybrid' },
+      { category: 'vc', eventLanguage: 'en', format: 'online' },
+    ]],
+    ['one Chinese in-person event', [{ category: 'ai', eventLanguage: 'zh' }]],
+    ['bilingual and hybrid only', [{ category: 'social', eventLanguage: 'bilingual' }, { category: 'cycling', format: 'hybrid' }]],
+    ['pre-F19 snapshot (no eventLanguage) plus an event outside the week', [
+      { category: 'ai', format: 'online' },
+      { category: 'campus', eventLanguage: 'zh', format: 'online', startAt: '2026-10-20T01:30:00.000Z' }, // the next week
+    ]],
+    ['no events', []],
+  ];
+
+  it.each(weeks)('claims agree with isEmptyFor() for every subscriber: %s', async (_name, list) => {
+    const s = fixtures.snap({ events: list.map((e) => fixtures.ev(e)) });
+    const cells = pickCells(s);
+    const catSets = [['ai'], ['hackathon'], ['vc', 'social'], ['cycling'], ['ai', 'campus'], ['campus'], ['bogus', 'ai']];
+    const subs = await seedMany(catSets.length * STORED.length * ONLINE.length, (i) => ({
+      categories: catSets[i % catSets.length],
+      evLangPref: STORED[Math.floor(i / catSets.length) % STORED.length] as string[] | null,
+      onlineOnly: ONLINE[Math.floor(i / (catSets.length * STORED.length))],
+      locale: i % 2 ? 'zh' : 'en',
+    }));
+    const issue = await seedIssue({ status: 'sending' });
+    const got = [
+      ...(await claim.claimFresh(issue.id, { kind: 'digest', cells }, 1000, 'dbk_d', at, db)),
+      ...(await claim.claimFresh(issue.id, { kind: 'empty', cells, monthStart }, 1000, 'dbk_e', at, db)),
+    ];
+    // Everyone is claimed exactly once (nobody had a notice this month) …
+    expect(got.map((r) => r.id).sort()).toEqual(subs.map((x) => x.id).sort());
+    const byId = new Map(subs.map((x) => [x.id, x]));
+    for (const row of got) {
+      const sub = byId.get(row.id)!;
+      const v = parseVariantKey(row.variantKey)!;
+      // … under the key variantKey() gives their row, and as a digest exactly when their variant has picks.
+      expect(row.variantKey).toBe(variantKey(sub.locale, sub.categories, facetsOf(sub)));
+      expect({ key: row.variantKey, kind: row.kind }).toEqual({ key: row.variantKey, kind: isEmptyFor(s, v.categories, v) ? 'empty' : 'digest' });
+    }
+    expect(await claim.countSkippedEmpty(issue.id, cells, monthStart, at, db)).toBe(0);
+  });
+
+  it('a Chinese-only reader in a week of English events gets the empty notice; with a Chinese event, the digest', async () => {
+    const issue = await seedIssue({ status: 'sending' });
+    const zh = await seedSub({ categories: ['ai'], evLangPref: ['zh'] });
+    const any = await seedSub({ categories: ['ai'] });
+    const enWeek = cellsOf(['ai', 'hackathon']);
+    expect(await claim.claimFresh(issue.id, { kind: 'digest', cells: enWeek }, 10, 'dbk_1', at, db)).toMatchObject([{ id: any.id, variantKey: 'en:ai' }]);
+    expect(await claim.claimFresh(issue.id, { kind: 'empty', cells: enWeek, monthStart }, 10, 'dbk_2', at, db)).toMatchObject([
+      { id: zh.id, kind: 'empty', variantKey: 'en:ai;l=zh' },
+    ]);
+    const w43 = await seedIssue({ isoWeek: '2026-W43', status: 'sending' });
+    const zhWeek = [...enWeek, ...cellsOf(['ai'], 'zh')];
+    const later = new Date(at.getTime() + 7 * DAY);
+    expect((await claim.claimFresh(w43.id, { kind: 'digest', cells: zhWeek }, 10, 'dbk_3', later, db)).map((r) => [r.id, r.variantKey]).sort()).toEqual(
+      [[zh.id, 'en:ai;l=zh'], [any.id, 'en:ai']].sort(),
+    );
+    // Bilingual events reach every language preference, English and bilingual-only readers included.
+    const w44 = await seedIssue({ isoWeek: '2026-W44', status: 'sending' });
+    const en = await seedSub({ categories: ['ai'], evLangPref: ['en'], locale: 'zh' });
+    const bi = await seedSub({ categories: ['ai'], evLangPref: ['bilingual'] });
+    const biWeek = cellsOf(['ai'], 'bilingual');
+    const got = await claim.claimFresh(w44.id, { kind: 'digest', cells: biWeek }, 10, 'dbk_4', new Date(later.getTime() + 7 * DAY), db);
+    expect(Object.fromEntries(got.map((r) => [r.id, r.variantKey]))).toEqual({
+      [zh.id]: 'en:ai;l=zh', [any.id]: 'en:ai', [en.id]: 'zh:ai;l=en', [bi.id]: 'en:ai;l=bilingual',
+    });
+  });
+
+  it('online only: a hybrid event reaches the reader, an in-person one does not', async () => {
+    const issue = await seedIssue({ status: 'sending' });
+    const remote = await seedSub({ categories: ['ai', 'hackathon'], onlineOnly: true });
+    const hackOnly = await seedSub({ categories: ['hackathon'], onlineOnly: true, evLangPref: ['zh'] });
+    const cells = [...cellsOf(['ai'], 'en', true), ...cellsOf(['hackathon'])]; // a hybrid AI event, an in-person hackathon
+    expect(await claim.claimFresh(issue.id, { kind: 'digest', cells }, 10, 'dbk_1', at, db)).toMatchObject([{ id: remote.id, variantKey: 'en:ai,hackathon;o' }]);
+    expect(await claim.claimFresh(issue.id, { kind: 'empty', cells, monthStart }, 10, 'dbk_2', at, db)).toMatchObject([
+      { id: hackOnly.id, kind: 'empty', variantKey: 'en:hackathon;l=zh;o' },
+    ]);
+    expect(await claim.anyClaimable(issue.id, [{ kind: 'digest', cells }, { kind: 'empty', cells, monthStart }], at, db)).toBe(false);
+  });
+
+  it('runDigest: facet variants render once each, the empty notice goes to readers the facets leave with nothing', async () => {
+    h.events = [
+      { id: 'evt_ai_zh', category: 'ai', title: 'AI 夜', lang: 'zh', format: 'hybrid' },
+      { id: 'evt_ai_en', category: 'ai', title: 'AI night' },
+    ];
+    const issue = await seedIssue();
+    const zh = await seedMany(2, () => ({ categories: ['ai'], evLangPref: ['zh'] }));
+    const remote = await seedSub({ categories: ['ai'], onlineOnly: true, evLangPref: ['en'] });
+    const plain = await seedSub({ categories: ['ai'] });
+    const { run, tr } = setup();
+    expect(await run()).toMatchObject({ ok: true, claimed: 4, sent: 4, failed: 0, emptyNotices: 1, status: 'sent' });
+    expect(h.renders.sort()).toEqual(['digest|en:ai', 'digest|en:ai;l=zh', 'empty|en:ai;l=en;o']);
+    const subject = Object.fromEntries(tr.sent().map((e) => [e.to, e.subject]));
+    expect(subject[zh[0].email]).toBe('en:ai;l=zh · 1 picks');
+    expect(subject[plain.email]).toBe('en:ai · 2 picks');
+    expect(subject[remote.email]).toBe('en:ai;l=en;o · nothing this week');
+    expect((await sends(issue.id)).every((r) => r.error === null)).toBe(true);
   });
 });
 
@@ -1061,7 +1211,7 @@ describe('runDigest: the send window', () => {
     const sendAfter = new Date(SEND_AFTER.getTime());
     const issue = await seedIssue({ status: 'sending', snapshot: { version: 1, events: [] } as never });
     const subs = await seedMany(3);
-    await claim.claimFresh(issue.id, { kind: 'digest', categories: ['ai'] }, 3, 'dbk_w', new Date(sendAfter.getTime() + 2 * HOUR), db);
+    await claim.claimFresh(issue.id, { kind: 'digest', cells: cellsOf(['ai']) }, 3, 'dbk_w', new Date(sendAfter.getTime() + 2 * HOUR), db);
     await claim.markSent(issue.id, [{ subscriberId: subs[0].id, resendId: 'e0' }], new Date(sendAfter.getTime() + 2 * HOUR), db);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { run, tr } = setup(new Date(sendAfter.getTime() + 27 * HOUR));
@@ -1095,7 +1245,7 @@ describe('runDigest: the send window', () => {
   it('claims older than 23 h expire instead of being replayed; the issue then finishes', async () => {
     const issue = await seedIssue({ status: 'sending', snapshot: { version: 1, issueId: 'x', origin: 'https://picks.test', events: [] } as never });
     await seedMany(2);
-    await claim.claimFresh(issue.id, { kind: 'digest', categories: ['ai'] }, 2, 'dbk_x', new Date(SEND_AFTER.getTime() + HOUR), db);
+    await claim.claimFresh(issue.id, { kind: 'digest', cells: cellsOf(['ai']) }, 2, 'dbk_x', new Date(SEND_AFTER.getTime() + HOUR), db);
     const { run, tr } = setup(new Date(SEND_AFTER.getTime() + 24 * HOUR + 2 * MIN));
     expect(await run()).toMatchObject({ ok: true, failed: 2, sent: 0, status: 'sent' });
     expect(tr.calls).toHaveLength(0);
@@ -1198,6 +1348,50 @@ describe('runDigest with the real assemble.ts and render.ts', () => {
     expect(byTo[subs[0].email].html).not.toContain('Renamed');
     expect(byTo[subs[1].email].subject).toBe(COPY.zh.subject(2, 0));
     expect(byTo[subs[2].email].subject).toBe(COPY.en.emptySubject);
+  });
+
+  it('F19: each reader gets the events their facets allow, with the facet line; readers without facets get the pre-F19 email', async () => {
+    const en = await addEvent({ category: 'ai', titleEn: 'English Agents Night' });
+    await addEvent({ category: 'ai', titleEn: 'Chinese Founders Dinner', eventLanguage: 'zh', startAt: new Date('2026-10-16T02:00:00Z') });
+    await addEvent({ category: 'ai', titleEn: 'Bilingual Hybrid Demo', eventLanguage: 'bilingual', format: 'hybrid', startAt: new Date('2026-10-17T02:00:00Z') });
+    const issue = await seedIssue();
+    const plain = await seedSub({ categories: ['ai'] });
+    const zh = await seedSub({ categories: ['ai'], evLangPref: ['zh'] });
+    const remoteZh = await seedSub({ categories: ['ai'], evLangPref: ['zh'], onlineOnly: true, locale: 'zh' });
+    const { run, tr } = setup();
+    expect(await run()).toMatchObject({ ok: true, sent: 3, failed: 0, status: 'sent' });
+    expect(Object.fromEntries((await sends(issue.id)).map((r) => [r.subscriberId, r.variantKey]))).toEqual({
+      [plain.id]: 'en:ai', [zh.id]: 'en:ai;l=zh', [remoteZh.id]: 'zh:ai;l=zh;o',
+    });
+    const byTo = Object.fromEntries(tr.sent().map((e) => [e.to, e]));
+    expect(byTo[plain.email].subject).toBe(COPY.en.subject(3, 0));
+    expect(byTo[plain.email].html).toContain('English Agents Night');
+    expect(byTo[plain.email].html).not.toContain('You can change this in your preferences.');
+    expect(byTo[zh.email].subject).toBe(COPY.en.subject(2, 0));
+    expect(byTo[zh.email].html).not.toContain('English Agents Night');
+    expect(byTo[zh.email].text).toContain(COPY.en.facetNote(COPY.en.facets.zh));
+    expect(byTo[remoteZh.email].subject).toBe(COPY.zh.subject(1, 0));
+    expect(byTo[remoteZh.email].text).toContain('只收：线上（含线上线下同步）的中文或双语活动。');
+    expect(byTo[remoteZh.email].html).not.toContain(`/events/event-${en}`);
+  });
+
+  it('F19: a claim keeps its variant: a pre-F19 key replays byte-identically after the reader sets facets', async () => {
+    await addEvent({ category: 'ai', titleEn: 'English Agents Night' });
+    await addEvent({ category: 'ai', titleEn: 'Chinese Founders Dinner', eventLanguage: 'zh', startAt: new Date('2026-10-16T02:00:00Z') });
+    const issue = await seedIssue();
+    const sub = await seedSub({ categories: ['ai'] });
+    const { tr, clock } = setup();
+    const deps = { now: clock.now, sleep: clock.sleep, transport: tr.t, mode: 'live' as const, dailyCap: 1000 };
+    await expect(runDigest({ ...deps, db: crashOnce(db, 'resend_id = v.rid') })).rejects.toThrow('connection lost');
+    expect(await sends(issue.id)).toMatchObject([{ subscriberId: sub.id, variantKey: 'en:ai', resendId: null }]);
+    // Mid-issue the reader narrows to Chinese events, online only: the claimed email doesn't change.
+    await db.update(subscribers).set({ evLangPref: ['zh'], onlineOnly: true }).where(eq(subscribers.id, sub.id));
+    clock.advance(11 * MIN);
+    expect(await runDigest({ ...deps, db })).toMatchObject({ ok: true, replayed: 1, failed: 0, status: 'sent' });
+    expect(tr.calls[1].key).toBe(tr.calls[0].key);
+    expect(tr.calls[1].json).toBe(tr.calls[0].json);
+    expect(tr.calls[1].emails[0].subject).toBe(COPY.en.subject(2, 0));
+    expect(tr.calls[1].emails[0].text).not.toContain('Only:');
   });
 
   it('an over-size variant is refused as too_large by the real renderer, and the run fails', async () => {

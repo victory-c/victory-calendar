@@ -1,3 +1,4 @@
+import { licenseUrl } from '../covers/credit';
 import { platformName } from '../events/platform';
 import type { PublicEvent } from '../events/types';
 
@@ -12,6 +13,9 @@ import type { PublicEvent } from '../events/types';
 // template), and the official_covers_to_template switch forces every official cover to the template.
 // "Luma-sourced" goes by where the image came from (the cover's source page) as well as the event's
 // current link, so editing the link to the host's own page doesn't sneak a Luma image into the email.
+// Brave search finds (licence unknown) always fall back too; Openverse and AI covers are used with
+// their stored credit. An Openverse credit also carries the work's page and the licence deed, which
+// the email links it to (CC BY / BY-SA 2.0 §4(a): the licence URI goes with every copy).
 
 export const EMAIL_COVER_PX = 192;
 
@@ -40,7 +44,7 @@ function fromLuma(e: Pick<PublicEvent, 'sourceUrl' | 'cover'>): boolean {
 /** True when the event's own cover would be replaced by the template in this issue. */
 export function coverFallsBack(e: EmailCoverInput, opts: EmailCoverOptions): boolean {
   const c = e.cover;
-  if (!c || c.kind === 'template' || !e.coverId) return true;
+  if (!c || c.kind === 'template' || c.kind === 'brave' || !e.coverId) return true;
   const official = c.kind === 'official' || c.kind === 'host_composite';
   if (!official) return false;
   if (opts.allToTemplate) return true;
@@ -56,11 +60,25 @@ export function isKeepableLumaCover(e: Pick<PublicEvent, 'sourceUrl' | 'cover'>,
   return Boolean(c && !allToTemplate && (c.kind === 'official' || c.kind === 'host_composite') && fromLuma(e));
 }
 
-export function emailCover(e: EmailCoverInput, origin: string, opts: EmailCoverOptions): { url: string; credit: string | null } {
+export type EmailCover = {
+  url: string;
+  credit: string | null;
+  /** Openverse only, when known: the work's page and the licence deed the credit links to. */
+  sourceUrl?: string;
+  licenseUrl?: string;
+};
+
+export function emailCover(e: EmailCoverInput, origin: string, opts: EmailCoverOptions): EmailCover {
   if (coverFallsBack(e, opts)) return { url: templateEmailUrl(origin, e.category), credit: null };
   const c = e.cover!;
   const url = `${trimOrigin(origin)}/og/email-cover/${encodeURIComponent(e.coverId!)}`;
-  return { url, credit: credit(e, c) };
+  const out: EmailCover = { url, credit: credit(e, c) };
+  if (c.kind === 'openverse') {
+    const deed = licenseUrl(c.license);
+    if (c.sourcePageUrl) out.sourceUrl = c.sourcePageUrl;
+    if (deed) out.licenseUrl = deed;
+  }
+  return out;
 }
 
 /**

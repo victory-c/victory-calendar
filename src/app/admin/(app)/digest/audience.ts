@@ -1,18 +1,25 @@
 import { selectForVariant } from '@/lib/digest/select';
 import type { DigestSnapshot } from '@/lib/digest/types';
 import { type Variant, variantKey } from '@/lib/digest/variant';
+import type { Facets } from '@/lib/events/facets';
 
 // /admin/digest audience list: one render per distinct email instead of one per variant. The
-// template reads a variant's categories only through selectForVariant, so two variants of the same
-// language whose picked categories have the same content (a pick this week or a preview item) get
-// byte-identical emails, and every variant with no picks gets the same empty notice.
+// template reads a variant's categories and facets only through selectForVariant, and the facets
+// once more for the footer note (copy.ts facetNote). Within one language and one facet choice, the
+// content of a category is fixed, so two variants whose picked categories have the same content (a
+// pick this week or a preview item) get byte-identical emails, and every variant with no picks gets
+// the same empty notice. Different facets always mean a different email (the note differs).
 
-/** What a variant's email depends on: language + the picked categories that have something to show. */
+const facetsOf = (v: Variant): Facets => ({ evLang: v.evLang ?? null, onlineOnly: v.onlineOnly === true });
+
+/** What a variant's email depends on: language, facets + the picked categories that have something to show. */
 export function emailKey(snap: DigestSnapshot, v: Variant): string {
   try {
-    const s = selectForVariant(snap, v.categories);
-    if (s.picks === 0) return `${v.locale}:empty`;
-    return variantKey(v.locale, [...s.sections.map((x) => x.category), ...s.preview.map((e) => e.category)]);
+    const f = facetsOf(v);
+    const s = selectForVariant(snap, v.categories, f);
+    // 'zh:empty' (+ the facet suffix, 'zh:empty;l=zh'): 'empty' isn't a slug, so never a variant key.
+    if (s.picks === 0) return `${v.locale}:empty${variantKey(v.locale, [], f).slice(v.locale.length + 1)}`;
+    return variantKey(v.locale, [...s.sections.map((x) => x.category), ...s.preview.map((e) => e.category)], f);
   } catch {
     return v.key; // a malformed snapshot: render this variant on its own and let it report the error
   }

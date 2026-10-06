@@ -201,6 +201,38 @@ describe('savePreferences', () => {
     expect(h.refreshes).toBe(0);
   });
 
+  it('F19: saves the event-language and online facets, and clears them', async () => {
+    const { row, token } = await seed();
+    const facets = { locale: 'en', c: 'ai', facets_present: '1' };
+    expect(await savePreferences(token, null, form({ ...facets, ev_lang: 'zh', online: '1' }))).toEqual({ ok: true, key: 'prefs.saved' });
+    expect(await get(row.id)).toMatchObject({ evLangPref: ['zh'], onlineOnly: true, categories: ['ai'] });
+    // "Bilingual only" isn't offered on the page but is a valid stored choice (it can come from a feed link).
+    await savePreferences(token, null, form({ ...facets, ev_lang: 'bilingual' }));
+    expect(await get(row.id)).toMatchObject({ evLangPref: ['bilingual'], onlineOnly: null });
+    await savePreferences(token, null, form({ ...facets, ev_lang: '', online: '1' }));
+    expect(await get(row.id)).toMatchObject({ evLangPref: null, onlineOnly: true });
+    await savePreferences(token, null, form(facets)); // "Any" unchecked radio posts nothing: no facets
+    expect(await get(row.id)).toMatchObject({ evLangPref: null, onlineOnly: null });
+  });
+
+  it('F19: a form without the facet section (a page from before F19) keeps the stored facets', async () => {
+    const { row, token } = await seed({ evLangPref: ['zh'], onlineOnly: true });
+    expect(await savePreferences(token, null, form({ locale: 'zh', c: ['ai', 'vc'] }))).toEqual({ ok: true, key: 'prefs.saved' });
+    expect(await get(row.id)).toMatchObject({ locale: 'zh', categories: ['ai', 'vc'], evLangPref: ['zh'], onlineOnly: true });
+  });
+
+  it.each([
+    ['an unknown event language', { ev_lang: 'fr' }],
+    ['an upper-case one', { ev_lang: 'ZH' }],
+    ['a forged online value', { online: 'yes' }],
+    ['online posted twice', { online: ['1', '1'] }],
+  ])('F19: rejects %s without changing anything', async (_label, extra: Record<string, string | string[]>) => {
+    const { row, token } = await seed({ evLangPref: ['en'] });
+    expect(await savePreferences(token, null, form({ locale: 'en', c: 'ai', facets_present: '1', ...extra }))).toEqual({ ok: false, key: 'state.error' });
+    expect(await get(row.id)).toEqual(row);
+    expect(h.refreshes).toBe(0);
+  });
+
   it('a stale page cannot resubscribe an unsubscribed row by saving', async () => {
     const { row, token } = await seed({ status: 'unsubscribed', unsubscribedAt: new Date() });
     expect(await savePreferences(token, null, form({ locale: 'en', c: 'ai' }))).toEqual({ ok: false, key: 'state.error' });
@@ -221,6 +253,12 @@ describe('changeLanguage', () => {
     expect(await changeLanguage(token, null, form({ locale: 'zh' }))).toEqual({ ok: true, key: 'prefs.langSwitchedZh' });
     expect(await changeLanguage(token, null, form({ locale: 'en' }))).toEqual({ ok: true, key: 'prefs.langSwitchedEn' });
     expect((await get(row.id)).locale).toBe('en');
+  });
+
+  it('F19: leaves the facets alone, whatever the post carries', async () => {
+    const { row, token } = await seed({ evLangPref: ['zh'], onlineOnly: true });
+    expect(await changeLanguage(token, null, form({ locale: 'zh', facets_present: '1', ev_lang: '' }))).toEqual({ ok: true, key: 'prefs.langSwitchedZh' });
+    expect(await get(row.id)).toMatchObject({ locale: 'zh', evLangPref: ['zh'], onlineOnly: true });
   });
 
   it('works for pending and paused rows without changing their status', async () => {
@@ -494,6 +532,8 @@ describe('markup', () => {
   };
   const text = {
     language: 'Email language', en: 'English', zh: '中文', categories: 'Categories', save: 'Save', saving: 'Saving…',
+    evLang: 'Event language', evLangAny: 'Any', evLangZh: 'Chinese or bilingual', evLangEn: 'English or bilingual',
+    evLangBilingual: 'Bilingual only', onlineOnly: 'Online events only (incl. hybrid)',
     pauseTitle: 'Take a break', pause: 'Pause for 4 weeks', resume: 'Resume now', leaveTitle: 'Unsubscribe',
     unsubscribeAll: 'Unsubscribe from everything', resubscribe: 'Subscribe again',
   };
@@ -501,10 +541,10 @@ describe('markup', () => {
     ['prefs.saved', 'prefs.unsubscribed', 'prefs.paused', 'prefs.resumed', 'prefs.resubscribed', 'prefs.resubscribePending', 'prefs.linkExpired', 'prefs.statusSuppressed', 'link.unavailable', 'state.error', 'prefs.langSwitchedEn', 'prefs.langSwitchedZh'].map((k) => [k, k]),
   ) as Parameters<typeof PrefsForm>[0]['messages'];
   type Props = Parameters<typeof PrefsForm>[0];
-  const prefs = (status: Props['status'], language?: Props['language']) =>
+  const prefs = (status: Props['status'], language?: Props['language'], facets: Props['facets'] = { evLang: null, onlineOnly: false }) =>
     renderToStaticMarkup(
       createElement(PrefsForm, {
-        locale: 'en', status, emailLocale: 'zh', categories: ['ai', 'cycling'],
+        locale: 'en', status, emailLocale: 'zh', categories: ['ai', 'cycling'], facets,
         actions: { save: noop, pause: noop, leave: noop }, text, messages, language,
       }),
     );
@@ -546,6 +586,26 @@ describe('markup', () => {
     expect(checked(html, 'c', 'hackathon')).toBe(false);
     expect(html).toContain('<span lang="zh-Hans">中文</span>');
     expect(html).toContain('name="intent" value="pause"');
+  });
+
+  it('F19: one event-language radio group and an online checkbox in the preferences form, showing the stored choice', () => {
+    const html = prefs('active');
+    const form = html.match(/<form[^>]*>[\s\S]*?<\/form>/g)!.find((f) => f.includes('name="c"'))!;
+    expect(form).toContain('<input type="hidden" name="facets_present" value="1"/>');
+    expect(form).toContain('Event language');
+    expect([checked(html, 'ev_lang', ''), checked(html, 'ev_lang', 'zh'), checked(html, 'ev_lang', 'en')]).toEqual([true, false, false]);
+    expect(html).not.toContain('value="bilingual"'); // not offered unless it is the stored choice
+    expect(checked(html, 'online', '1')).toBe(false);
+    for (const label of ['Any', 'Chinese or bilingual', 'English or bilingual', 'Online events only (incl. hybrid)']) {
+      expect(form).toMatch(new RegExp(`<label class="[^"]*\\bmin-h-11\\b[^"]*">(?:(?!</label>).)*${label.replace(/[()]/g, '\\$&')}`));
+    }
+    const zh = prefs('active', undefined, { evLang: 'zh', onlineOnly: true });
+    expect([checked(zh, 'ev_lang', ''), checked(zh, 'ev_lang', 'zh')]).toEqual([false, true]);
+    expect(checked(zh, 'online', '1')).toBe(true);
+    const bi = prefs('paused', undefined, { evLang: 'bilingual', onlineOnly: false });
+    expect(checked(bi, 'ev_lang', 'bilingual')).toBe(true);
+    expect(bi).toContain('Bilingual only');
+    expect(prefs('unsubscribed')).not.toContain('name="ev_lang"');
   });
 
   it('paused rows get Resume; pending rows get no pause section; unsubscribed rows only Subscribe again', () => {

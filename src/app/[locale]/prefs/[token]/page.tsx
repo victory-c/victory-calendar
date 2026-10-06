@@ -114,6 +114,7 @@ async function Prefs({ locale, params, searchParams }: Props & { locale: Locale 
           status={status}
           emailLocale={view.locale}
           categories={view.categories}
+          facets={{ evLang: view.evLang, onlineOnly: view.onlineOnly }}
           actions={{
             save: savePreferences.bind(null, token),
             pause: changePause.bind(null, token),
@@ -124,6 +125,12 @@ async function Prefs({ locale, params, searchParams }: Props & { locale: Locale 
             en: t('form.en'),
             zh: t('form.zh'),
             categories: t('form.categories'),
+            evLang: t('prefs.evLang'),
+            evLangAny: t('prefs.evLangAny'),
+            evLangZh: t('prefs.evLangZh'),
+            evLangEn: t('prefs.evLangEn'),
+            evLangBilingual: t('prefs.evLangBilingual'),
+            onlineOnly: t('prefs.onlineOnly'),
             save: t('prefs.save'),
             saving: t('prefs.saving'),
             pauseTitle: t('prefs.pauseTitle'),

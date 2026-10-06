@@ -1,3 +1,4 @@
+import { shareCardAllowed } from '../covers/credit';
 import { isoWithOffset } from '../format/date';
 import type { PublicEvent } from './types';
 
@@ -28,7 +29,8 @@ export function eventJsonLd(e: PublicEvent, name: string) {
     ...(e.hostName ? { organizer: { '@type': 'Organization', name: e.hostName, ...(e.hostUrl ? { url: e.hostUrl } : {}) } } : {}),
     ...(price !== null ? { offers: { '@type': 'Offer', price, priceCurrency: 'USD', url: e.sourceUrl } } : {}),
     url: e.sourceUrl,
-    ...(e.cover && e.cover.kind !== 'template' ? { image: [e.cover.url1600] } : {}),
+    // Same rule as the share card: no template, no Brave find, no Openverse image that needs a credit.
+    ...(e.cover && shareCardAllowed(e.cover) ? { image: [e.cover.url1600] } : {}),
   };
 }
 

@@ -102,8 +102,8 @@ describe('/privacy', () => {
       expect($(el).attr('id')).toMatch(/^[a-z]+$/);
       expect($(el).children().first().is('h2')).toBe(true);
     });
-    expect($('time').attr('datetime')).toBe('2026-10-05');
-    expect($('time').parent().text()).toBe(locale === 'zh' ? '最后更新：2026-10-05' : 'Last updated 2026-10-05');
+    expect($('time').attr('datetime')).toBe('2026-10-06');
+    expect($('time').parent().text()).toBe(locale === 'zh' ? '最后更新：2026-10-06' : 'Last updated 2026-10-06');
   });
 
   it.each(['en', 'zh'] as const)('%s: every placeholder and tag is filled, nothing raw leaks through', async (locale) => {
@@ -382,6 +382,35 @@ describe('the facts /privacy states', () => {
     // The takedown promise covers those too.
     expect(en.Privacy.takedown.items.promise).toContain('made from host photos');
     expect(zh.Privacy.takedown.items.promise).toContain('主办方头像拼图');
+  });
+
+  it('a cover can also be an image Victor uploaded or linked by hand: it reaches emails and share cards, so the list names it', async () => {
+    const { coverFallsBack } = await import('@/lib/digest/cover');
+    const { shareCardAllowed } = await import('@/lib/covers/credit');
+    for (const kind of ['upload', 'url'] as const) {
+      const cover = {
+        kind, url400: '', url800: '', url1600: '', thumbhash: '', dominant: '', letterboxed: false,
+        attribution: null, license: null, sourcePageUrl: kind === 'url' ? 'https://example.org/poster.png' : null,
+      };
+      const e = { id: 'evt_x', category: 'ai' as const, hostName: 'A host', sourceUrl: 'https://lu.ma/x', cover, coverId: 'cov_x' };
+      expect(coverFallsBack(e, { keep: new Set(), allToTemplate: true }), kind).toBe(false);
+      expect(shareCardAllowed(cover), kind).toBe(true);
+    }
+    expect(en.Privacy.takedown.items.keep).toContain('an image I uploaded or linked to by hand');
+    expect(zh.Privacy.takedown.items.keep).toContain('我手动上传或贴链接的图片');
+  });
+
+  it('zh names the Brave credit and the online-only filter as zh readers see them', () => {
+    // The event page credits a Brave find with Event.coverVia; Brave covers never reach emails or share cards.
+    expect(zh.Event.coverVia).toMatch(/^图片来自 /);
+    expect(zh.Privacy.takedown.items.keep).toContain('注明「图片来自」所在网站');
+    expect(JSON.stringify(zh.Privacy)).not.toContain('Image via');
+    // The /prefs checkbox label, not a name used nowhere else.
+    expect(zh.Newsletter.prefs.onlineOnly).toMatch(/^只要线上活动/);
+    expect(JSON.stringify(zh.Privacy)).not.toContain('只看线上');
+    for (const s of [zh.Privacy.browse.items.feeds, zh.Privacy.subscribe.items.email, zh.Privacy.choices.items.prefs]) {
+      expect(s).toContain('「只要线上活动」');
+    }
   });
 
   it('the referrer policy sends other sites only our origin', async () => {

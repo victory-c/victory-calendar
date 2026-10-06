@@ -1,5 +1,6 @@
 // Add-to-calendar URL formats. None of these are officially documented, so every format is
 // pinned by snapshot tests (tests/calendar-links.test.ts).
+import { type EvLang, facetParams } from './events/facets';
 import type { Locale } from './taxonomy';
 
 const stamp = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
@@ -26,11 +27,20 @@ export function outlookSubscribe(httpsUrl: string, name: string) {
   return `https://outlook.live.com/calendar/0/addfromweb?${q}`;
 }
 
-/** Feed URL for a category/language selection: /calendar.ics?c=ai,hackathon&lang=zh */
-export function feedUrl(origin: string, opts: { cats?: readonly string[]; locale: Locale; going?: boolean }) {
+/**
+ * Feed URL for a selection: /calendar.ics?c=ai,hackathon&lang=zh&ev_lang=zh&online=1. Params in
+ * a fixed order (c, lang, ev_lang, online), so one selection is one CDN cache entry. `lang` is the
+ * language the feed is written in; `ev_lang` / `online` are the F19 facets. going.ics takes neither
+ * categories nor facets.
+ */
+export function feedUrl(
+  origin: string,
+  opts: { cats?: readonly string[]; locale: Locale; going?: boolean; evLang?: EvLang | null; onlineOnly?: boolean },
+) {
   const q = new URLSearchParams();
   if (!opts.going && opts.cats?.length) q.set('c', opts.cats.join(','));
   if (opts.locale === 'zh') q.set('lang', 'zh');
+  if (!opts.going) for (const [k, v] of facetParams({ evLang: opts.evLang ?? null, onlineOnly: opts.onlineOnly === true })) q.set(k, v);
   const path = opts.going ? '/calendar/going.ics' : '/calendar.ics';
   const qs = q.toString().replace(/%2C/g, ',');
   return `${origin}${path}${qs ? `?${qs}` : ''}`;

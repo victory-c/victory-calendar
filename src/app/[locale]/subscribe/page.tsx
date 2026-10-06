@@ -3,8 +3,9 @@ import { getLocale, getTranslations } from 'next-intl/server';
 import { connection } from 'next/server';
 import { Suspense } from 'react';
 import { PageShell } from '@/components/PageShell';
-import { type SubscribeCopy, SubscribeForm } from '@/components/SubscribeForm';
+import { type SubscribeCopy, type SubscribeFacets, SubscribeForm } from '@/components/SubscribeForm';
 import { SubscribeMenu } from '@/components/SubscribeMenu';
+import { hasFacets } from '@/lib/events/facets';
 import { newsletterStatus } from '@/lib/newsletter/status';
 import { parseSubscribeParams } from '@/lib/newsletter/subscribe-state';
 import { pageMeta } from '@/lib/seo';
@@ -21,7 +22,8 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 // Open or closed is read from env, so it is fixed per deployment and part of the static shell.
-// Only the query (?c= prefill, ?link= notice) is read at request time, inside Suspense.
+// Only the query (?c= prefill, ?ev_lang= / ?online= facets, ?link= notice) is read at request
+// time, inside Suspense.
 export default async function SubscribePage({ searchParams }: { searchParams: SearchParams }) {
   const locale = (await getLocale()) as Locale;
   const t = await getTranslations({ locale, namespace: 'Newsletter' });
@@ -65,7 +67,7 @@ export default async function SubscribePage({ searchParams }: { searchParams: Se
 
 async function Body({ locale, open, searchParams }: { locale: Locale; open: boolean; searchParams: SearchParams }) {
   await connection();
-  const { cats, link } = parseSubscribeParams(await searchParams);
+  const { cats, facets, link } = parseSubscribeParams(await searchParams);
   const t = await getTranslations({ locale, namespace: 'Newsletter' });
   const notice = link && (
     <p className="mt-6 max-w-prose rounded-card border border-rule px-4 py-3 text-sm text-seal-text">{t(link === 'expired' ? 'link.expired' : 'link.invalid')}</p>
@@ -75,7 +77,7 @@ async function Body({ locale, open, searchParams }: { locale: Locale; open: bool
       <>
         {notice}
         {/* The only SubscribeMenu on this page, so id="subscribe" stays unique. Empty cats = all. */}
-        <SubscribeMenu locale={locale} cats={cats} />
+        <SubscribeMenu locale={locale} cats={cats} facets={facets} />
       </>
     );
   }
@@ -103,10 +105,23 @@ async function Body({ locale, open, searchParams }: { locale: Locale; open: bool
       busy: t('state.busy'),
     },
   };
+  // F19: facets from a feed menu's link; the form keeps them in hidden fields and says so in one line.
+  // Both set read as one phrase ("online Chinese or bilingual events"): they AND, like the email's note.
+  const lang = facets.evLang && t(`facets.${facets.evLang}`);
+  const carried: SubscribeFacets | undefined = hasFacets(facets)
+    ? {
+        value: facets,
+        summary: t('form.facets', {
+          facets: !lang ? t('facets.online') : facets.onlineOnly ? t('facets.onlineOf', { events: lang }) : lang,
+        }),
+        remove: t('form.facetsRemove'),
+        removed: t('form.facetsRemoved'),
+      }
+    : undefined;
   return (
     <>
       {notice}
-      <SubscribeForm locale={locale} categories={cats.length ? cats : [...CATEGORY_SLUGS]} copy={copy} />
+      <SubscribeForm locale={locale} categories={cats.length ? cats : [...CATEGORY_SLUGS]} copy={copy} facets={carried} />
     </>
   );
 }

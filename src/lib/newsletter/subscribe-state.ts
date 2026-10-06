@@ -1,3 +1,4 @@
+import { type Facets, facetsFromParams } from '../events/facets';
 import { type Category, type Locale, parseCategories } from '../taxonomy';
 
 // Shared by the subscribe Server Action and SubscribeForm. A 'use server' file may only export
@@ -34,11 +35,12 @@ export type LinkProblem = 'invalid' | 'expired';
 type SearchParams = Record<string, string | string[] | undefined>;
 
 /**
- * `/subscribe?c=ai,vc&link=expired`: the categories to preselect (known slugs only, possibly
- * none) and the link notice to show. Repeated `c` params are merged.
+ * `/subscribe?c=ai,vc&ev_lang=zh&online=1&link=expired`: the categories to preselect (known slugs
+ * only, possibly none), the F19 facets a feed menu carried over (unknown values ignored; the form
+ * keeps them in hidden fields) and the link notice to show. Repeated `c` params are merged.
  */
-export function parseSubscribeParams(sp: SearchParams): { cats: Category[]; link: LinkProblem | null } {
+export function parseSubscribeParams(sp: SearchParams): { cats: Category[]; facets: Facets; link: LinkProblem | null } {
   const c = Array.isArray(sp.c) ? sp.c.join(',') : sp.c;
   const link = sp.link === 'invalid' || sp.link === 'expired' ? sp.link : null;
-  return { cats: parseCategories(c), link };
+  return { cats: parseCategories(c), facets: facetsFromParams(sp), link };
 }

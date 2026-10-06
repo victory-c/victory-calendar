@@ -1,6 +1,7 @@
 'use client';
 import { type Ref, type RefObject, useActionState, useEffect, useId, useRef, useState } from 'react';
 import type { PrefsKey, PrefsState } from '@/app/[locale]/prefs/actions';
+import type { EvLang } from '@/lib/events/facets';
 import type { Category, Locale } from '@/lib/taxonomy';
 import { CategoryCheckboxes } from './CategoryCheckboxes';
 
@@ -12,6 +13,13 @@ export type PrefsText = {
   en: string;
   zh: string;
   categories: string;
+  /** F19 facets: the event-language radio group and the online-only checkbox. */
+  evLang: string;
+  evLangAny: string;
+  evLangZh: string;
+  evLangEn: string;
+  evLangBilingual: string;
+  onlineOnly: string;
   save: string;
   saving: string;
   pauseTitle: string;
@@ -50,9 +58,9 @@ export function useRefocus(pending: boolean, ...targets: RefObject<HTMLElement |
 }
 
 /**
- * Preference center controls (guide「偏好中心」): language and categories, pause, unsubscribe or
- * resubscribe, plus a one-tap language switch when the page was opened from an email's language
- * link. Each section is its own form and Server Action (already bound to the link token); the
+ * Preference center controls (guide「偏好中心」): language, categories and the F19 facets (event
+ * language, online only), pause, unsubscribe or resubscribe, plus a one-tap language switch when
+ * the page was opened from an email's language link. Each section is its own form and Server Action (already bound to the link token); the
  * action's refresh() re-renders the page, which swaps the buttons. Suppressed rows get no controls
  * at all; the page shows only their status.
  */
@@ -61,6 +69,7 @@ export function PrefsForm({
   status,
   emailLocale,
   categories,
+  facets,
   actions,
   text,
   messages,
@@ -72,6 +81,7 @@ export function PrefsForm({
   status: Status;
   emailLocale: Locale;
   categories: readonly Category[];
+  facets: { evLang: EvLang | null; onlineOnly: boolean };
   actions: { save: Action; pause: Action; leave: Action };
   text: PrefsText;
   messages: Messages;
@@ -102,6 +112,7 @@ export function PrefsForm({
           locale={locale}
           emailLocale={emailLocale}
           categories={categories}
+          facets={facets}
           slot={{ state: last === 'leave' ? null : saved, action: save, pending: saving, onSubmit: () => setLast('save') }}
           buttonRef={saveButton}
           messageRef={saveMessage}
@@ -129,6 +140,7 @@ function Preferences({
   locale,
   emailLocale,
   categories,
+  facets,
   slot,
   buttonRef,
   messageRef,
@@ -138,6 +150,7 @@ function Preferences({
   locale: Locale;
   emailLocale: Locale;
   categories: readonly Category[];
+  facets: { evLang: EvLang | null; onlineOnly: boolean };
   slot: Slot;
   text: PrefsText;
   messages: Messages;
@@ -156,6 +169,7 @@ function Preferences({
         </div>
       </fieldset>
       <CategoryCheckboxes locale={locale} legend={text.categories} selected={categories} />
+      <Facets facets={facets} text={text} />
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <button ref={buttonRef} className={primary} disabled={slot.pending}>
           {slot.pending ? text.saving : text.save}
@@ -163,6 +177,41 @@ function Preferences({
         <Message ref={messageRef} state={slot.state} messages={messages} />
       </div>
     </form>
+  );
+}
+
+/**
+ * F19 facets for the email (and nothing else: feeds carry their own in the URL). One radio for the
+ * event language, stored as a one-element ev_lang_pref; "bilingual only" is offered only to a
+ * reader who already has it (it can arrive from a feed menu's link), so the group always shows the
+ * stored choice. `facets_present` tells the action this section was on the page.
+ */
+function Facets({ facets, text }: { facets: { evLang: EvLang | null; onlineOnly: boolean }; text: PrefsText }) {
+  const options: [value: '' | EvLang, label: string][] = [
+    ['', text.evLangAny],
+    ['zh', text.evLangZh],
+    ['en', text.evLangEn],
+    ...(facets.evLang === 'bilingual' ? [['bilingual', text.evLangBilingual] as ['bilingual', string]] : []),
+  ];
+  return (
+    <div className="space-y-2">
+      <input type="hidden" name="facets_present" value="1" />
+      <fieldset>
+        <legend className="text-sm text-muted">{text.evLang}</legend>
+        <div className="mt-2 flex flex-wrap gap-x-6">
+          {options.map(([value, label]) => (
+            <label key={value || 'any'} className="inline-flex min-h-11 cursor-pointer items-center gap-2 md:min-h-8">
+              <input type="radio" name="ev_lang" value={value} defaultChecked={(facets.evLang ?? '') === value} className="size-5 accent-ink" />
+              <span>{label}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 md:min-h-8">
+        <input type="checkbox" name="online" value="1" defaultChecked={facets.onlineOnly} className="size-5 accent-ink" />
+        <span>{text.onlineOnly}</span>
+      </label>
+    </div>
   );
 }
 

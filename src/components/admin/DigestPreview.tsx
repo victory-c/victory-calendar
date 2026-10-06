@@ -3,8 +3,8 @@ import Link from 'next/link';
 import { CATEGORIES, CATEGORY_SLUGS } from '@/lib/taxonomy';
 import { btn } from './ui';
 
-// /admin/digest preview: pick a language and categories (a GET form, so the choice lives in the
-// URL), see the rendered email in a sandboxed iframe, the subject and size against the limit,
+// /admin/digest preview: pick a language, categories and the F19 facets (a GET form, so the choice
+// lives in the URL: l, c, ev, o), see the rendered email in a sandboxed iframe, the subject and size against the limit,
 // every audience variant with its recipient count, and what to fix before scheduling. Rendering
 // happens in the page; this component only lays the results out.
 
@@ -33,6 +33,9 @@ export function DigestPreview(p: {
   week: string | null;
   locale: 'en' | 'zh';
   categories: readonly string[];
+  /** F19 facets of the previewed variant (Send test and Send to seeds carry them too). */
+  evLang: 'en' | 'zh' | 'bilingual' | null;
+  onlineOnly: boolean;
   result: PreviewRender;
   maxBytes: number;
   audience: AudienceRow[];
@@ -91,6 +94,21 @@ export function DigestPreview(p: {
               </label>
             ))}
           </fieldset>
+          <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+            <label className="text-sm">
+              <span className="block text-muted">Event language · 活动语言</span>
+              <select name="ev" defaultValue={p.evLang ?? ''} className="mt-1 h-11 rounded-lg border border-rule bg-paper px-3">
+                <option value="">Any · 不限</option>
+                <option value="zh">zh + bilingual · 中文或双语</option>
+                <option value="en">en + bilingual · 英文或双语</option>
+                <option value="bilingual">Bilingual only · 仅双语</option>
+              </select>
+            </label>
+            <label className="flex min-h-11 items-center gap-2">
+              <input type="checkbox" name="o" value="1" defaultChecked={p.onlineOnly} className="size-5 accent-ink" />
+              <span>Online only · 只看线上</span>
+            </label>
+          </div>
           <button type="submit" className={`${btn.small} h-11`}>Preview · 预览</button>
         </Form>
 

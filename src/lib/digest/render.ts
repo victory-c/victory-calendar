@@ -1,8 +1,9 @@
 import 'server-only';
 import { createElement, type ReactElement } from 'react';
 import { render, toPlainText } from 'react-email';
-import { COPY, other } from '@/emails/copy';
+import { COPY, facetNote, other } from '@/emails/copy';
 import { DigestEmail, EmptyNoticeEmail, MSO_SWAPS } from '@/emails/digest';
+import type { Facets } from '../events/facets';
 import { linksFor } from '../subscribers/links';
 import type { Locale } from '../taxonomy';
 import { introLines } from './fields';
@@ -104,11 +105,15 @@ async function finish(
   return { ...meta, html, text, bytes };
 }
 
+/** A variant's F19 facets; a key written before F19 (or a hand-built variant) has none. */
+const variantFacets = (v: Variant): Facets => ({ evLang: v.evLang ?? null, onlineOnly: v.onlineOnly === true });
+
 /** The digest for one variant, or null when it has no picks this week (see renderEmptyNotice). */
 export async function renderVariant(snap: DigestSnapshot, variant: Variant): Promise<RenderedEmail | null> {
   assertSnapshot(snap);
   const locale = variant.locale;
-  const selection = selectForVariant(snap, variant.categories);
+  const facets = variantFacets(variant);
+  const selection = selectForVariant(snap, variant.categories, facets);
   if (selection.picks === 0) return null;
   const going = snap.showAttendance ? selection.going.length : 0;
   const intro = introLines(snap, locale);
@@ -122,6 +127,7 @@ export async function renderVariant(snap: DigestSnapshot, variant: Variant): Pro
     intro,
     selection,
     links: digestLinks(snap, locale, TOKEN),
+    facetNote: facetNote(locale, facets),
   });
   return finish(element, { subject, preheader, picks: selection.picks, going }, LINKS.digest);
 }
@@ -130,9 +136,10 @@ export async function renderVariant(snap: DigestSnapshot, variant: Variant): Pro
 export async function renderEmptyNotice(snap: DigestSnapshot, variant: Variant): Promise<RenderedEmail> {
   assertSnapshot(snap);
   const locale = variant.locale;
+  const note = facetNote(locale, variantFacets(variant));
   const subject = COPY[locale].emptySubject;
-  const preheader = COPY[locale].emptyBody;
-  const element = createElement(EmptyNoticeEmail, { locale, snap, subject, preheader, links: digestLinks(snap, locale, TOKEN) });
+  const preheader = note ? COPY[locale].emptyBodyFiltered : COPY[locale].emptyBody;
+  const element = createElement(EmptyNoticeEmail, { locale, snap, subject, preheader, links: digestLinks(snap, locale, TOKEN), facetNote: note });
   return finish(element, { subject, preheader, picks: 0, going: 0 }, LINKS.empty);
 }
 

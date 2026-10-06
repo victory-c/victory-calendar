@@ -12,7 +12,7 @@ import { SiteFooter } from '@/components/SiteFooter';
 import { SiteHeader } from '@/components/SiteHeader';
 import { SubscribeMenu } from '@/components/SubscribeMenu';
 import { WeekStrip } from '@/components/WeekStrip';
-import { applyFilters, parseFilters } from '@/lib/events/filters';
+import { applyFilters, feedFacets, hasSiteOnlyFilter, parseFilters } from '@/lib/events/filters';
 import { publicGoing, type SealKind } from '@/lib/events/going';
 import { getUpcoming } from '@/lib/events/queries';
 import { hasDatabase } from '@/lib/db';
@@ -71,7 +71,7 @@ async function Week({ locale, searchParams }: { locale: Locale; searchParams: Pa
   return (
     <>
       <FacetPanel locale={locale} filters={filters} action={locale === 'zh' ? '/zh' : '/'} />
-      <SubscribeMenu locale={locale} cats={filters.cats} />
+      <SubscribeMenu locale={locale} cats={filters.cats} facets={feedFacets(filters)} siteOnly={hasSiteOnlyFilter(filters)} />
       <WeekStrip events={visible} todayKey={data.todayKey} locale={locale} />
       <GoingStrip items={goingItems} locale={locale} />
       <FeaturedRail items={featured.map((e) => ({ event: e, going: going(e) }))} locale={locale} />
