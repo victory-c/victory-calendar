@@ -2,26 +2,31 @@ import { createHash } from 'node:crypto';
 import Link from 'next/link';
 import { connection } from 'next/server';
 import { Suspense } from 'react';
-import { DigestEditor, type DigestEditorEvent } from '@/components/admin/DigestEditor';
+import { DigestEditor, type DigestEditorEvent, type SeedInfo } from '@/components/admin/DigestEditor';
 import { type AudienceRow, DigestPreview, type DigestWarning, type PreviewRender } from '@/components/admin/DigestPreview';
 import { Chip, Screen } from '@/components/admin/ui';
+import { SocialExport } from '@/components/admin/SocialExport';
+import { WeChatExport } from '@/components/admin/WeChatExport';
 import { requireAdmin } from '@/lib/admin-session';
 import type { digestIssues } from '@/lib/db/schema';
 import { buildSnapshot, lumaCoverChoices } from '@/lib/digest/assemble';
+import { exportPanels, liveFor } from '@/lib/digest/export-source';
 import { audience, ensureIssue, getIssueByWeek, listIssues } from '@/lib/digest/issues';
 import { MAX_HTML_BYTES, personalize, renderEmptyNotice, renderVariant } from '@/lib/digest/render';
 import { dailyCapFromEnv } from '@/lib/digest/run';
+import { seedCoverage, seedEmails } from '@/lib/digest/seeds';
 import type { DigestSnapshot } from '@/lib/digest/types';
 import { parseVariantKey, type Variant, variantKey } from '@/lib/digest/variant';
 import { coverage, LATE_LIMIT_MS, sendAfterFor, upcomingIssueWeek } from '@/lib/digest/week';
 import { maskEmail } from '@/lib/email/send';
 import { titles } from '@/lib/events/display';
+import { isEvLang } from '@/lib/events/facets';
 import { publicEvents } from '@/lib/events/public-rows';
 import type { PublicEvent } from '@/lib/events/types';
 import { fmtRange, PT } from '@/lib/format/date';
 import { aiConfigured } from '@/lib/ingest/extract';
 import { describeError } from '@/lib/log-safe';
-import { digestMode } from '@/lib/newsletter/status';
+import { digestMode, hasVerifiedSender } from '@/lib/newsletter/status';
 import { readSetting } from '@/lib/settings';
 import { normalizeEmail } from '@/lib/subscribers/service';
 import { CATEGORIES, CATEGORY_SLUGS, isCategory, type Locale } from '@/lib/taxonomy';
@@ -32,7 +37,7 @@ export const metadata = { title: 'Digest' };
 export const maxDuration = 300;
 
 type Issue = typeof digestIssues.$inferSelect;
-type Search = { w?: string | string[]; l?: string | string[]; c?: string | string[] };
+type Search = { w?: string | string[]; l?: string | string[]; c?: string | string[]; ev?: string | string[]; o?: string | string[] };
 
 const WEEK = /^\d{4}-W\d{2}$/;
 /** Same shape and length as a real link token, matching no subscriber (see digest-actions.ts). */
@@ -56,7 +61,17 @@ const fmtWeek = (from: Date, to: Date) =>
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 const isMissed = (i: Pick<Issue, 'status' | 'sendAfter'>, now: Date) =>
   i.status === 'scheduled' && i.sendAfter !== null && now.getTime() >= i.sendAfter.getTime() + LATE_LIMIT_MS;
-const variantLabel = (v: Variant) => `${v.locale === 'zh' ? '中文' : 'EN'} · ${v.categories.map((c) => CATEGORIES[c][v.locale]).join(v.locale === 'zh' ? '、' : ', ')}`;
+/** F19 facets in a variant label (admin copy, both languages). */
+const FACET_LABEL = { zh: 'zh + bilingual · 中文或双语', en: 'en + bilingual · 英文或双语', bilingual: 'bilingual · 仅双语', online: 'online · 只看线上' } as const;
+const variantLabel = (v: Variant) =>
+  [
+    v.locale === 'zh' ? '中文' : 'EN',
+    v.categories.map((c) => CATEGORIES[c][v.locale]).join(v.locale === 'zh' ? '、' : ', '),
+    v.evLang && FACET_LABEL[v.evLang],
+    v.onlineOnly && FACET_LABEL.online,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 const eventTitle = (e: Pick<PublicEvent, 'titleEn' | 'titleZh'>) => {
   const t = titles(e, 'zh');
   return t.secondary ? `${t.primary} · ${t.secondary}` : t.primary;
@@ -70,7 +85,26 @@ function previewVariant(sp: Search): Variant {
   const locale: Locale = l === 'en' ? 'en' : 'zh';
   const raw = sp.c === undefined ? [] : Array.isArray(sp.c) ? sp.c : [sp.c];
   const cats = raw.flatMap((c) => c.split(',')).filter(isCategory);
-  return parseVariantKey(variantKey(locale, cats.length ? cats : CATEGORY_SLUGS)) as Variant;
+  const ev = first(sp.ev);
+  const facets = { evLang: isEvLang(ev) ? ev : null, onlineOnly: first(sp.o) === '1' };
+  return parseVariantKey(variantKey(locale, cats.length ? cats : CATEGORY_SLUGS, facets)) as Variant;
+}
+
+/** Seed inboxes by domain only (the addresses never reach the page), and why sending is off. */
+function seedInfo(): SeedInfo {
+  const seeds = seedEmails();
+  const verified = hasVerifiedSender();
+  return {
+    ...seedCoverage(seeds.emails),
+    count: seeds.emails.length,
+    ignored: seeds.invalid + seeds.extra,
+    ready: verified && seeds.emails.length > 0,
+    reason: !verified
+      ? 'Needs the verified mail.<domain> sender (checklist 1) · 需要先验证发信域名'
+      : seeds.emails.length === 0
+        ? 'DIGEST_SEED_EMAILS is not set · 没有配置种子邮箱'
+        : null,
+  };
 }
 
 async function renderFor(snap: DigestSnapshot, v: Variant): Promise<PreviewRender> {
@@ -115,8 +149,9 @@ async function Digest({ searchParams }: { searchParams: Promise<Search> }) {
 
   const cov = coverage(issue.isoWeek);
   const frozen = (issue.snapshot as DigestSnapshot | null) ?? null;
-  const [snap, weekEvents, nextEvents, toTemplate, lumaCovers, groups, recent] = await Promise.all([
+  const [snap, live, weekEvents, nextEvents, toTemplate, lumaCovers, groups, recent] = await Promise.all([
     frozen ? Promise.resolve(frozen) : buildSnapshot(issue).catch((e: unknown) => describeError(e)),
+    frozen ? liveFor(frozen).catch((e: unknown) => describeError(e)) : null,
     publicEvents({ from: cov.from, to: cov.to, statuses: ['published'] }),
     publicEvents({ from: cov.to, to: cov.previewTo, statuses: ['published'] }),
     readSetting('official_covers_to_template'),
@@ -146,6 +181,8 @@ async function Digest({ searchParams }: { searchParams: Promise<Search> }) {
   const audienceRows: AudienceRow[] = sorted.map((g, i) => {
     const r = rendered[i];
     const q = new URLSearchParams({ w: issue.isoWeek, l: g.variant.locale, c: g.variant.categories.join(',') });
+    if (g.variant.evLang) q.set('ev', g.variant.evLang);
+    if (g.variant.onlineOnly) q.set('o', '1');
     return {
       key: g.variant.key, label: variantLabel(g.variant), count: g.count, href: `/admin/digest?${q}`,
       subject: r?.ok ? r.subject : null, bytes: r?.ok ? r.bytes : null, empty: r?.ok ? r.empty : false,
@@ -207,6 +244,8 @@ async function Digest({ searchParams }: { searchParams: Promise<Search> }) {
     .digest('base64url')
     .slice(0, 16);
   const summary = recent.find((r) => r.id === issue.id);
+  // WeChat text, long image and Xiaohongshu: one export model (lib/digest/export-source.ts).
+  const panels = exportPanels(snap, issue, live, now, allToTemplate);
 
   return (
     <div className="space-y-8">
@@ -257,14 +296,24 @@ async function Digest({ searchParams }: { searchParams: Promise<Search> }) {
         canSendNow={canSendNow}
         modeOff={mode === 'off'}
         aiReady={aiConfigured()}
-        test={{ locale: variant.locale, categories: variant.categories.join(','), label: variantLabel(variant) }}
+        test={{
+          locale: variant.locale, categories: variant.categories.join(','), evLang: variant.evLang ?? '', online: variant.onlineOnly,
+          label: variantLabel(variant),
+        }}
         adminEmail={adminEmail ? maskEmail(adminEmail) : null}
+        seed={seedInfo()}
+        weeklyLink={Boolean(ready && ready.events.length > 0)}
       />
+
+      <WeChatExport {...panels.wechat} />
+      <SocialExport {...panels.social} />
 
       <DigestPreview
         week={issue.isoWeek}
         locale={variant.locale}
         categories={variant.categories}
+        evLang={variant.evLang}
+        onlineOnly={variant.onlineOnly}
         result={result}
         maxBytes={MAX_HTML_BYTES}
         audience={audienceRows}
@@ -286,6 +335,16 @@ async function Digest({ searchParams }: { searchParams: Promise<Search> }) {
                 {isMissed(r, now) ? 'Missed · 已错过' : STATUS[r.status]}
                 {r.sendAfter ? ` · ${fmtPT(r.sendAfter)}` : ''}
                 {r.status !== 'draft' ? ` · sent ${r.counts.sent} · failed ${r.counts.failed} · claimed ${r.counts.claimed}` : ''}
+                {/* The public archive (D7: live from the moment an issue starts sending, if it has
+                    events); a week with none has only the plain week page, as its emails link. */}
+                {(r.status === 'sending' || r.status === 'sent') && (
+                  <>
+                    {' · '}
+                    <a href={`/${r.archivable ? 'weekly' : 'week'}/${r.isoWeek}`} target="_blank" rel="noopener" className="underline underline-offset-2">
+                      {r.archivable ? 'public page · 存档页 ↗' : 'week page · 本周页面 ↗'}
+                    </a>
+                  </>
+                )}
               </span>
             </li>
           ))}

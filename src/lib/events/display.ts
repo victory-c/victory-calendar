@@ -7,13 +7,24 @@ export function normTitle(s: string) {
   return s.toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '');
 }
 
+/** Has Chinese characters: the language of a title that only came in one language. */
+const HAN = /\p{Script=Han}/u;
+
 export function titles(e: Pick<PublicEvent, 'titleEn' | 'titleZh'>, locale: Locale) {
   const primary = locale === 'zh' ? e.titleZh || e.titleEn : e.titleEn || e.titleZh;
   const secondary = locale === 'zh' ? e.titleEn : e.titleZh;
   const showSecondary = Boolean(secondary) && normTitle(secondary) !== normTitle(primary);
+  // The public rows fill a missing title with the other language's (public-rows.ts), so identical
+  // titles say nothing about the language: read it from the text. Otherwise the field it came from.
+  const primaryLang =
+    e.titleEn === e.titleZh
+      ? HAN.test(primary) ? 'zh-Hans' : 'en'
+      : locale === 'zh'
+        ? e.titleZh ? 'zh-Hans' : 'en'
+        : e.titleEn ? 'en' : 'zh-Hans';
   return {
     primary,
-    primaryLang: (locale === 'zh' && e.titleZh ? 'zh-Hans' : 'en') as 'en' | 'zh-Hans',
+    primaryLang: primaryLang as 'en' | 'zh-Hans',
     secondary: showSecondary ? secondary : null,
     secondaryLang: (locale === 'zh' ? 'en' : 'zh-Hans') as 'en' | 'zh-Hans',
   };

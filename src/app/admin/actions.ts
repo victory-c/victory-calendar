@@ -10,10 +10,19 @@ import {
   AdminError, cancelEvent, confirmAi, dismissDraft, type EventPatch, getAdminEvent, GOING, GOING_VIS, publish, saveEvent,
   setGoing, unpublish,
 } from '@/lib/admin/events';
+import { alertWanted, goingSavedMessage, publishedMessage } from '@/lib/admin/going-message';
 import { requireAdmin } from '@/lib/admin-session';
 import { createToken, revokeToken, type Scope, SCOPES } from '@/lib/api/tokens';
-import { coverFromUpload, coverFromUrl, coverToTemplate, runCoverChain } from '@/lib/covers/chain';
+import { type AiTier, generateAiCandidate, isAiTier } from '@/lib/covers/ai';
+import { type BraveHit, searchBrave } from '@/lib/covers/brave';
+import {
+  type BravePick, coverFromAiCandidate, coverFromBrave, coverFromOpenverse, coverFromUpload, coverFromUrl, coverToTemplate, runCoverChain,
+} from '@/lib/covers/chain';
+import { coverErrorText } from '@/lib/covers/errors';
+import { type OpenverseHit, searchOpenverse } from '@/lib/covers/openverse';
 import { ingest } from '@/lib/ingest/pipeline';
+import { alertsMode } from '@/lib/newsletter/status';
+import { peekRemaining } from '@/lib/ratelimit';
 import { readSetting, writeSetting } from '@/lib/settings';
 
 export type ActionState = { ok: boolean; message: string; token?: string } | null;
@@ -86,7 +95,9 @@ export async function editorAction(id: string, _prev: ActionState, fd: FormData)
       const r = await publish(id);
       if (!r.ok) return { ok: false, message: `Can't publish yet · 还不能发布，缺少：${r.blockers.map((b) => BLOCKER[b] ?? b).join('、')}` };
       touchedPublic = true;
-      message = 'Published · 已发布';
+      // Publishing an event already marked publicly going queues its going alert (F20), unless
+      // tomorrow's Sunday digest carries it.
+      message = publishedMessage(r.alert);
     } else if (op === 'unpublish') {
       await unpublish(id);
       touchedPublic = true;
@@ -134,14 +145,26 @@ async function retranslateInto(id: string, op: string) {
   return 'Translated · 已重译';
 }
 
-/** Row buttons in the Drafts and Live lists (no editor fields involved). */
+/**
+ * Going from a list row: the default visibility and no alert switch, so the alert takes its
+ * default, on (F20 G5). Same safety rules as the editor: a going that can't be public is stored as
+ * after_event. The line says whether an alert was queued.
+ */
+async function quickGoing(id: string, going: 'going' | 'interested'): Promise<string> {
+  // No `alert`: the default (on) for a new mark, and never an explicit switch that would turn a
+  // declined alert back on (setGoing's `explicit`).
+  const r = await setGoing(id, going, (await readSetting('going_visibility_default')).v);
+  refreshPublic();
+  return goingSavedMessage(r, { wanted: true, mode: alertsMode() });
+}
+
+/**
+ * Row buttons in the Drafts and Live lists (no editor fields involved). Plain form actions, which
+ * return nothing; QuickGoing (markGoing) is the going button that shows its result line.
+ */
 export async function quickAction(id: string, op: 'confirm' | 'unpublish' | 'dismiss' | 'going' | 'interested') {
   await requireAdmin();
-  if (op === 'going' || op === 'interested') {
-    // Same safety rules as the editor: a going that can't be public is stored as after_event.
-    await setGoing(id, op, (await readSetting('going_visibility_default')).v);
-    refreshPublic();
-  }
+  if (op === 'going' || op === 'interested') await quickGoing(id, op);
   if (op === 'confirm') await confirmAi(id);
   if (op === 'dismiss') await dismissDraft(id);
   if (op === 'unpublish') {
@@ -151,6 +174,16 @@ export async function quickAction(id: string, op: 'confirm' | 'unpublish' | 'dis
   refresh();
 }
 
+/** The Live list's 标为会去 / 会去 ✓ toggle with its result line (components/admin/QuickGoing). */
+export async function markGoing(id: string, going: 'going' | 'interested', _prev: ActionState): Promise<ActionState> {
+  await requireAdmin();
+  if (going !== 'going' && going !== 'interested') return { ok: false, message: 'bad value' };
+  const message = await quickGoing(id, going);
+  refresh();
+  return { ok: true, message };
+}
+
+/** The editor's going form: status, visibility and (for a public going) the "Alert subscribers" switch. */
 export async function saveGoing(id: string, _prev: ActionState, fd: FormData): Promise<ActionState> {
   await requireAdmin();
   const going = String(fd.get('going'));
@@ -158,20 +191,15 @@ export async function saveGoing(id: string, _prev: ActionState, fd: FormData): P
   if (!(GOING as readonly string[]).includes(going) || !(GOING_VIS as readonly string[]).includes(vis)) {
     return { ok: false, message: 'bad value' };
   }
-  const r = await setGoing(id, going as (typeof GOING)[number], vis as (typeof GOING_VIS)[number]);
+  const wanted = alertWanted(fd);
+  // Only a posted switch is Victor's explicit choice (it can turn a declined alert back on);
+  // without one, setGoing applies the default.
+  const opts = fd.has('alert') ? { alert: wanted } : {};
+  const r = await setGoing(id, going as (typeof GOING)[number], vis as (typeof GOING_VIS)[number], undefined, opts);
   refreshPublic();
   refresh();
-  return r.reason
-    ? { ok: true, message: `Shown after the event · 活动结束后才公开（${REASONS[r.reason] ?? r.reason}）` }
-    : { ok: true, message: 'Saved · 已保存' };
+  return { ok: true, message: goingSavedMessage(r, { wanted, mode: alertsMode() }) };
 }
-
-const REASONS: Record<string, string> = {
-  cycling: '骑行活动不公开行踪',
-  not_on_listed_platform: '不在 Luma、Partiful、Eventbrite、Meetup 上',
-  private_venue: '私人场地',
-  recurring: '同一主办方与场地 4 周内重复',
-};
 
 // ---- covers ------------------------------------------------------------------------------------
 
@@ -210,6 +238,88 @@ export async function coverFromBlobUpload(id: string, blobUrl: string): Promise<
     return { ok: true, message: 'Cover updated · 封面已更新' };
   } catch (e) {
     return { ok: false, message: errText(e) };
+  }
+}
+
+// ---- cover selector steps 4–6 (M4 F11): manual only, runCoverChain never reaches them ---------
+// Searches return data and change nothing; each costs one of the day's searches (Openverse cache
+// hits are free). An AI tap makes a preview only; "Use this" applies it.
+
+export type CoverSearchState<H> = { ok: boolean; message: string; hits?: H[]; remaining?: number | null };
+export type AiPreviewState = { ok: boolean; message: string; url?: string; tier?: AiTier; remaining?: number };
+
+// After a failed call the count may still have moved (a failed AI call can be billed).
+const leftToday = (name: 'coverOpenverse' | 'coverBrave' | 'coverAi') => peekRemaining(name, 'global').catch(() => null);
+const found = (n: number) => (n ? `${n} found · 找到 ${n} 张` : 'Nothing found; try other words · 没找到，换个词试试');
+const applied = (lowRes: boolean) =>
+  lowRes ? "Cover updated with a smaller copy (original unavailable) · 原图取不到，已用较小的版本作封面" : 'Cover updated · 封面已更新';
+
+export async function searchOpenverseCovers(q: string, page = 1): Promise<CoverSearchState<OpenverseHit>> {
+  await requireAdmin();
+  try {
+    const r = await searchOpenverse(String(q), { page: Number(page) || 1 });
+    return { ok: true, message: found(r.hits.length), hits: r.hits, remaining: r.remaining };
+  } catch (e) {
+    return { ok: false, message: coverErrorText(e), remaining: await leftToday('coverOpenverse') };
+  }
+}
+
+export async function searchBraveCovers(q: string): Promise<CoverSearchState<BraveHit>> {
+  await requireAdmin();
+  try {
+    const r = await searchBrave(String(q));
+    return { ok: true, message: found(r.hits.length), hits: r.hits, remaining: r.remaining };
+  } catch (e) {
+    return { ok: false, message: coverErrorText(e), remaining: await leftToday('coverBrave') };
+  }
+}
+
+export async function pickOpenverseCover(id: string, openverseId: string): Promise<ActionState> {
+  await requireAdmin();
+  try {
+    const { lowRes } = await coverFromOpenverse(id, String(openverseId));
+    refreshPublic();
+    refresh();
+    return { ok: true, message: applied(lowRes) };
+  } catch (e) {
+    return { ok: false, message: coverErrorText(e) };
+  }
+}
+
+export async function pickBraveCover(id: string, pick: BravePick): Promise<ActionState> {
+  await requireAdmin();
+  try {
+    const { lowRes } = await coverFromBrave(id, {
+      imageUrl: String(pick?.imageUrl ?? ''), pageUrl: String(pick?.pageUrl ?? ''), thumbUrl: pick?.thumbUrl ? String(pick.thumbUrl) : null,
+    });
+    refreshPublic();
+    refresh();
+    return { ok: true, message: applied(lowRes) };
+  } catch (e) {
+    return { ok: false, message: coverErrorText(e) };
+  }
+}
+
+export async function generateAiCover(id: string, tier: AiTier): Promise<AiPreviewState> {
+  await requireAdmin();
+  if (!isAiTier(tier)) return { ok: false, message: 'Unknown model · 未知模型' };
+  try {
+    const r = await generateAiCandidate(id, tier);
+    return { ok: true, message: 'Preview ready; nothing changed yet · 预览好了，封面还没换', ...r };
+  } catch (e) {
+    return { ok: false, message: coverErrorText(e), remaining: (await leftToday('coverAi')) ?? undefined };
+  }
+}
+
+export async function applyAiCover(id: string, previewUrl: string, tier: AiTier): Promise<ActionState> {
+  await requireAdmin();
+  try {
+    await coverFromAiCandidate(id, String(previewUrl), tier);
+    refreshPublic();
+    refresh();
+    return { ok: true, message: applied(false) };
+  } catch (e) {
+    return { ok: false, message: coverErrorText(e) };
   }
 }
 

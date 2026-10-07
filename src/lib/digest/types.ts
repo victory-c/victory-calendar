@@ -1,3 +1,4 @@
+import type { EvLang } from '../events/facets';
 import type { Category, Locale } from '../taxonomy';
 
 // The digest's shared contract. assemble.ts builds a DigestSnapshot from the database; it is
@@ -16,6 +17,11 @@ export type DigestEvent = {
   tz: string;
   allDay: boolean;
   format: 'in_person' | 'online' | 'hybrid';
+  /**
+   * The event's language, for the F19 facets (select.ts). Optional: a snapshot frozen before F19
+   * has none, and an event without one counts as 'en' (facets.ts langOf), so the version stays 1.
+   */
+  eventLanguage?: EvLang;
   titleEn: string;
   titleZh: string;
   noteEn: string | null;
@@ -30,8 +36,18 @@ export type DigestEvent = {
   platform: string | null;
   /** Absolute https URL of a PNG/JPEG square, email-safe (96 px slot, 192 px image). */
   coverUrl: string;
-  /** "Cover: Host via Luma" when an official cover is used; null for templates. */
+  /**
+   * "Cover: Host via Luma" when an official cover is used, the stored TASL line for an Openverse
+   * one (`"Title" by Creator · CC BY 2.0`); null for templates.
+   */
   coverCredit: string | null;
+  /**
+   * Openverse covers: the work's page and the licence deed, which the email links the credit to.
+   * Optional: other covers have neither, and a snapshot frozen before they existed shows the
+   * credit as plain text, so the version stays 1.
+   */
+  coverSourceUrl?: string | null;
+  coverLicenseUrl?: string | null;
   /** Public seal for the going section, already filtered by publicGoing() and the kill switch. */
   seal: DigestSeal | null;
   featured: boolean;
@@ -64,8 +80,10 @@ export type DigestLinks = {
   unsubscribe: string;
   /** The same preferences page in the other language ("switch language"). */
   otherLanguage: string;
-  /** The covered week on the site (/week/yyyy-Www in the email's language). */
+  /** "View in browser": the issue's archive (/weekly/yyyy-Www), or /week/yyyy-Www when the snapshot has no events. */
   web: string;
+  /** /privacy in the email's language. */
+  privacy: string;
 };
 
 export type RenderedEmail = {

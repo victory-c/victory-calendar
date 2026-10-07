@@ -45,7 +45,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-type CoverSpec = { kind: CoverKind; attribution?: string | null; sourcePageUrl?: string | null } | null;
+type CoverSpec = { kind: CoverKind; attribution?: string | null; sourcePageUrl?: string | null; license?: string | null } | null;
 
 /** A published event (with the cover row a published event must have) unless overridden. */
 async function addEvent(over: Partial<NewEvent> & { cover?: CoverSpec } = {}) {
@@ -61,7 +61,7 @@ async function addEvent(over: Partial<NewEvent> & { cover?: CoverSpec } = {}) {
         : {
             id: coverId, kind: cover.kind, url1600: `https://blob.test/${id}-1600.webp`, url800: `https://blob.test/${id}-800.webp`,
             url400: `https://blob.test/${id}-400.webp`, urlOgEn: '', urlOgZh: '', thumbhash: 'x', dominant: '#000000', bytes: 1,
-            attribution: cover.attribution ?? null, sourcePageUrl: cover.sourcePageUrl ?? null,
+            attribution: cover.attribution ?? null, sourcePageUrl: cover.sourcePageUrl ?? null, license: cover.license ?? null,
           },
     );
   }
@@ -87,12 +87,12 @@ const ids = (list: { id: string }[]) => list.map((e) => e.id);
 const reload = async (id: string) => (await getIssue(id, { db }))!;
 
 describe('emailCover (pure)', () => {
-  const ev = (cover: { kind: CoverKind; attribution?: string | null; sourcePageUrl?: string | null } | null, over: Partial<PublicEvent> = {}) =>
+  const ev = (cover: CoverSpec, over: Partial<PublicEvent> = {}) =>
     ({
       id: 'evt_a', category: 'hackathon', hostName: 'Example Labs', sourceUrl: 'https://luma.com/abcd', coverId: cover ? 'cov_a' : null,
       cover: cover && {
         kind: cover.kind, url400: 'https://blob.test/a-400.webp', url800: '', url1600: '', thumbhash: '', dominant: '', letterboxed: false,
-        attribution: cover.attribution ?? null, license: null, sourcePageUrl: cover.sourcePageUrl ?? null,
+        attribution: cover.attribution ?? null, license: cover.license ?? null, sourcePageUrl: cover.sourcePageUrl ?? null,
       },
       ...over,
     }) as Parameters<typeof emailCover>[0];
@@ -132,6 +132,26 @@ describe('emailCover (pure)', () => {
     expect(emailCover(ev({ kind: 'url' }), ORIGIN, none)).toEqual(real(null));
     expect(emailCover(ev({ kind: 'openverse', attribution: '"Bridge" by A. Person, CC BY 2.0' }), ORIGIN, none)).toEqual(
       real('"Bridge" by A. Person, CC BY 2.0'),
+    );
+  });
+
+  it('an Openverse credit carries the work’s page and the licence deed; no other cover does', () => {
+    const page = 'https://www.flickr.example/photos/a/1';
+    const credit = '"Bridge" by A. Person · CC BY-SA 2.0 · cropped';
+    expect(emailCover(ev({ kind: 'openverse', attribution: credit, license: 'by-sa/2.0', sourcePageUrl: page }), ORIGIN, none)).toEqual({
+      ...real(credit), sourceUrl: page, licenseUrl: 'https://creativecommons.org/licenses/by-sa/2.0/',
+    });
+    expect(emailCover(ev({ kind: 'openverse', attribution: 'Untitled image · CC0 1.0', license: 'cc0/1.0' }), ORIGIN, none)).toEqual({
+      ...real('Untitled image · CC0 1.0'), licenseUrl: 'https://creativecommons.org/publicdomain/zero/1.0/',
+    });
+    // A licence code we don't know gives no deed; Brave and official covers have a page but no links.
+    expect(emailCover(ev({ kind: 'openverse', attribution: credit, license: 'by-nc/2.0', sourcePageUrl: page }), ORIGIN, none)).toEqual({
+      ...real(credit), sourceUrl: page,
+    });
+    expect(emailCover(ev({ kind: 'brave', sourcePageUrl: page }), ORIGIN, none)).toEqual(tpl);
+    const partiful = { sourceUrl: 'https://partiful.com/e/1' };
+    expect(emailCover(ev({ kind: 'official', license: 'by/2.0', sourcePageUrl: partiful.sourceUrl }, partiful), ORIGIN, none)).toEqual(
+      real('Cover: Example Labs via Partiful'),
     );
   });
 
@@ -220,12 +240,12 @@ describe('buildSnapshot: which events', () => {
     await addEvent({ id: 'evt_b', startAt: T('2026-10-14T01:00:00Z'), format: 'online', city: null, sourceUrl: 'https://example.org/e/1' });
     await addEvent({ id: 'evt_a', startAt: T('2026-10-14T01:00:00Z'), format: 'hybrid', city: 'Oakland', neighborhood: null });
     await addEvent({ id: 'evt_ride', category: 'cycling', city: 'Palo Alto', neighborhood: 'Downtown', venueName: 'Cafe', startAt: T('2026-10-16T15:00:00Z') });
-    await addEvent({ id: 'evt_zhonly', titleEn: null, titleZh: '只有中文', startAt: T('2026-10-17T18:00:00Z'), priceText: '' });
+    await addEvent({ id: 'evt_zhonly', titleEn: null, titleZh: '只有中文', startAt: T('2026-10-17T18:00:00Z'), priceText: '', eventLanguage: 'zh' });
     const s = await snap();
     expect(ids(s.events)).toEqual(['evt_a', 'evt_b', 'evt_full', 'evt_ride', 'evt_zhonly']);
     expect(s.events[2]).toEqual({
       id: 'evt_full', slug: 'event-evt_full', category: 'hackathon', startAt: '2026-10-15T01:00:00.000Z', endAt: '2026-10-15T03:00:00.000Z',
-      tz: 'America/Los_Angeles', allDay: false, format: 'in_person', titleEn: 'Agent Night', titleZh: 'Agent 之夜',
+      tz: 'America/Los_Angeles', allDay: false, format: 'in_person', eventLanguage: 'en', titleEn: 'Agent Night', titleZh: 'Agent 之夜',
       noteEn: 'Worth it.\nBring a laptop.', noteZh: null, place: 'SoMa', priceText: 'Free', access: 'apply',
       sourceUrl: 'https://luma.com/agent-night', platform: 'Luma', coverUrl: `${ORIGIN}/og/template/hackathon?s=192`, coverCredit: null,
       seal: 'going', featured: true,
@@ -235,6 +255,8 @@ describe('buildSnapshot: which events', () => {
     expect(online).toMatchObject({ place: null, platform: 'example.org', format: 'online' });
     expect(ride.place).toBe('Palo Alto'); // cycling: city only (redactForPublic)
     expect(zhOnly).toMatchObject({ titleEn: '只有中文', titleZh: '只有中文', priceText: null });
+    // F19: the event language rides along for the facets (the column default is 'en').
+    expect(s.events.map((e) => e.eventLanguage)).toEqual(['en', 'en', 'en', 'en', 'zh']);
     // Nothing private or internal leaks into the frozen content.
     const json = JSON.stringify(s);
     for (const secret of ['1 Hidden St', 'Secret Loft', 'Downtown', 'Cafe', 'blob.test']) expect(json).not.toContain(secret);
@@ -325,6 +347,26 @@ describe('buildSnapshot: covers', () => {
       evt_tpl: [`${ORIGIN}/og/template/social?s=192`, null],
     });
     for (const e of s.events) expect(e.coverUrl).toMatch(/^https:\/\/picks\.test\/og\//);
+  });
+
+  it('Openverse covers carry their page and deed into the snapshot; other covers add no keys', async () => {
+    await addEvent({
+      id: 'evt_ov', cover: {
+        kind: 'openverse', attribution: '"Bridge" by A. Person · CC BY 2.0', license: 'by/2.0', sourcePageUrl: 'https://www.flickr.example/photos/a/1',
+      },
+    });
+    await addEvent({ id: 'evt_partiful', cover: { kind: 'official', sourcePageUrl: 'https://partiful.com/e/9' }, sourceUrl: 'https://partiful.com/e/9' });
+    await addEvent({ id: 'evt_tpl' });
+    const s = await snap();
+    const by = Object.fromEntries(s.events.map((e) => [e.id, e]));
+    expect(by.evt_ov).toMatchObject({
+      coverUrl: `${ORIGIN}/og/email-cover/cov_ov`, coverCredit: '"Bridge" by A. Person · CC BY 2.0',
+      coverSourceUrl: 'https://www.flickr.example/photos/a/1', coverLicenseUrl: 'https://creativecommons.org/licenses/by/2.0/',
+    });
+    for (const e of [by.evt_partiful, by.evt_tpl]) {
+      expect(e).not.toHaveProperty('coverSourceUrl');
+      expect(e).not.toHaveProperty('coverLicenseUrl');
+    }
   });
 
   it('official_covers_to_template sends every official cover to the template, kept or not', async () => {
@@ -586,8 +628,27 @@ describe('audience', () => {
       ['en:vc', 1],
       ['zh:ai', 1],
     ]);
-    expect(list[1].variant).toEqual({ key: 'zh:ai,social', locale: 'zh', categories: ['ai', 'social'] });
+    expect(list[1].variant).toEqual({ key: 'zh:ai,social', locale: 'zh', categories: ['ai', 'social'], evLang: null, onlineOnly: false });
     expect(JSON.stringify(list)).not.toContain('@');
+  });
+
+  it('F19: groups by facets too, normalising stored shapes the digest reads as none (as the claim does)', async () => {
+    await sub({});
+    await sub({ evLangPref: ['xx'] }); // unknown: no preference
+    await sub({ evLangPref: ['en', 'zh'], onlineOnly: false }); // two values: no preference
+    await sub({ evLangPref: [], onlineOnly: null });
+    await sub({ evLangPref: ['zh'] });
+    await sub({ evLangPref: ['zh'], categories: ['ai', 'bogus'] });
+    await sub({ evLangPref: ['zh'], onlineOnly: true });
+    await sub({ onlineOnly: true, locale: 'zh', categories: ['vc', 'ai'] });
+    const list = await audience({ db, now });
+    expect(list.map((a) => [a.variant.key, a.count])).toEqual([
+      ['en:ai', 4],
+      ['en:ai;l=zh', 2],
+      ['en:ai;l=zh;o', 1],
+      ['zh:ai,vc;o', 1],
+    ]);
+    expect(list[2].variant).toEqual({ key: 'en:ai;l=zh;o', locale: 'en', categories: ['ai'], evLang: 'zh', onlineOnly: true });
   });
 
   it('is empty without subscribers', async () => {

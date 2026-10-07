@@ -1,4 +1,5 @@
 import type { DigestSeal } from '@/lib/digest/types';
+import { type EvLang, type Facets, hasFacets } from '@/lib/events/facets';
 import { GOING_LABELS, type Locale } from '@/lib/taxonomy';
 
 // Every string the weekly digest prints, in both languages (W14 copy table). Strings that already
@@ -18,6 +19,18 @@ type Copy = {
   emptyBody: string;
   /** "You can add categories in your <preferences>." split around the link. */
   emptyMore: { before: string; link: string; after: string };
+  /** F19: the empty notice for a reader with facets set (their filters can be what left it empty). */
+  emptyBodyFiltered: string;
+  emptyMoreFiltered: { before: string; link: string; after: string };
+  /** F19 facet names, as the prefs page puts them (zh / en include bilingual events). */
+  facets: Record<EvLang, string> & { online: string };
+  /**
+   * Both facets set: one phrase, because they combine with AND ("online Chinese or bilingual
+   * events"), never a list that could read as "online events, and Chinese events".
+   */
+  onlineOf: (events: string) => string;
+  /** One footer line when facets are set; `facets` is the phrase facetNote() builds. */
+  facetNote: (facets: string) => string;
   defaultPreheader: string;
   signature: string;
   free: string;
@@ -33,6 +46,7 @@ type Copy = {
   prefs: string;
   unsubscribe: string;
   web: string;
+  privacy: string;
   /** Label for the "other language" link of an email in `key` language, written in this language. */
   switchLang: Record<Locale, string>;
 };
@@ -48,6 +62,11 @@ export const COPY: Record<Locale, Copy> = {
     emptySubject: '本周没有想推荐的',
     emptyBody: '这周你选的类别里没有我想推荐的活动。',
     emptyMore: { before: '可以在', link: '订阅设置', after: '里多选几类。' },
+    emptyBodyFiltered: '这周你选的类别和筛选条件里没有我想推荐的活动。',
+    emptyMoreFiltered: { before: '可以在', link: '订阅设置', after: '里多选几类，或者放宽筛选。' },
+    facets: { zh: '中文或双语活动', en: '英文或双语活动', bilingual: '双语活动', online: '线上活动（含线上线下同步）' },
+    onlineOf: (events) => `线上（含线上线下同步）的${events}`,
+    facetNote: (f) => `只收：${f}。可以在订阅设置里修改。`,
     defaultPreheader: '这周值得去的湾区 tech 活动。',
     signature: '— Victor',
     free: '免费',
@@ -62,6 +81,7 @@ export const COPY: Record<Locale, Copy> = {
     prefs: '订阅设置',
     unsubscribe: '退订',
     web: '网页版',
+    privacy: '隐私',
     switchLang: { zh: '改收英文版', en: '改收中文版' },
   },
   en: {
@@ -77,6 +97,11 @@ export const COPY: Record<Locale, Copy> = {
     emptySubject: "Nothing I'd recommend this week",
     emptyBody: "Nothing in your categories this week that I'd recommend.",
     emptyMore: { before: 'You can add categories in your ', link: 'preferences', after: '.' },
+    emptyBodyFiltered: "Nothing in your categories and filters this week that I'd recommend.",
+    emptyMoreFiltered: { before: 'You can add categories or widen your filters in your ', link: 'preferences', after: '.' },
+    facets: { zh: 'Chinese or bilingual events', en: 'English or bilingual events', bilingual: 'bilingual events', online: 'online events (incl. hybrid)' },
+    onlineOf: (events) => `online (incl. hybrid) ${events}`,
+    facetNote: (f) => `Only ${f}. You can change this in your preferences.`,
     defaultPreheader: 'Bay Area tech events worth going to this week.',
     signature: '— Victor',
     free: 'Free',
@@ -91,6 +116,7 @@ export const COPY: Record<Locale, Copy> = {
     prefs: 'Preferences',
     unsubscribe: 'Unsubscribe',
     web: 'View in browser',
+    privacy: 'Privacy',
     switchLang: { zh: 'Switch to English', en: 'Switch to Chinese' },
   },
 };
@@ -98,5 +124,54 @@ export const COPY: Record<Locale, Copy> = {
 /** Seal alt text, one language only: [会去] / [GOING], [主办] / [HOST], [分享] / [TALK]. */
 export const sealAlt = (seal: DigestSeal, locale: Locale) => `[${GOING_LABELS[seal][locale]}]`;
 
+/** The footer's facet line for a variant, or null without facets (the email is then exactly as before F19). */
+export function facetNote(l: Locale, f: Facets): string | null {
+  if (!hasFacets(f)) return null;
+  const c = COPY[l];
+  const phrase = !f.evLang ? c.facets.online : f.onlineOnly ? c.onlineOf(c.facets[f.evLang]) : c.facets[f.evLang];
+  return c.facetNote(phrase);
+}
+
 export const other = (l: Locale): Locale => (l === 'zh' ? 'en' : 'zh');
 export const htmlLang = (l: Locale) => (l === 'zh' ? 'zh-Hans' : 'en');
+
+// ---- F20 going alert (going-alert.tsx) ---------------------------------------------------------
+// The day only, never a clock time; "plan to go", never "invited" (guide「邮件」「Going 状态安全规则」).
+
+type AlertCopy = {
+  /** Masthead after the site name: what kind of email this is. */
+  kicker: string;
+  /** One event: its title (in the email's language, falling back to the other). */
+  subjectOne: (title: string) => string;
+  subjectMany: (n: number) => string;
+  introOne: string;
+  introMany: string;
+  /** Footer line: why the reader gets this, in the prefs checkbox's words. */
+  why: string;
+  /** Footer link labels (printed in both languages, like the digest's). */
+  offAlerts: string;
+  unsubscribeAll: string;
+};
+
+export const ALERT_COPY: Record<Locale, AlertCopy> = {
+  zh: {
+    kicker: '会去提醒',
+    subjectOne: (t) => `Victor 打算去：${t}`,
+    subjectMany: (n) => `Victor 打算去 ${n} 场活动`,
+    introOne: '这场活动我打算去。感兴趣的话，在活动官方页面报名。',
+    introMany: '这几场活动我打算去。感兴趣的话，在各自的官方页面报名。',
+    why: '你收到这封邮件，是因为选了「Victor 标记会去时提醒我」（每天最多一封）。',
+    offAlerts: '关闭会去提醒',
+    unsubscribeAll: '全部退订',
+  },
+  en: {
+    kicker: 'Going alert',
+    subjectOne: (t) => `Victor plans to go: ${t}`,
+    subjectMany: (n) => `Victor plans to go to ${n} events`,
+    introOne: "I plan to go to this one. If it interests you, RSVP on the event's own page.",
+    introMany: "I plan to go to these. If one interests you, RSVP on the event's own page.",
+    why: 'You get this because you asked for an email when Victor marks an event as going (at most one a day).',
+    offAlerts: 'Turn off going alerts',
+    unsubscribeAll: 'Unsubscribe from everything',
+  },
+};

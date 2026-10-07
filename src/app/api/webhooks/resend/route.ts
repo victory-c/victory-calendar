@@ -1,5 +1,7 @@
 import { Resend, type WebhookEventPayload } from 'resend';
-import { hasDatabase } from '@/lib/db';
+import { markAlertFailed } from '@/lib/alerts/claim';
+import { db, hasDatabase } from '@/lib/db';
+import { jobsLog } from '@/lib/db/schema';
 import { markFailed } from '@/lib/digest/claim';
 import { describeError } from '@/lib/log-safe';
 import { suppressEmails, suppressSubscriberIds } from '@/lib/subscribers/service';
@@ -13,6 +15,15 @@ import { suppressEmails, suppressSubscriberIds } from '@/lib/subscribers/service
 // the payload is signed, so they are trusted: email.failed (accepted, then not delivered, e.g.
 // reached_daily_quota) is recorded on that digest_sends row, and a suppressing event also
 // suppresses the tagged subscriber by id, an exact primary-key match next to the address match.
+// Going alerts (F20) carry kind=alert, day=<yyyy-mm-dd>, sub=<sub_…>: email.failed marks that
+// alert_sends row, so its events may be alerted again; suppression by `sub` is the same.
+//
+// Every bounce (soft ones too), complaint, suppression and failure also leaves one jobs_log row
+// (job 'email_event', week 15) before that handling, for per-issue bounce and complaint rates and
+// the G3 "zero seed bounces" check: type, trusted tags (kind, issue, alert day), bounce type,
+// recipient domain and the svix id. Never an address. Delivery is at least once (and a 503 below is
+// retried), so readers count distinct svix ids. The row is best effort: a failed insert is logged
+// and changes nothing else.
 
 const text = (body: string, status: number) =>
   new Response(body, { status, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
@@ -36,7 +47,7 @@ function toSuppress(evt: WebhookEventPayload): string[] | null {
   }
 }
 
-type DigestTags = { kind: string | null; issue: string | null; sub: string | null };
+type DigestTags = { kind: string | null; issue: string | null; day: string | null; sub: string | null };
 
 function digestTags(evt: WebhookEventPayload): DigestTags {
   const raw = (evt.data as { tags?: unknown } | undefined)?.tags;
@@ -45,7 +56,20 @@ function digestTags(evt: WebhookEventPayload): DigestTags {
     const v = tags[k];
     return typeof v === 'string' && re.test(v) ? v : null;
   };
-  return { kind: pick('kind', /^[a-z_]{1,20}$/), issue: pick('issue', /^dig_[0-9a-z]{16}$/), sub: pick('sub', /^sub_[0-9a-z]{16}$/) };
+  return {
+    kind: pick('kind', /^[a-z_]{1,20}$/),
+    issue: pick('issue', /^dig_[0-9a-z]{16}$/),
+    day: pick('day', /^\d{4}-\d{2}-\d{2}$/),
+    sub: pick('sub', /^sub_[0-9a-z]{16}$/),
+  };
+}
+
+/** The send row an email.failed refers to: a digest (issue + sub) or a going alert (day + sub); null otherwise. */
+function failedTarget(tags: DigestTags) {
+  if (!tags.sub) return null;
+  if (tags.kind === 'digest' && tags.issue) return { kind: 'digest' as const, issue: tags.issue, sub: tags.sub };
+  if (tags.kind === 'alert' && tags.day) return { kind: 'alert' as const, day: tags.day, sub: tags.sub };
+  return null;
 }
 
 /** Resend's failure reason as a short code ('reached_daily_quota'); anything else is 'other'. */
@@ -55,6 +79,38 @@ function failedReason(evt: WebhookEventPayload) {
 }
 
 const ok = (body: Record<string, unknown>) => Response.json({ ok: true, ...body }, { headers: { 'cache-control': 'no-store' } });
+
+const LOGGED: ReadonlySet<string> = new Set(['email.bounced', 'email.complained', 'email.suppressed', 'email.failed']);
+
+/** The first recipient's domain, lowercased, or null: the event log's only trace of who it was. */
+function recipientDomain(to: unknown): string | null {
+  for (const raw of recipients(to)) {
+    const email = raw.trim();
+    const at = email.lastIndexOf('@');
+    const domain = email.slice(at + 1).toLowerCase();
+    if (at > 0 && /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain) && domain.length <= 253) return domain;
+  }
+  return null;
+}
+
+/** One jobs_log row per delivery problem; failures are logged and swallowed (the response never depends on it). */
+async function logEvent(evt: WebhookEventPayload, tags: DigestTags, svix: string | null) {
+  const bounce = (evt.data as { bounce?: { type?: unknown } } | undefined)?.bounce?.type;
+  const detail = {
+    type: evt.type,
+    kind: tags.kind,
+    issue: tags.issue,
+    day: tags.day,
+    bounce: typeof bounce === 'string' && /^[A-Za-z]{1,20}$/.test(bounce) ? bounce : null,
+    domain: recipientDomain((evt.data as { to?: unknown } | undefined)?.to),
+    svix,
+  };
+  try {
+    await db.insert(jobsLog).values({ job: 'email_event', ok: false, finishedAt: new Date(), detail });
+  } catch (err) {
+    console.error(`[webhook:resend] ${evt.type}: event log write failed: ${describeError(err)}`);
+  }
+}
 
 export async function POST(req: Request) {
   const secret = process.env.RESEND_WEBHOOK_SECRET;
@@ -80,7 +136,9 @@ export async function POST(req: Request) {
   if (typeof evt?.type !== 'string') return text('Invalid payload', 400);
 
   const tags = digestTags(evt);
-  const failed = evt.type === 'email.failed' && tags.kind === 'digest' && tags.issue && tags.sub ? { issue: tags.issue, sub: tags.sub } : null;
+  // Without a database there is nowhere to write; the handling below answers 503 or 200 as before.
+  if (LOGGED.has(evt.type) && hasDatabase()) await logEvent(evt, tags, req.headers.get('svix-id')?.slice(0, 100) || null);
+  const failed = evt.type === 'email.failed' ? failedTarget(tags) : null;
   const emails = toSuppress(evt);
   if (!emails && !failed) return ok({});
   // Fail loudly so Resend retries once the database is back, rather than dropping a complaint.
@@ -90,12 +148,12 @@ export async function POST(req: Request) {
     const reason = failedReason(evt);
     let marked: number;
     try {
-      marked = await markFailed(failed.issue, failed.sub, reason);
+      marked = failed.kind === 'digest' ? await markFailed(failed.issue, failed.sub, reason) : await markAlertFailed(failed.day, failed.sub, reason);
     } catch (err) {
-      console.error(`[webhook:resend] email.failed: digest update failed: ${describeError(err)}`);
+      console.error(`[webhook:resend] email.failed: ${failed.kind} update failed: ${describeError(err)}`);
       return text('Update failed', 503);
     }
-    console.info(`[webhook:resend] email.failed: ${marked} digest send(s) marked failed:${reason}`);
+    console.info(`[webhook:resend] email.failed: ${marked} ${failed.kind} send(s) marked failed:${reason}`);
     return ok({ failed: marked });
   }
 

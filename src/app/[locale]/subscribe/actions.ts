@@ -11,8 +11,9 @@ import { hashToken } from '@/lib/api/token-hash';
 import { clientIp } from '@/lib/client-ip';
 import { maskEmail } from '@/lib/email/send';
 import { sendAlreadySubscribedEmail, sendConfirmEmail } from '@/lib/email/subscribe';
+import { isEvLang } from '@/lib/events/facets';
 import { describeError } from '@/lib/log-safe';
-import { newsletterStatus } from '@/lib/newsletter/status';
+import { alertsMode, newsletterStatus } from '@/lib/newsletter/status';
 import { MIN_FILL_MS, type SubscribeState } from '@/lib/newsletter/subscribe-state';
 import { hasRoom, limit } from '@/lib/ratelimit';
 import { cleanCategories, inboxKey, normalizeEmail, requestSubscription } from '@/lib/subscribers/service';
@@ -52,13 +53,23 @@ export async function subscribe(_prev: SubscribeState, formData: FormData): Prom
 
     const h = await headers();
     const ip = clientIp(h);
-    if (!(await limit('subscribeIp', ip ?? 'unknown')).success) return { status: 'rate_limited' };
-    if (!(await limit('subscribeIpDay', ip ?? 'unknown')).success) return { status: 'rate_limited' };
+    // Hashed like the inbox key below, so raw IPs never sit in Redis (/privacy says so). Visitors
+    // without a usable address share one bucket.
+    const ipKey = ip ? hashToken(ip) : 'unknown';
+    if (!(await limit('subscribeIp', ipKey)).success) return { status: 'rate_limited' };
+    if (!(await limit('subscribeIpDay', ipKey)).success) return { status: 'rate_limited' };
 
     const email = normalizeEmail(formData.get('email'));
     if (!email) return { status: 'error', code: 'invalid_email', field: 'email' };
     const categories = cleanCategories(formData.getAll('c'));
     if (categories.length === 0) return { status: 'error', code: 'no_category', field: 'categories' };
+    // F19 facets ride in hidden fields from a feed menu's /subscribe?ev_lang=&online= link; like the
+    // URL itself, an unknown value just means no facet.
+    const evLang = formData.get('ev_lang');
+    const facets = { evLang: isEvLang(evLang) ? evLang : null, onlineOnly: formData.get('online') === '1' };
+    // F20: the form shows the going-alerts box only while alerts can be sent. While they can't, the
+    // field is ignored (a stale page can't opt anyone in) and a re-armed row keeps its stored choice.
+    const goingAlerts = alertsMode() === 'off' ? undefined : formData.get('alerts') === '1';
     who = maskEmail(email);
 
     // The day's budget for all subscription email: look first without spending, so a "busy" answer
@@ -74,6 +85,8 @@ export async function subscribe(_prev: SubscribeState, formData: FormData): Prom
       email,
       locale,
       categories,
+      facets,
+      goingAlerts,
       ip,
       ua: h.get('user-agent'),
       source: formData.get('source') === 'zh/subscribe' ? 'zh/subscribe' : 'subscribe',

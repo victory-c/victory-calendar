@@ -7,19 +7,43 @@ import { testDb } from './helpers/pglite';
 // additions to the Resend webhook: email.failed on a digest email, and suppression by the `sub` tag.
 // The renderer and assembler are small doubles; tests/digest-send.test.ts covers the pipeline.
 
-const h = vi.hoisted(() => ({ db: null as unknown, hasDb: true, runThrows: null as Error | null, tooLarge: null as string | null }));
+const h = vi.hoisted(() => ({
+  db: null as unknown,
+  hasDb: true,
+  runThrows: null as Error | null,
+  /** Thrown by showAttendance(): run.ts narrow() reads it right after the freeze. */
+  settingsThrows: null as Error | null,
+  tooLarge: null as string | null,
+  revalidated: [] as [string, unknown][],
+}));
 vi.mock('@/lib/db', async (orig) => ({
   ...(await orig()),
   db: new Proxy({}, { get: (_t, p) => Reflect.get(h.db as object, p) }),
   hasDatabase: () => h.hasDb,
 }));
 
+// The route refreshes the /weekly archive's 'digest' tag; outside Next there is no cache to purge.
+vi.mock('next/cache', () => ({ revalidateTag: (tag: string, profile: unknown) => void h.revalidated.push([tag, profile]) }));
+
+vi.mock('@/lib/settings', async (orig) => {
+  const real = await orig<typeof import('@/lib/settings')>();
+  return {
+    ...real,
+    showAttendance: async () => {
+      if (h.settingsThrows) throw h.settingsThrows;
+      return real.showAttendance();
+    },
+  };
+});
+
 vi.mock('@/lib/digest/assemble', () => ({
   buildSnapshot: async (issue: { id: string; isoWeek: string }) => {
     if (h.runThrows) throw h.runThrows;
+    // The claims count only events inside [from, to) (select.ts pickCells, F19), as the email does.
     return {
-      version: 1, issueId: issue.id, isoWeek: issue.isoWeek, from: '', to: '', previewWeek: '', sendAfter: '', origin: 'https://picks.test',
-      introEn: null, introZh: null, showAttendance: true, events: [{ id: 'evt_1', category: 'ai', titleEn: 'AI night' }], preview: [],
+      version: 1, issueId: issue.id, isoWeek: issue.isoWeek, from: '2026-10-12T07:00:00.000Z', to: '2026-10-19T07:00:00.000Z', previewWeek: '',
+      sendAfter: '', origin: 'https://picks.test', introEn: null, introZh: null, showAttendance: true,
+      events: [{ id: 'evt_1', category: 'ai', titleEn: 'AI night', startAt: '2026-10-15T01:30:00.000Z', format: 'in_person' }], preview: [],
     };
   },
 }));
@@ -60,7 +84,9 @@ beforeEach(async () => {
   h.db = (await testDb()).db;
   h.hasDb = true;
   h.runThrows = null;
+  h.settingsThrows = null;
   h.tooLarge = null;
+  h.revalidated = [];
   vi.stubEnv('SUBSCRIBER_LINK_SECRET', 'test-secret-cron-0123456789');
   vi.stubEnv('CRON_SECRET', 'cron-secret');
   // Local/CI: dev mode (log transport), never Resend.
@@ -139,13 +165,15 @@ describe('GET /api/cron/digest', () => {
     expect((await db().select().from(digestIssues).where(eq(digestIssues.id, issue.id)))[0]).toMatchObject({ status: 'scheduled', snapshot: null });
     expect(await db().select().from(digestSends)).toHaveLength(0);
     expect(await jobs()).toHaveLength(0);
+    expect(h.revalidated).toEqual([]);
   });
 
-  it('nothing due: a 200 and no jobs_log row (daily no-op runs are noise)', async () => {
+  it('nothing due: a 200, no jobs_log row (daily no-op runs are noise) and the archive cache is left alone', async () => {
     await seedIssue({ status: 'draft' });
     const res = await run();
     expect(await res.json()).toMatchObject({ ok: true, job: 'digest', skipped: 'nothing_due' });
     expect(await jobs()).toHaveLength(0);
+    expect(h.revalidated).toEqual([]);
   });
 
   it('a due issue is sent (dev transport) and logged once, with counts and no addresses', async () => {
@@ -165,9 +193,20 @@ describe('GET /api/cron/digest', () => {
     expect((await db().select().from(digestSends).where(eq(digestSends.issueId, issue.id))).every((r) => r.resendId === 'dev')).toBe(true);
     expect(text()).toContain('[digest:dev] batch n=2');
     expect(text()).not.toContain('private.person');
+    // The issue went public on /weekly: its archive, the index and the sitemap are refreshed now.
+    expect(h.revalidated).toEqual([['digest', { expire: 0 }]]);
     // The second cron of the night has nothing left to do.
     expect(await (await run()).json()).toMatchObject({ ok: true, skipped: 'nothing_due' });
     expect(await jobs()).toHaveLength(1);
+    expect(h.revalidated).toHaveLength(1);
+  });
+
+  it('a run that only closes an expired send window still refreshes the archive (the issue is now sent)', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const issue = await seedIssue({ status: 'sending', sendAfter: new Date(Date.now() - 28 * HOUR) });
+    expect(await (await run()).json()).toMatchObject({ ok: true, skipped: 'nothing_due', closed: ['2026-W42'] });
+    expect((await db().select().from(digestIssues).where(eq(digestIssues.id, issue.id)))[0].status).toBe('sent');
+    expect(h.revalidated).toEqual([['digest', { expire: 0 }]]);
   });
 
   it('a missed issue (past the late limit) is logged as too_late and left scheduled', async () => {
@@ -177,6 +216,7 @@ describe('GET /api/cron/digest', () => {
     expect(await (await run()).json()).toMatchObject({ ok: true, tooLate: ['2026-W42'] });
     expect(await jobs()).toMatchObject([{ ok: true, detail: { tooLate: ['2026-W42'] } }]);
     expect((await db().select().from(digestIssues).where(eq(digestIssues.id, issue.id)))[0].status).toBe('scheduled');
+    expect(h.revalidated).toEqual([]); // still scheduled: nothing public changed
   });
 
   it('a failure is a 500 with a failed jobs_log row carrying only an error code', async () => {
@@ -192,6 +232,24 @@ describe('GET /api/cron/digest', () => {
     expect(text()).toContain('[cron] digest failed');
     expect(text()).toContain('p***@example.org');
     expect(text()).not.toContain('private.person');
+    // Whether it got as far as freezing the issue is unknown from here: the archive is refreshed anyway.
+    expect(h.revalidated).toEqual([['digest', { expire: 0 }]]);
+  });
+
+  it('a run that throws after freezing the issue still refreshes the archive (the issue is public now)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const issue = await seedIssue();
+    await seedSub();
+    h.settingsThrows = new Error('settings read failed');
+    const res = await run();
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({ ok: false, job: 'digest', reason: 'Error' });
+    // Frozen before the failure: 'sending' with its snapshot, so /weekly/W must stop answering a cached 404.
+    expect((await db().select().from(digestIssues).where(eq(digestIssues.id, issue.id)))[0]).toMatchObject({
+      status: 'sending', snapshot: expect.objectContaining({ isoWeek: '2026-W42' }),
+    });
+    expect(h.revalidated).toEqual([['digest', { expire: 0 }]]);
+    expect(await jobs()).toMatchObject([{ ok: false, detail: { reason: 'Error' } }]);
   });
 
   it('a variant that cannot be built fails the run: 500 and a failed jobs_log row with counts per variant', async () => {

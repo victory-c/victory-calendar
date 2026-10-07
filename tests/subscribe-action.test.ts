@@ -96,6 +96,9 @@ beforeEach(async () => {
   vi.stubEnv('PUBLIC_HOST', 'picks.test');
   vi.stubEnv('NEWSLETTER_OPEN', '');
   vi.stubEnv('VERCEL', '');
+  // F20: going alerts in 'dev' mode (off Vercel), so the form offers the box unless a test turns it off.
+  vi.stubEnv('ALERTS_SENDING', '');
+  vi.stubEnv('DIGEST_SENDING', '');
   vi.stubEnv('UPSTASH_REDIS_REST_URL', '');
   vi.stubEnv('KV_REST_API_URL', '');
 });
@@ -189,6 +192,16 @@ describe('subscribe action: a real sign-up', () => {
     expect(vi.mocked(cache.revalidateTag)).not.toHaveBeenCalled();
   });
 
+  it('F19: facets carried in hidden fields are stored; none without them; unknown values mean none', async () => {
+    await run(form({ ev_lang: 'zh', online: '1' }));
+    expect((await rows())[0]).toMatchObject({ evLangPref: ['zh'], onlineOnly: true });
+    await run(form({ email: 'plain@example.com' }));
+    await run(form({ email: 'forged@example.com', ev_lang: 'fr', online: 'yes' }));
+    const by = Object.fromEntries((await rows()).map((r) => [r.email, [r.evLangPref, r.onlineOnly]]));
+    expect(by['plain@example.com']).toEqual([null, null]);
+    expect(by['forged@example.com']).toEqual([null, null]);
+  });
+
   it('answers before mailing: the confirmation goes out only once after() callbacks run', async () => {
     const r = await subscribe(initialSubscribeState, form());
     expect(r).toEqual({ status: 'pending' });
@@ -222,6 +235,16 @@ describe('subscribe action: a real sign-up', () => {
     expect(h.sent[0].text.indexOf('请确认')).toBeLessThan(h.sent[0].text.indexOf('Confirm that'));
     // The subscriber's language leads the subject too.
     expect(h.sent[0].subject).toBe("确认订阅 · Confirm your subscription · Victor's Picks");
+  });
+
+  it('the confirmation ends with a /privacy link in the subscriber\'s language', async () => {
+    await run();
+    expect(h.sent[0].text.split('\n').at(-1)).toBe('Privacy 隐私: https://picks.test/privacy');
+    expect(h.sent[0].html).toContain('<a href="https://picks.test/privacy" style="color:#6b7280">Privacy 隐私</a>');
+    fromIp('198.51.100.40');
+    await run(form({ email: 'zh-reader@example.com', locale: 'zh', source: 'zh/subscribe' }));
+    expect(h.sent[1].text.split('\n').at(-1)).toBe('隐私 Privacy: https://picks.test/zh/privacy');
+    expect(h.sent[1].html).toContain('href="https://picks.test/zh/privacy"');
   });
 
   it('the email language is the radio choice, independent of the page it was sent from', async () => {
@@ -340,6 +363,22 @@ describe('subscribe action: limits', () => {
     expect(await rows()).toHaveLength(5);
   });
 
+  it('per-IP keys are sha256 hashes, never the raw address (/privacy says so)', async () => {
+    h.headers = new Headers({ 'x-forwarded-for': '203.0.113.7, 10.0.0.1', 'user-agent': 'vitest' });
+    await run();
+    const ipCalls = vi.mocked(limit).mock.calls.filter(([name]) => name === 'subscribeIp' || name === 'subscribeIpDay');
+    expect(ipCalls).toEqual([
+      ['subscribeIp', hashToken('203.0.113.7')],
+      ['subscribeIpDay', hashToken('203.0.113.7')],
+    ]);
+    expect(JSON.stringify(vi.mocked(limit).mock.calls)).not.toContain('203.0.113');
+    // IPv4-mapped IPv6 is the same visitor: clientIp() normalises before hashing.
+    fromIp('::ffff:203.0.113.7');
+    vi.mocked(limit).mockClear();
+    await run(form({ email: 'mapped@example.com' }));
+    expect(vi.mocked(limit).mock.calls[0]).toEqual(['subscribeIp', hashToken('203.0.113.7')]);
+  });
+
   it('visitors without a usable IP share one bucket', async () => {
     fromIp(null);
     for (let i = 0; i < 5; i++) await run(form({ email: `n${i}@example.com` }));
@@ -425,7 +464,7 @@ describe('subscribe action: daily send budget', () => {
   });
 
   it('one IP gets at most 10 tries a day, so it cannot spend the whole budget alone', async () => {
-    for (let i = 0; i < 10; i++) await limit('subscribeIpDay', '203.0.113.7');
+    for (let i = 0; i < 10; i++) await limit('subscribeIpDay', hashToken('203.0.113.7'));
     expect(await run(form({ email: 'eleventh@example.com' }))).toEqual({ status: 'rate_limited' });
     await expectUntouched();
   });
@@ -455,7 +494,7 @@ describe('subscribe action: existing addresses look the same from outside', () =
   it('active or paused: nothing changes, they get their preferences link', async () => {
     const active = await seed('reader@example.com', 'active', { confirmedAt: new Date() });
     const paused = await seed('rest@example.com', 'paused', { confirmedAt: new Date(), pausedUntil: new Date(Date.now() + 864e5) });
-    expect(await run(form({ c: ['social'], locale: 'zh' }))).toEqual({ status: 'pending' });
+    expect(await run(form({ c: ['social'], locale: 'zh', ev_lang: 'zh', online: '1' }))).toEqual({ status: 'pending' });
     expect(await run(form({ email: 'rest@example.com' }))).toEqual({ status: 'pending' });
     const [a] = await db().select().from(subscribers).where(eq(subscribers.id, active.id));
     const [p] = await db().select().from(subscribers).where(eq(subscribers.id, paused.id));
@@ -473,22 +512,117 @@ describe('subscribe action: existing addresses look the same from outside', () =
   });
 
   it('pending: re-armed with the new choices and a fresh confirmation', async () => {
-    const row = await seed('reader@example.com', 'pending');
-    await run(form({ c: ['cycling'], locale: 'zh', source: 'zh/subscribe' }));
+    const row = await seed('reader@example.com', 'pending', { evLangPref: ['en'] });
+    await run(form({ c: ['cycling'], locale: 'zh', source: 'zh/subscribe', online: '1' }));
     const [again] = await rows();
-    expect(again).toMatchObject({ id: row.id, status: 'pending', categories: ['cycling'], locale: 'zh', consentSource: 'zh/subscribe' });
+    expect(again).toMatchObject({
+      id: row.id, status: 'pending', categories: ['cycling'], locale: 'zh', consentSource: 'zh/subscribe', evLangPref: null, onlineOnly: true,
+    });
     expect(again.consentAt!.getTime()).toBeGreaterThan(row.consentAt!.getTime());
     expect(h.sent).toHaveLength(1);
     expect(verifyToken(confirmToken(h.sent[0].text), again)).toBe(true);
+    // The earlier email's link described the earlier choices: it no longer confirms anything.
+    expect(again.tokenVersion).toBe(row.tokenVersion + 1);
+    expect(verifyToken(confirmToken(h.sent[0].text), row)).toBe(false);
   });
 
   it('unsubscribed: back to pending, confirm again; the earlier confirmation and opt-out stay on the row', async () => {
     const confirmedAt = new Date(Date.now() - 30 * 864e5);
     const unsubscribedAt = new Date(Date.now() - 864e5);
-    await seed('reader@example.com', 'unsubscribed', { unsubscribedAt, confirmedAt });
-    await run();
-    expect((await rows())[0]).toMatchObject({ status: 'pending', unsubscribedAt, confirmedAt, categories: ['ai', 'hackathon'] });
+    await seed('reader@example.com', 'unsubscribed', { unsubscribedAt, confirmedAt, onlineOnly: true });
+    await run(form({ ev_lang: 'bilingual' }));
+    expect((await rows())[0]).toMatchObject({
+      status: 'pending', unsubscribedAt, confirmedAt, categories: ['ai', 'hackathon'], evLangPref: ['bilingual'], onlineOnly: null,
+    });
     expect(h.sent[0].subject).toContain('Confirm');
+  });
+});
+
+describe('subscribe action: going alerts (F20)', () => {
+  it('the ticked box is stored and dated from the request; unticked, forged or absent means off', async () => {
+    const before = Date.now();
+    await run(form({ alerts: '1' }));
+    fromIp('203.0.113.30');
+    await run(form({ email: 'plain@example.com' }));
+    fromIp('203.0.113.31');
+    await run(form({ email: 'forged@example.com', alerts: 'on' }));
+    const by = Object.fromEntries((await rows()).map((r) => [r.email, r]));
+    expect(by['reader@example.com'].goingAlerts).toBe(true);
+    expect(by['reader@example.com'].goingAlertsSince!.getTime()).toBeGreaterThanOrEqual(before - 1000);
+    expect(by['reader@example.com'].goingAlertsSince).toEqual(by['reader@example.com'].consentAt);
+    for (const email of ['plain@example.com', 'forged@example.com']) expect(by[email]).toMatchObject({ goingAlerts: false, goingAlertsSince: null });
+  });
+
+  it('a re-request stores the new answer: unticked turns alerts off on a pending row', async () => {
+    await seed('reader@example.com', 'pending', { goingAlerts: true, goingAlertsSince: new Date(Date.now() - 864e5) });
+    await run(form());
+    expect((await rows())[0]).toMatchObject({ status: 'pending', goingAlerts: false, goingAlertsSince: null });
+  });
+
+  it.each([
+    ['ALERTS_SENDING=0', { ALERTS_SENDING: '0' }],
+    ['DIGEST_SENDING=0', { DIGEST_SENDING: '0' }],
+  ])('while alerts are off here (%s) the box is ignored and a re-armed row keeps its choice', async (_label, env: Record<string, string>) => {
+    for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+    await run(form({ alerts: '1' }));
+    expect((await rows())[0]).toMatchObject({ status: 'pending', goingAlerts: false, goingAlertsSince: null });
+    await seed('kept@example.com', 'unsubscribed', { goingAlerts: true, goingAlertsSince: new Date(Date.now() - 30 * 864e5) });
+    fromIp('203.0.113.32');
+    await run(form({ email: 'kept@example.com' }));
+    const kept = (await rows()).find((r) => r.email === 'kept@example.com')!;
+    // Kept on, but counted from this new request: nothing from before it is ever alerted.
+    expect(kept).toMatchObject({ status: 'pending', goingAlerts: true });
+    expect(kept.goingAlertsSince).toEqual(kept.consentAt);
+  });
+
+  it('active and paused rows are untouched by the box, like every other field', async () => {
+    const row = await seed('reader@example.com', 'active', { confirmedAt: new Date() });
+    await run(form({ alerts: '1' }));
+    expect((await rows())[0]).toEqual(row);
+  });
+
+  const ALERTS_EN = 'Going alerts are on too: at most one email a day when Victor marks an event as going.';
+  const ALERTS_ZH = '会去提醒也已打开：Victor 标记会去的活动时，每天最多一封。';
+
+  it('the confirmation email names going alerts when the box is ticked (both languages), so the click confirms them too', async () => {
+    await run(form({ alerts: '1' }));
+    fromIp('203.0.113.33');
+    await run(form({ email: 'plain@example.com' }));
+    const [ticked, plain] = h.sent;
+    for (const part of [ticked.text, ticked.html]) {
+      expect(part).toContain(ALERTS_EN);
+      expect(part).toContain(ALERTS_ZH);
+    }
+    for (const part of [plain.text, plain.html]) {
+      expect(part).not.toContain(ALERTS_EN);
+      expect(part).not.toContain(ALERTS_ZH);
+    }
+    // After the category line, before the "if this wasn't you" note, in each language's block.
+    const lines = ticked.text.split('\n');
+    expect(lines.indexOf(ALERTS_EN)).toBe(lines.findIndex((l) => l.startsWith('You picked:')) + 1);
+    expect(lines.indexOf(ALERTS_ZH)).toBe(lines.findIndex((l) => l.startsWith('你选了：')) + 1);
+  });
+
+  it('a re-request that keeps alerts on (box not shown here) still says so in the confirmation', async () => {
+    vi.stubEnv('ALERTS_SENDING', '0');
+    await seed('reader@example.com', 'unsubscribed', { confirmedAt: new Date(Date.now() - 30 * 864e5), goingAlerts: true, goingAlertsSince: new Date(Date.now() - 30 * 864e5) });
+    await run(form());
+    expect((await rows())[0]).toMatchObject({ status: 'pending', goingAlerts: true });
+    expect(h.sent[0].text).toContain(ALERTS_EN);
+    expect(h.sent[0].text).toContain(ALERTS_ZH);
+  });
+
+  it('a stranger re-requesting a pending address with alerts ticked cannot ride on the first email\'s link', async () => {
+    await run(form());
+    const first = confirmToken(h.sent[0].text);
+    fromIp('203.0.113.34');
+    await run(form({ alerts: '1', c: ['vc'] }));
+    const [row] = await rows();
+    expect(row).toMatchObject({ status: 'pending', goingAlerts: true, categories: ['vc'] });
+    expect(verifyToken(first, row)).toBe(false);
+    // Only the second email, which names the alerts, can confirm them.
+    expect(verifyToken(confirmToken(h.sent[1].text), row)).toBe(true);
+    expect(h.sent[1].text).toContain(ALERTS_EN);
   });
 });
 
@@ -548,9 +682,13 @@ describe('subscribe action: failures', () => {
 
 describe('subscribe-state', () => {
   it('parseSubscribeParams: known slugs in canonical order, merged repeats, only known link problems', () => {
-    expect(parseSubscribeParams({})).toEqual({ cats: [], link: null });
-    expect(parseSubscribeParams({ c: 'vc,bogus,ai' })).toEqual({ cats: ['ai', 'vc'], link: null });
-    expect(parseSubscribeParams({ c: ['social', 'ai'] })).toEqual({ cats: ['ai', 'social'], link: null });
+    const none = { evLang: null, onlineOnly: false };
+    expect(parseSubscribeParams({})).toEqual({ cats: [], facets: none, link: null });
+    expect(parseSubscribeParams({ c: 'vc,bogus,ai' })).toEqual({ cats: ['ai', 'vc'], facets: none, link: null });
+    expect(parseSubscribeParams({ c: ['social', 'ai'] })).toEqual({ cats: ['ai', 'social'], facets: none, link: null });
+    // F19: facets from a feed menu's link; unknown values are ignored.
+    expect(parseSubscribeParams({ c: 'ai', ev_lang: 'zh', online: '1' }).facets).toEqual({ evLang: 'zh', onlineOnly: true });
+    expect(parseSubscribeParams({ ev_lang: 'fr', online: 'true' }).facets).toEqual(none);
     expect(parseSubscribeParams({ link: 'expired' }).link).toBe('expired');
     expect(parseSubscribeParams({ link: 'invalid' }).link).toBe('invalid');
     expect(parseSubscribeParams({ link: 'gone' }).link).toBeNull();
@@ -567,7 +705,8 @@ describe('subscribe-state', () => {
 
 const copy = {
   email: 'Email', emailPlaceholder: 'you@example.com', categories: 'Categories', categoriesHint: 'Pick at least one.',
-  language: 'Email language', submit: 'Subscribe', submitting: 'Sending…', privacy: 'Privacy line', honeypot: 'Leave this field empty',
+  language: 'Email language', submit: 'Subscribe', submitting: 'Sending…', privacy: 'Privacy line', privacyLink: 'How I handle your data',
+  honeypot: 'Leave this field empty',
   pending: 'Check your inbox', pendingHint: 'Hint', again: 'Subscribe again',
   errors: { invalid_email: 'bad email', no_category: 'pick one', bot: 'bot', server: 'server', rate_limited: 'slow down', closed: 'closed', busy: 'busy' },
 };
@@ -616,6 +755,18 @@ describe('SubscribeForm (server render, before hydration)', () => {
     expect(zh('input[name=source]').attr('value')).toBe('zh/subscribe');
   });
 
+  it('F20: an unticked going-alerts box when the page passes its label, and none otherwise', () => {
+    const $ = load(renderToStaticMarkup(createElement(SubscribeForm, { locale: 'en', categories: ['ai'], copy: { ...copy, goingAlerts: 'Email me when Victor marks an event as going' } })));
+    const box = $('input[name=alerts]');
+    expect(box.attr()).toMatchObject({ type: 'checkbox', value: '1' });
+    expect(box.attr('checked')).toBeUndefined();
+    expect(box.closest('label').text()).toBe('Email me when Victor marks an event as going');
+    expect(box.closest('label').attr('class')).toMatch(/\bmin-h-11\b/);
+    // Before the submit button, inside the form that posts it.
+    expect(box.closest('form').find('button[type=submit]')).toHaveLength(1);
+    expect(render('en')('input[name=alerts]')).toHaveLength(0);
+  });
+
   it('language names carry their own lang; the status line is a polite live region', () => {
     const $ = render('en');
     expect($('span[lang=en]').text()).toBe('English');
@@ -650,6 +801,14 @@ describe('/subscribe page', () => {
     expect($('form input[name=c][checked]')).toHaveLength(7);
     expect($('#subscribe')).toHaveLength(0);
     expect($.text()).not.toContain('closed.title');
+  });
+
+  it('F20: the going-alerts box only while alerts can be sent (dev here; never with ALERTS_SENDING=0)', async () => {
+    const on = await page();
+    expect(on('form input[name=alerts]')).toHaveLength(1);
+    expect(on('form input[name=alerts]').closest('label').text()).toBe('en:Newsletter.form.goingAlerts');
+    vi.stubEnv('ALERTS_SENDING', '0');
+    expect((await page())('input[name=alerts]')).toHaveLength(0);
   });
 
   it('open: ?c= preselects those categories; zh page preselects 中文', async () => {

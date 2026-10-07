@@ -84,6 +84,27 @@ describe('variant keys', () => {
     expect(parseVariantKey('fr:ai')).toBeNull();
     expect(parseVariantKey('en:')).toBeNull();
   });
+
+  it('F19: facet suffixes in a fixed order, only when set; keys written before F19 parse with no facets', () => {
+    expect(variantKey('zh', ['vc', 'ai'], { evLang: 'zh', onlineOnly: true })).toBe('zh:ai,vc;l=zh;o');
+    expect(variantKey('en', ['ai'], { evLang: 'bilingual', onlineOnly: false })).toBe('en:ai;l=bilingual');
+    expect(variantKey('en', ['ai'], { evLang: null, onlineOnly: true })).toBe('en:ai;o');
+    expect(variantKey('en', ['ai'], { evLang: null, onlineOnly: false })).toBe('en:ai');
+    // A forged language never reaches the key.
+    expect(variantKey('en', ['ai'], { evLang: 'fr' as never, onlineOnly: false })).toBe('en:ai');
+    for (const key of ['zh:ai,vc;l=zh;o', 'en:ai;l=en', 'en:ai;o', 'en:ai;l=bilingual']) {
+      const v = parseVariantKey(key)!;
+      expect(v.key).toBe(key);
+      expect(parseVariantKey(variantKey(v.locale, v.categories, v))).toEqual(v);
+    }
+    expect(parseVariantKey('zh:vc,ai;l=zh;o')).toEqual({ key: 'zh:ai,vc;l=zh;o', locale: 'zh', categories: ['ai', 'vc'], evLang: 'zh', onlineOnly: true });
+    // Legacy: exactly the pre-F19 shape, plus no facets.
+    expect(parseVariantKey('en:ai')).toEqual({ key: 'en:ai', locale: 'en', categories: ['ai'], evLang: null, onlineOnly: false });
+    // Bad suffixes: unknown language, wrong order, repeats, stray text.
+    for (const bad of ['en:ai;l=fr', 'en:ai;o;l=zh', 'en:ai;l=zh;l=en', 'en:ai;o;o', 'en:ai;', 'en:ai;x', 'en:;l=zh', 'en:ai;l=']) {
+      expect(parseVariantKey(bad), bad).toBeNull();
+    }
+  });
 });
 
 describe('linksFor', () => {

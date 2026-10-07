@@ -10,6 +10,17 @@ function unfold(s: string) {
   return s.replace(/\r\n[ \t]/g, '');
 }
 
+describe('calendarName', () => {
+  it('names the categories, then the F19 facets', () => {
+    expect(calendarName('en', ['ai', 'hackathon'])).toBe("Victor's Picks · AI & Tech, Hackathons");
+    expect(calendarName('en', ['ai'], false, { evLang: 'zh', onlineOnly: true })).toBe("Victor's Picks · AI & Tech · Chinese or bilingual · Online");
+    expect(calendarName('zh', [], false, { evLang: 'zh', onlineOnly: false })).toBe('Victor 精选 · 中文或双语活动');
+    expect(calendarName('zh', [], false, { evLang: null, onlineOnly: true })).toBe('Victor 精选 · 线上');
+    expect(calendarName('en', [])).toBe("Victor's Picks · All");
+    expect(calendarName('zh', ['ai'], true, { evLang: 'en', onlineOnly: true })).toBe('Victor 精选 · Victor 会去');
+  });
+});
+
 describe('buildIcs', () => {
   const out = unfold(buildIcs({ events, locale: 'zh', name: calendarName('zh', ['ai']), now, showAttendance: true }));
 

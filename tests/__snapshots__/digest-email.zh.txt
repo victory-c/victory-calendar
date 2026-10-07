@@ -83,4 +83,4 @@ Victor 精选 · Victor 亲自挑选的湾区 tech 活动 · 无付费植入。
 
 Victor's Picks · Bay Area tech events, picked by Victor · No paid placements.
 
-订阅设置 Preferences <https://picks.example.com/zh/prefs/__VP_TOKEN__> · 退订 Unsubscribe <https://picks.example.com/zh/unsubscribe?t=__VP_TOKEN__> · 改收英文版 Switch to English <https://picks.example.com/prefs/__VP_TOKEN__?lang=en> · 网页版 View in browser <https://picks.example.com/zh/week/2026-W42>
+订阅设置 Preferences <https://picks.example.com/zh/prefs/__VP_TOKEN__> · 退订 Unsubscribe <https://picks.example.com/zh/unsubscribe?t=__VP_TOKEN__> · 改收英文版 Switch to English <https://picks.example.com/prefs/__VP_TOKEN__?lang=en> · 网页版 View in browser <https://picks.example.com/zh/weekly/2026-W42> · 隐私 Privacy <https://picks.example.com/zh/privacy>

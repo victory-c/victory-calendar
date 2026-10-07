@@ -1,10 +1,12 @@
 import 'server-only';
 import { createElement, type ReactElement } from 'react';
 import { render, toPlainText } from 'react-email';
-import { COPY, other } from '@/emails/copy';
+import { COPY, facetNote, other } from '@/emails/copy';
 import { DigestEmail, EmptyNoticeEmail, MSO_SWAPS } from '@/emails/digest';
+import type { Facets } from '../events/facets';
 import { linksFor } from '../subscribers/links';
 import type { Locale } from '../taxonomy';
+import { introLines } from './fields';
 import { selectForVariant } from './select';
 import type { DigestLinks, DigestSnapshot, RenderedEmail } from './types';
 import type { Variant } from './variant';
@@ -57,21 +59,18 @@ const count = (haystack: string, needle: string) => haystack.split(needle).lengt
 export function digestLinks(snap: DigestSnapshot, locale: Locale, token: string): DigestLinks {
   const own = linksFor(locale, token, snap.origin);
   const o = other(locale);
+  const prefix = `${snap.origin}${locale === 'zh' ? '/zh' : ''}`;
   return {
     prefs: own.prefs,
     unsubscribe: own.unsubscribe,
     // ?lang= makes the page offer the one-tap switch; opening the link changes nothing (mail scanners fetch links).
     otherLanguage: `${linksFor(o, token, snap.origin).prefs}?lang=${o}`,
-    web: `${snap.origin}${locale === 'zh' ? '/zh' : ''}/week/${snap.isoWeek}`,
+    // The issue's public archive (/weekly, live from the moment the issue starts sending). A
+    // snapshot with no events has no archive page (only empty notices go out): the plain week then.
+    // Depends on the snapshot only, so a retried batch stays byte-identical.
+    web: `${prefix}${snap.events.length ? '/weekly' : '/week'}/${snap.isoWeek}`,
+    privacy: `${prefix}/privacy`,
   };
-}
-
-function introLines(snap: DigestSnapshot, locale: Locale) {
-  const raw = (locale === 'zh' ? snap.introZh : snap.introEn) ?? '';
-  return raw
-    .split(/\r?\n/)
-    .map((s) => s.trim())
-    .filter(Boolean);
 }
 
 function assertSnapshot(snap: DigestSnapshot) {
@@ -80,37 +79,48 @@ function assertSnapshot(snap: DigestSnapshot) {
 }
 
 /** React can't write conditional comments: swap the template's markers for the Outlook-only markup. */
-function withMso(html: string) {
+function withMso(html: string, label: string) {
   let out = html;
   for (const [marker, markup] of MSO_SWAPS) {
-    if (count(out, marker) !== 1) throw new Error(`digest template: expected exactly one ${marker}`);
+    if (count(out, marker) !== 1) throw new Error(`${label} template: expected exactly one ${marker}`);
     out = out.replace(marker, () => markup);
   }
   return out;
 }
 
-async function finish(
+/**
+ * A newsletter template element → the email: Outlook markup in, the plain-text part (links as
+ * `label <url>`), exactly `links` placeholders in each part, and the size as delivered under
+ * MAX_HTML_BYTES (DigestTooLargeError otherwise). Shared with the going alert (lib/alerts/render.ts);
+ * `label` only names the template in errors.
+ */
+export async function finishEmail(
   element: ReactElement,
   meta: { subject: string; preheader: string; picks: number; going: number },
   links: number,
+  label = 'digest',
 ): Promise<RenderedEmail> {
-  const html = withMso(await render(element, { pretty: false }));
+  const html = withMso(await render(element, { pretty: false }), label);
   const text = toPlainText(html, TEXT_OPTIONS);
   const found = [count(html, TOKEN), count(text, TOKEN)];
   if (found.some((n) => n !== links)) {
-    throw new Error(`digest template: ${found.join(' / ')} placeholder links in html / text, expected ${links}`);
+    throw new Error(`${label} template: ${found.join(' / ')} placeholder links in html / text, expected ${links}`);
   }
   // Size as delivered: each placeholder becomes a 64-character token.
   const bytes = Buffer.byteLength(html, 'utf8') + links * (REAL_TOKEN_LENGTH - TOKEN.length);
-  if (bytes > MAX_HTML_BYTES) throw new DigestTooLargeError(`digest html is ${bytes} bytes (limit ${MAX_HTML_BYTES})`);
+  if (bytes > MAX_HTML_BYTES) throw new DigestTooLargeError(`${label} html is ${bytes} bytes (limit ${MAX_HTML_BYTES})`);
   return { ...meta, html, text, bytes };
 }
+
+/** A variant's F19 facets; a key written before F19 (or a hand-built variant) has none. */
+const variantFacets = (v: Variant): Facets => ({ evLang: v.evLang ?? null, onlineOnly: v.onlineOnly === true });
 
 /** The digest for one variant, or null when it has no picks this week (see renderEmptyNotice). */
 export async function renderVariant(snap: DigestSnapshot, variant: Variant): Promise<RenderedEmail | null> {
   assertSnapshot(snap);
   const locale = variant.locale;
-  const selection = selectForVariant(snap, variant.categories);
+  const facets = variantFacets(variant);
+  const selection = selectForVariant(snap, variant.categories, facets);
   if (selection.picks === 0) return null;
   const going = snap.showAttendance ? selection.going.length : 0;
   const intro = introLines(snap, locale);
@@ -124,28 +134,34 @@ export async function renderVariant(snap: DigestSnapshot, variant: Variant): Pro
     intro,
     selection,
     links: digestLinks(snap, locale, TOKEN),
+    facetNote: facetNote(locale, facets),
   });
-  return finish(element, { subject, preheader, picks: selection.picks, going }, LINKS.digest);
+  return finishEmail(element, { subject, preheader, picks: selection.picks, going }, LINKS.digest);
 }
 
 /** "Nothing I'd recommend this week": sent at most once a month per reader (claim.ts decides). */
 export async function renderEmptyNotice(snap: DigestSnapshot, variant: Variant): Promise<RenderedEmail> {
   assertSnapshot(snap);
   const locale = variant.locale;
+  const note = facetNote(locale, variantFacets(variant));
   const subject = COPY[locale].emptySubject;
-  const preheader = COPY[locale].emptyBody;
-  const element = createElement(EmptyNoticeEmail, { locale, snap, subject, preheader, links: digestLinks(snap, locale, TOKEN) });
-  return finish(element, { subject, preheader, picks: 0, going: 0 }, LINKS.empty);
+  const preheader = note ? COPY[locale].emptyBodyFiltered : COPY[locale].emptyBody;
+  const element = createElement(EmptyNoticeEmail, { locale, snap, subject, preheader, links: digestLinks(snap, locale, TOKEN), facetNote: note });
+  return finishEmail(element, { subject, preheader, picks: 0, going: 0 }, LINKS.empty);
 }
 
 /**
  * One recipient's copy: every placeholder replaced by their link token, nothing else changed.
- * Refuses an email whose placeholder count isn't exactly the links we render (picks = 0 is the
- * empty notice; renderVariant never returns a digest without picks).
+ * Refuses an email whose placeholder count isn't exactly the links we render. Other emails pass
+ * their count (`expectedLinks`, e.g. the going alert's ALERT_LINKS); without it the digest's rule
+ * applies: picks = 0 is the empty notice, since renderVariant never returns a digest without picks.
  */
-export function personalize(email: RenderedEmail, token: string): { subject: string; html: string; text: string } {
+export function personalize(email: RenderedEmail, token: string, expectedLinks?: number): { subject: string; html: string; text: string } {
   if (!TOKEN_SHAPE.test(token) || token.includes(TOKEN)) throw new Error('personalize: unexpected token shape');
-  const links = email.picks > 0 ? LINKS.digest : LINKS.empty;
+  if (expectedLinks !== undefined && !(Number.isInteger(expectedLinks) && expectedLinks > 0)) {
+    throw new Error('personalize: expected link count must be a positive integer');
+  }
+  const links = expectedLinks ?? (email.picks > 0 ? LINKS.digest : LINKS.empty);
   if (count(email.html, TOKEN) !== links || count(email.text, TOKEN) !== links || email.subject.includes(TOKEN)) {
     throw new Error('personalize: unexpected placeholder count');
   }

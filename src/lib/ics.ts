@@ -3,6 +3,7 @@
 import { TZDate } from '@date-fns/tz';
 import ical, { ICalCalendarMethod, ICalEventStatus } from 'ical-generator';
 import { note, titles } from './events/display';
+import { type EvLang, type Facets, NO_FACETS } from './events/facets';
 import { publicGoing } from './events/going';
 import type { PublicEvent } from './events/types';
 import { publicHost, publicOrigin } from './host';
@@ -18,11 +19,20 @@ export function eventUrl(e: Pick<PublicEvent, 'slug'>, locale: Locale) {
   return `${publicOrigin()}${locale === 'zh' ? '/zh' : ''}/events/${e.slug}`;
 }
 
-export function calendarName(locale: Locale, cats: Category[], going = false) {
+// zh / en feeds include bilingual events (facets.ts), so the name says so, as the email copy does.
+const FACET_NAMES: Record<Locale, Record<EvLang, string> & { online: string }> = {
+  zh: { zh: '中文或双语活动', en: '英文或双语活动', bilingual: '双语活动', online: '线上' },
+  en: { zh: 'Chinese or bilingual', en: 'English or bilingual', bilingual: 'Bilingual', online: 'Online' },
+};
+
+/** "Victor's Picks · AI & Tech, Hackathons · Chinese or bilingual · Online"; going.ics ignores categories and facets. */
+export function calendarName(locale: Locale, cats: Category[], going = false, facets: Facets = NO_FACETS) {
   const base = locale === 'zh' ? 'Victor 精选' : "Victor's Picks";
   if (going) return locale === 'zh' ? `${base} · Victor 会去` : `${base} · Victor is going`;
-  if (!cats.length) return `${base} · ${locale === 'zh' ? '全部' : 'All'}`;
-  return `${base} · ${cats.map((c) => CATEGORIES[c][locale]).join(locale === 'zh' ? '、' : ', ')}`;
+  const n = FACET_NAMES[locale];
+  const extra = [facets.evLang && n[facets.evLang], facets.onlineOnly && n.online].filter((x): x is string => Boolean(x));
+  if (!cats.length) return [base, extra.length ? null : locale === 'zh' ? '全部' : 'All', ...extra].filter(Boolean).join(' · ');
+  return [base, cats.map((c) => CATEGORIES[c][locale]).join(locale === 'zh' ? '、' : ', '), ...extra].join(' · ');
 }
 
 type Options = {

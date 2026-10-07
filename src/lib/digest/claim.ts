@@ -2,7 +2,9 @@ import 'server-only';
 import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { db as defaultDb, type DB } from '../db';
 import { digestSends } from '../db/schema';
+import { EV_LANGS } from '../events/facets';
 import { CATEGORY_SLUGS, type Locale } from '../taxonomy';
+import type { PickCell } from './select';
 
 // Who gets this issue, claimed before anything is sent (guide「digest 发送」, resend.md §5).
 // neon-http has no interactive transactions, so every write here is one statement: the claim is
@@ -25,14 +27,16 @@ export type Claimed = {
 };
 
 /**
- * digest: eligible subscribers with at least one category that has events this week.
- * empty: eligible subscribers with none of them, who haven't had an empty notice claimed since
+ * digest: eligible subscribers for whom this week has at least one pick: an event in one of their
+ * categories that passes their F19 facets. `cells` are the week's (category, event language,
+ * online) combinations (select.ts pickCells), the same events isEmptyFor() looks at.
+ * empty: eligible subscribers with no such pick, who haven't had an empty notice claimed since
  * monthStart (first instant of the Pacific month: at most one "nothing this week" per month). A
  * claim whose error proves it was never delivered doesn't count (UNDELIVERED below).
  */
 export type ClaimTarget =
-  | { kind: 'digest'; categories: readonly string[] }
-  | { kind: 'empty'; categories: readonly string[]; monthStart: Date };
+  | { kind: 'digest'; cells: readonly PickCell[] }
+  | { kind: 'empty'; cells: readonly PickCell[]; monthStart: Date };
 
 /** A claim older than this with no resend_id belongs to a run that ended without marking it: longer than maxDuration (300 s). */
 export const STALE_MS = 10 * 60_000;
@@ -54,20 +58,51 @@ export function textArray(xs: readonly string[]): SQL {
 const KNOWN = () => textArray(CATEGORY_SLUGS);
 
 /**
- * Same string as variantKey() in ./variant.ts: locale, ':', known slugs de-duplicated and sorted
- * bytewise (collate "C" = JS default sort for ASCII). A test checks all 127 subsets × 2 locales.
+ * The stored ev_lang_pref as the digest reads it, same as evLangOf() in events/facets.ts: its one
+ * element when it has exactly one known value, else NULL (no preference).
  */
-export function variantKeyExpr(locale: SQL, categories: SQL): SQL {
-  return sql`(${locale} || ':' || array_to_string(array(select distinct u.c collate "C" from unnest(${categories}) as u(c) where u.c = any(${KNOWN()}) order by 1), ','))`;
+export function evLangExpr(pref: SQL): SQL {
+  return sql`(case when cardinality(${pref}) = 1 and (${pref})[1] = any(${textArray(EV_LANGS)}) then (${pref})[1] end)`;
+}
+
+/**
+ * Same string as variantKey() in ./variant.ts: locale, ':', known slugs de-duplicated and sorted
+ * bytewise (collate "C" = JS default sort for ASCII), then the F19 suffixes ';l=<lang>' and ';o'
+ * when set (a subscriber without facets gets the pre-F19 key). A test checks all 127 subsets × 2
+ * locales, and every stored facet shape.
+ */
+export function variantKeyExpr(locale: SQL, categories: SQL, evLangPref: SQL = sql`null::text[]`, onlineOnly: SQL = sql`null::boolean`): SQL {
+  return sql`(${locale} || ':' || array_to_string(array(select distinct u.c collate "C" from unnest(${categories}) as u(c) where u.c = any(${KNOWN()}) order by 1), ',')
+    || coalesce(';l=' || ${evLangExpr(evLangPref)}, '') || (case when ${onlineOnly} is true then ';o' else '' end))`;
+}
+
+/**
+ * On alias `s`: one of this week's cells is in the subscriber's categories and passes their facets.
+ * The rule is matchesFacets() (events/facets.ts) in SQL: no language preference takes every event,
+ * a bilingual event passes every preference, otherwise the languages must match; online-only takes
+ * online and hybrid events (cell.online). One VALUES list of at most 42 rows, so the claim stays a
+ * single statement.
+ */
+function hasPicks(cells: readonly PickCell[]): SQL {
+  if (cells.length === 0) return sql`false`;
+  const values = sql.join(
+    cells.map((c) => sql`(${c.category}::text, ${c.lang}::text, ${c.online}::boolean)`),
+    sql`, `,
+  );
+  const lang = evLangExpr(sql`s.ev_lang_pref`);
+  return sql`exists (select 1 from (values ${values}) as p(cat, lang, online)
+    where p.cat = any(s.categories)
+      and (${lang} is null or p.lang = ${lang} or p.lang = 'bilingual')
+      and (s.online_only is not true or p.online))`;
 }
 
 /**
  * The digest's audience rule, on alias `s` = subscribers: active, or paused with the pause over
  * (or never dated), with at least one known category. An expired pause counts as active
  * (prefs-view.ts). Requiring a known slug (not just cardinality > 0) keeps a corrupt row from
- * getting a variant key with no sections.
+ * getting a variant key with no sections. Going alerts (alerts/claim.ts) use the same rule.
  */
-function eligible(now: Date): SQL {
+export function eligible(now: Date): SQL {
   return sql`(s.status = 'active' or (s.status = 'paused' and (s.paused_until is null or s.paused_until <= ${ts(now)}))) and s.categories && ${KNOWN()}`;
 }
 
@@ -77,9 +112,14 @@ function eligible(now: Date): SQL {
  * row still uses up the month's notice, so a reader never gets two in one month: in flight, sent, or
  * an outcome Resend may have delivered (expired, window_closed, id_mismatch, idem_conflict, and the
  * replay-only ineligible / replay_render_failed / replay_too_large / replay_no_picks, whose first
- * attempt may have gone out).
+ * attempt may have gone out). On a digest_sends alias; going alerts (alerts/claim.ts) use it to tell
+ * which digests a reader may have seen.
  */
-const UNDELIVERED = sql`(e.error like 'failed:%' or e.error in ('render_failed', 'too_large', 'no_picks', 'invalid'))`;
+export function undeliveredDigest(alias: 'e' | 'd'): SQL {
+  const a = sql.raw(alias);
+  return sql`(${a}.error like 'failed:%' or ${a}.error in ('render_failed', 'too_large', 'no_picks', 'invalid'))`;
+}
+const UNDELIVERED = undeliveredDigest('e');
 
 /** On alias `s`: the subscriber already had (or may have had) an empty notice since monthStart. */
 function hadEmptyNotice(monthStart: Date): SQL {
@@ -89,11 +129,8 @@ function hadEmptyNotice(monthStart: Date): SQL {
 }
 
 function audience(issueId: string, target: ClaimTarget, now: Date): SQL {
-  const cats = textArray(target.categories);
-  const match =
-    target.kind === 'digest'
-      ? sql`s.categories && ${cats}`
-      : sql`not (s.categories && ${cats}) and not ${hadEmptyNotice(target.monthStart)}`;
+  const picks = hasPicks(target.cells);
+  const match = target.kind === 'digest' ? picks : sql`not ${picks} and not ${hadEmptyNotice(target.monthStart)}`;
   return sql`${eligible(now)} and ${match}
     and not exists (select 1 from digest_sends d where d.issue_id = ${issueId}::text and d.subscriber_id = s.id)`;
 }
@@ -110,17 +147,17 @@ export async function claimFresh(
   now: Date,
   db: DB = defaultDb,
 ): Promise<Claimed[]> {
-  if (limit <= 0 || (target.kind === 'digest' && target.categories.length === 0)) return [];
+  if (limit <= 0 || (target.kind === 'digest' && target.cells.length === 0)) return [];
   const r = await db.execute(sql`
     with picked as materialized (
-      select s.id, s.email, s.locale, s.token_version, s.categories
+      select s.id, s.email, s.locale, s.token_version, s.categories, s.ev_lang_pref, s.online_only
       from subscribers s
       where ${audience(issueId, target, now)}
       order by s.confirmed_at asc nulls last, s.id
       limit ${Math.floor(limit)}
     ), ins as (
       insert into digest_sends (issue_id, subscriber_id, variant_key, claimed_at, kind, batch_key)
-      select ${issueId}::text, p.id, ${variantKeyExpr(sql`p.locale`, sql`p.categories`)}, ${ts(now)}, ${target.kind}::text, ${batchKey}::text
+      select ${issueId}::text, p.id, ${variantKeyExpr(sql`p.locale`, sql`p.categories`, sql`p.ev_lang_pref`, sql`p.online_only`)}, ${ts(now)}, ${target.kind}::text, ${batchKey}::text
       from picked p
       on conflict do nothing
       returning subscriber_id, variant_key, kind
@@ -134,7 +171,7 @@ export async function claimFresh(
 /** Whether a claim for any of these targets would find someone (read-only; used when the daily cap is reached). */
 export async function anyClaimable(issueId: string, targets: readonly ClaimTarget[], now: Date, db: DB = defaultDb): Promise<boolean> {
   for (const target of targets) {
-    if (target.kind === 'digest' && target.categories.length === 0) continue;
+    if (target.kind === 'digest' && target.cells.length === 0) continue;
     const [r] = rows<{ found: boolean }>(
       await db.execute(sql`select exists (select 1 from subscribers s where ${audience(issueId, target, now)}) as found`),
     );
@@ -240,17 +277,29 @@ export async function markError(issueId: string, target: ErrorTarget, error: str
   return r.length;
 }
 
+/** 00:00 UTC of `now`'s day: the Resend quota day the daily caps count in. */
+export const utcDayStart = (now: Date) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
 /**
- * Digest mail committed today (UTC day, the Resend quota day): rows sent since 00:00 UTC plus
- * claims made since then that are still waiting to be sent or replayed. Counting the waiting ones
- * keeps a run from claiming more on top of a group that a later run will retry.
+ * On a send table (digest_sends or alert_sends, unaliased): rows sent since `day` plus claims made
+ * since then that are still waiting to be sent or replayed. Counting the waiting ones keeps a run
+ * from claiming more on top of a group that a later run will retry.
+ */
+export function committedSince(day: Date): SQL {
+  return sql`(sent_at >= ${ts(day)} or (resend_id is null and error is null and claimed_at >= ${ts(day)}))`;
+}
+
+/**
+ * Newsletter mail committed today (UTC day, the Resend quota day): digest emails and F20 going
+ * alerts together, so both stay inside the one DIGEST_DAILY_CAP. The digest runs first in the UTC
+ * day (01:00) and alerts later (15:00), so the digest has priority and alerts get what is left.
  */
 export async function sentTodayCount(now: Date, db: DB = defaultDb): Promise<number> {
-  const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const day = utcDayStart(now);
   const [r] = rows<{ n: number }>(
     await db.execute(sql`
-      select count(*)::int as n from digest_sends
-      where sent_at >= ${ts(day)} or (resend_id is null and error is null and claimed_at >= ${ts(day)})`),
+      select ((select count(*) from digest_sends where ${committedSince(day)})
+        + (select count(*) from alert_sends where ${committedSince(day)}))::int as n`),
   );
   return Number(r?.n ?? 0);
 }
@@ -258,7 +307,7 @@ export async function sentTodayCount(now: Date, db: DB = defaultDb): Promise<num
 /** Eligible subscribers left out this issue because they already had this month's empty notice (same rule as the claim). */
 export async function countSkippedEmpty(
   issueId: string,
-  categories: readonly string[],
+  cells: readonly PickCell[],
   monthStart: Date,
   now: Date,
   db: DB = defaultDb,
@@ -266,7 +315,7 @@ export async function countSkippedEmpty(
   const [r] = rows<{ n: number }>(
     await db.execute(sql`
       select count(*)::int as n from subscribers s
-      where ${eligible(now)} and not (s.categories && ${textArray(categories)})
+      where ${eligible(now)} and not ${hasPicks(cells)}
         and not exists (select 1 from digest_sends d where d.issue_id = ${issueId}::text and d.subscriber_id = s.id)
         and ${hadEmptyNotice(monthStart)}`),
   );

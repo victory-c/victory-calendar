@@ -13,6 +13,14 @@
     {
       "path": "/api/cron/digest",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/alerts",
+      "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/alerts",
+      "schedule": "0 16 * * *"
     }
   ]
 }

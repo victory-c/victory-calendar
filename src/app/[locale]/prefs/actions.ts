@@ -9,11 +9,12 @@ import { headers } from 'next/headers';
 import { hashToken } from '@/lib/api/token-hash';
 import { clientIp } from '@/lib/client-ip';
 import { sendConfirmEmail } from '@/lib/email/subscribe';
+import { type Facets, isEvLang } from '@/lib/events/facets';
 import { describeError } from '@/lib/log-safe';
-import { linksWork } from '@/lib/newsletter/status';
+import { alertsMode, linksWork } from '@/lib/newsletter/status';
 import { limit } from '@/lib/ratelimit';
 import {
-  cleanCategories, inboxKey, pauseSubscription, resubscribe, resumeSubscription, type Subscriber, subscriberFromToken,
+  cleanCategories, disableGoingAlerts, inboxKey, pauseSubscription, resubscribe, resumeSubscription, type Subscriber, subscriberFromToken,
   unsubscribeAll, unsubscribeCategory, updatePreferences,
 } from '@/lib/subscribers/service';
 import { type Category, isCategory } from '@/lib/taxonomy';
@@ -24,7 +25,7 @@ export type PrefsKey =
   | Common | 'prefs.saved' | 'prefs.unsubscribed' | 'prefs.paused' | 'prefs.resumed' | 'prefs.resubscribed' | 'prefs.resubscribePending'
   | 'prefs.langSwitchedEn' | 'prefs.langSwitchedZh';
 /** `Newsletter.*` message keys the unsubscribe page can show. */
-export type UnsubscribeKey = Common | 'unsubscribe.stopped' | 'unsubscribe.done';
+export type UnsubscribeKey = Common | 'unsubscribe.stopped' | 'unsubscribe.done' | 'unsubscribe.alertsOff';
 
 type Result<K extends string> = { ok: boolean; key: K; category?: Category };
 export type PrefsState = Result<PrefsKey> | null;
@@ -54,19 +55,48 @@ async function withSubscriber<K extends string>(
 
 const editable = (s: Subscriber['status']) => s === 'pending' || s === 'active' || s === 'paused';
 
-/** Language and categories. An empty selection unsubscribes (PRD F06: only the sections you picked). */
+/**
+ * The F19 facet fields: `ev_lang` ('' = any, or one event language) and the `online` checkbox.
+ * Undefined when the form had no facet section (`facets_present`, e.g. a page rendered before
+ * F19): the stored facets are then kept. 'forged' for any value the form can't produce.
+ */
+function facetsFrom(form: FormData): Facets | undefined | 'forged' {
+  if (!form.has('facets_present')) return undefined;
+  const lang = form.get('ev_lang') ?? '';
+  const online = form.getAll('online');
+  if ((lang !== '' && !isEvLang(lang)) || online.length > 1 || (online.length === 1 && online[0] !== '1')) return 'forged';
+  return { evLang: lang === '' ? null : lang, onlineOnly: online.length === 1 };
+}
+
+/**
+ * The F20 going-alerts checkbox (`alerts`). Undefined, so the stored choice is kept, when the form
+ * had no such control (`alerts_present`) or alerts are off on this deployment: the page then hides
+ * the control, and a page rendered before the switch can't change a setting nobody can see.
+ */
+function alertsFrom(form: FormData): boolean | undefined | 'forged' {
+  if (!form.has('alerts_present') || alertsMode() === 'off') return undefined;
+  const alerts = form.getAll('alerts');
+  if (alerts.length > 1 || (alerts.length === 1 && alerts[0] !== '1')) return 'forged';
+  return alerts.length === 1;
+}
+
+/** Language, categories, facets and going alerts. An empty selection unsubscribes (PRD F06: only the sections you picked). */
 export async function savePreferences(token: string, _prev: PrefsState, form: FormData): Promise<PrefsState> {
   return withSubscriber<PrefsKey>(token, async (sub) => {
     const locale = form.get('locale');
     const raw = form.getAll('c');
     const categories = cleanCategories(raw);
+    const facets = facetsFrom(form);
+    const goingAlerts = alertsFrom(form);
     // Something was ticked but none of it is a category: a forged post, not a request to leave.
-    if ((locale !== 'en' && locale !== 'zh') || (raw.length > 0 && categories.length === 0)) return fail('state.error');
+    if ((locale !== 'en' && locale !== 'zh') || (raw.length > 0 && categories.length === 0) || facets === 'forged' || goingAlerts === 'forged') {
+      return fail('state.error');
+    }
     if (!editable(sub.status)) {
       refresh(); // stale page: an unsubscribed row comes back only through "Subscribe again"
       return fail('state.error');
     }
-    const row = await updatePreferences(sub, { locale, categories });
+    const row = await updatePreferences(sub, { locale, categories, facets, goingAlerts });
     refresh();
     return { ok: true, key: row.status === 'unsubscribed' ? 'prefs.unsubscribed' : 'prefs.saved' };
   });
@@ -74,7 +104,8 @@ export async function savePreferences(token: string, _prev: PrefsState, form: Fo
 
 /**
  * One-tap language switch, offered when the email footer's language link (?lang=) names the other
- * edition. Only the language changes: the categories are the row's own, read now, never a stale page's.
+ * edition. Only the language changes: the categories are the row's own, read now, never a stale
+ * page's, and the facets and going alerts aren't passed, so updatePreferences leaves them as stored.
  */
 export async function changeLanguage(token: string, _prev: PrefsState, form: FormData): Promise<PrefsState> {
   return withSubscriber<PrefsKey>(token, async (sub) => {
@@ -139,7 +170,11 @@ export async function changeSubscription(token: string, _prev: PrefsState, form:
   });
 }
 
-/** /unsubscribe buttons: `c` is a category slug or "all". Repeating a press changes nothing. */
+/**
+ * /unsubscribe buttons: `c` is a category slug, "all", or (F20, from an alert's ?list=going) "going",
+ * which turns off going alerts only. Repeating a press changes nothing. Turning alerts off works
+ * whatever the deployment's alert mode: an opt-out always works.
+ */
 export async function unsubscribeFrom(token: string, _prev: UnsubscribeState, form: FormData): Promise<UnsubscribeState> {
   return withSubscriber<UnsubscribeKey>(token, async (sub) => {
     const c = form.get('c');
@@ -147,6 +182,11 @@ export async function unsubscribeFrom(token: string, _prev: UnsubscribeState, fo
       await unsubscribeAll(sub);
       refresh();
       return { ok: true, key: 'unsubscribe.done' };
+    }
+    if (c === 'going') {
+      await disableGoingAlerts(sub);
+      refresh();
+      return { ok: true, key: 'unsubscribe.alertsOff' };
     }
     if (!isCategory(c)) return fail('state.error');
     const row = await unsubscribeCategory(sub, c);

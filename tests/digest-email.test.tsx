@@ -1,8 +1,10 @@
+import { load } from 'cheerio';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { pretty } from 'react-email';
 import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ev, O, snap } from './helpers/digest-fixtures';
 import { testDb } from './helpers/pglite';
 
 // Weekly digest template and render (M3 week 14, builder A): selection rules (F06 "only your
@@ -32,34 +34,17 @@ vi.mock('@/lib/ingest/safe-fetch', async (orig) => ({
 }));
 
 const { DigestTooLargeError, MAX_HTML_BYTES, TOKEN, digestLinks, personalize, renderEmptyNotice, renderVariant } = await import('@/lib/digest/render');
-const { categoriesWithPicks, isEmptyFor, selectForVariant } = await import('@/lib/digest/select');
+const { categoriesWithPicks, isEmptyFor, pickCells, selectForVariant } = await import('@/lib/digest/select');
 const { parseVariantKey } = await import('@/lib/digest/variant');
-const { clip, NOTE_MAX } = await import('@/emails/digest');
+const { clip, NOTE_MAX } = await import('@/lib/digest/fields');
 const { covers } = await import('@/lib/db/schema');
 type DigestEvent = import('@/lib/digest/types').DigestEvent;
 type DigestSnapshot = import('@/lib/digest/types').DigestSnapshot;
 type RenderedEmail = import('@/lib/digest/types').RenderedEmail;
 
-const O = 'https://picks.example.com';
 const REAL_TOKEN = `sub_0123456789abcdef.${'Ab3_-'.repeat(8)}Ab3`; // the shape linkToken() returns: 64 chars
 
-let n = 0;
-const ev = (over: Partial<DigestEvent> = {}): DigestEvent => {
-  const id = over.id ?? `evt_${String(++n).padStart(16, '0')}`;
-  return {
-    id, slug: `event-${id.slice(-6)}`, category: 'ai', startAt: '2026-10-14T01:30:00.000Z', endAt: '2026-10-14T04:00:00.000Z',
-    tz: 'America/Los_Angeles', allDay: false, format: 'in_person', titleEn: 'Bay Area AI Builders Night', titleZh: '湾区 AI 开发者之夜',
-    noteEn: null, noteZh: null, place: 'SoMa', priceText: null, access: 'open', sourceUrl: `https://luma.com/${id}`, platform: 'Luma',
-    coverUrl: `${O}/og/template/ai?s=192`, coverCredit: null, seal: null, featured: false, ...over,
-  };
-};
-const snap = (over: Partial<DigestSnapshot> = {}): DigestSnapshot => ({
-  version: 1, issueId: 'dig_0000000000000001', isoWeek: '2026-W42', from: '2026-10-12T07:00:00.000Z', to: '2026-10-19T07:00:00.000Z',
-  previewWeek: '2026-W43', sendAfter: '2026-10-12T00:00:00.000Z', origin: O,
-  introEn: 'A heavy AI week, and a hackathon I am hosting.\nSee you there.', introZh: '这周 AI 活动扎堆，还有一场我主办的黑客松。\n现场见。',
-  showAttendance: true, events: [], preview: [], ...over,
-});
-const v = (key: string) => {
+const v =(key: string) => {
   const parsed = parseVariantKey(key);
   if (!parsed) throw new Error(`bad key ${key}`);
   return parsed;
@@ -412,6 +397,66 @@ describe('renderVariant: content', () => {
     expect(e.html).toContain(`src="${O}/og/template/ai?s=192"`);
   });
 
+  describe('cover credit', () => {
+    const PAGE = 'https://www.flickr.example/photos/a-person/1';
+    const BY_SA = 'https://creativecommons.org/licenses/by-sa/2.0/';
+    const CREDIT = '"Golden Gate at Dusk" by A. Person · CC BY-SA 2.0 · cropped';
+    const openverse = (over: Partial<DigestEvent> = {}) =>
+      ev({ slug: 'bridge-walk', coverUrl: `${O}/og/email-cover/cov_00000000000000ov`, coverCredit: CREDIT, coverSourceUrl: PAGE, coverLicenseUrl: BY_SA, ...over });
+    const render = async (e: DigestEvent, l: 'en' | 'zh' = 'en') => {
+      const out = await must(renderVariant(snap({ events: [e] }), v(`${l}:ai`)));
+      const $ = load(out.html);
+      const line = $('div').filter((_, d) => $(d).text().includes('A. Person') || $(d).text().includes('Host')).last();
+      return { out, line, links: line.find('a').map((_, a) => [[$(a).text(), $(a).attr('href')]]).get() as unknown as [string, string][] };
+    };
+
+    it.each(['en', 'zh'] as const)('%s: Openverse links the work to its page and the licence to its deed, in html and text', async (l) => {
+      const { out, line, links } = await render(openverse(), l);
+      expect(line.text()).toBe(CREDIT);
+      expect(links).toEqual([['"Golden Gate at Dusk" by A. Person', PAGE], ['CC BY-SA 2.0', BY_SA]]);
+      expect(line.find('a').get().every((a) => a.attribs.class === 'mut')).toBe(true);
+      expect(out.text).toContain(`"Golden Gate at Dusk" by A. Person <${PAGE}> · CC BY-SA 2.0 <${BY_SA}> · cropped`);
+      expectEmailSafe(out.html, l);
+      expectTextLinksDelimited(out.text);
+    });
+
+    it('CC0 without an edit, and a work without a page: only the deed is linked', async () => {
+      const cc0 = 'https://creativecommons.org/publicdomain/zero/1.0/';
+      const { out, links } = await render(openverse({ coverCredit: 'Untitled image by A. Person · CC0 1.0', coverLicenseUrl: cc0, coverSourceUrl: null }));
+      expect(links).toEqual([['CC0 1.0', cc0]]);
+      expect(out.text).toContain(`Untitled image by A. Person · CC0 1.0 <${cc0}>`);
+    });
+
+    it('a credit not in the stored shape is linked whole, with the deed after it', async () => {
+      const { line, links } = await render(openverse({ coverCredit: 'Photo by A. Person' }));
+      expect(line.text()).toBe('Photo by A. Person · CC BY-SA 2.0');
+      expect(links).toEqual([['Photo by A. Person', PAGE], ['CC BY-SA 2.0', BY_SA]]);
+    });
+
+    it('a snapshot frozen before the links, other covers, and links that are not http(s) or a CC deed: plain text', async () => {
+      for (const e of [
+        openverse({ coverSourceUrl: undefined, coverLicenseUrl: undefined }),
+        openverse({ coverSourceUrl: 'javascript:alert(1)', coverLicenseUrl: 'https://evil.example/licenses/by-sa/2.0/' }),
+        ev({ coverUrl: `${O}/og/email-cover/cov_0000000000000001`, coverCredit: 'Cover: Host via Partiful' }),
+      ]) {
+        const { out, line, links } = await render(e);
+        expect(line.text()).toBe(e.coverCredit);
+        expect(links).toEqual([]);
+        expect(line.html()).toBe(load(`<i>${e.coverCredit}</i>`)('i').html());
+        expect(out.html).not.toMatch(/javascript:|evil\.example/);
+      }
+    });
+
+    it('thirty Openverse credits still fit under the size cap', async () => {
+      const cats = ['ai', 'hackathon', 'vc', 'campus', 'conference', 'cycling', 'social'] as const;
+      const events = Array.from({ length: 30 }, (_, i) =>
+        openverse({ id: `evt_ov${String(i).padStart(14, '0')}`, slug: `bridge-walk-${i}`, category: cats[i % 7], noteEn: 'A '.repeat(150) }),
+      );
+      const e = await must(renderVariant(snap({ events }), v(`en:${cats.join(',')}`)));
+      expect(e.bytes).toBeLessThan(MAX_HTML_BYTES);
+    });
+  });
+
   it('cuts a long note to about three lines and keeps the rest for the site', async () => {
     const long = 'Worth it for the hallway track alone. '.repeat(30);
     const e = await must(renderVariant(fixture({ events: [ev({ noteEn: long, noteZh: '值得去，走廊交流就够本。'.repeat(30) })] }), v('en:ai')));
@@ -433,11 +478,13 @@ describe('renderVariant: content', () => {
     expect(zh.text).toContain(`退订 Unsubscribe <${O}/zh/unsubscribe?t=${TOKEN}>`);
     // The switch opens the other-language page with ?lang=, which offers the one-tap change.
     expect(zh.text).toContain(`改收英文版 Switch to English <${O}/prefs/${TOKEN}?lang=en>`);
-    expect(zh.text).toContain(`网页版 View in browser <${O}/zh/week/2026-W42>`);
+    expect(zh.text).toContain(`网页版 View in browser <${O}/zh/weekly/2026-W42>`);
+    expect(zh.text).toContain(`隐私 Privacy <${O}/zh/privacy>`);
     const en = await must(renderVariant(fixture(), VARIANT('en')));
     expect(en.text).toMatch(/^Victor's Picks · Week of Oct 12/);
     expect(en.text).toContain(`Switch to Chinese 改收中文版 <${O}/zh/prefs/${TOKEN}?lang=zh>`);
-    expect(en.text).toContain(`View in browser 网页版 <${O}/week/2026-W42>`);
+    expect(en.text).toContain(`View in browser 网页版 <${O}/weekly/2026-W42>`);
+    expect(en.text).toContain(`Privacy 隐私 <${O}/privacy>`);
     for (const e of [zh, en]) expectTextLinksDelimited(e.text);
     expect(en.html).not.toMatch(/mailing address|PO Box/i);
   });
@@ -580,6 +627,130 @@ describe('renderEmptyNotice', () => {
   });
 });
 
+// F19: event-language and online-only facets. The same week with languages set: AI builders night
+// (en, in person, going), evals (zh, online), Cal Hacks (bilingual, in person, hosting), office
+// hours (en, hybrid, speaking), boba (zh, in person), ride (en); preview: AI infra (zh), board games (en).
+const LANGS: Record<string, DigestEvent['eventLanguage']> = {
+  'evals-in-practice': 'zh', 'cal-hacks-weekend': 'bilingual', 'founder-office-hours': 'en', 'late-night-boba': 'zh', 'ai-infra-meetup': 'zh',
+  'board-game-night': 'en',
+};
+const withLang = (e: DigestEvent): DigestEvent => (LANGS[e.slug] ? { ...e, eventLanguage: LANGS[e.slug] } : e);
+const facetFixture = () => fixture({ events: EVENTS.map(withLang), preview: PREVIEW.map(withLang) });
+const CATS = ['ai', 'hackathon', 'vc', 'social'];
+const slugsOf = (sel: ReturnType<typeof selectForVariant>) => sel.sections.flatMap((x) => x.days.flatMap((d) => d.events.map((e) => e.slug)));
+
+describe('F19 facets', () => {
+  it('sections, going, preview and the picks count all follow the facets', () => {
+    const s = facetFixture();
+    const zh = selectForVariant(s, CATS, { evLang: 'zh', onlineOnly: false });
+    expect(slugsOf(zh)).toEqual(['evals-in-practice', 'cal-hacks-weekend', 'late-night-boba']);
+    expect([zh.picks, zh.going.map((e) => e.slug), zh.preview.map((e) => e.slug)]).toEqual([3, ['cal-hacks-weekend'], ['ai-infra-meetup']]);
+    const en = selectForVariant(s, CATS, { evLang: 'en', onlineOnly: false });
+    expect(slugsOf(en)).toEqual(['ai-builders-night', 'cal-hacks-weekend', 'founder-office-hours']);
+    expect(en.preview.map((e) => e.slug)).toEqual(['board-game-night']);
+    const bi = selectForVariant(s, CATS, { evLang: 'bilingual', onlineOnly: false });
+    expect(slugsOf(bi)).toEqual(['cal-hacks-weekend']);
+    // Online only keeps online and hybrid; the preview's in-person events go.
+    const online = selectForVariant(s, CATS, { evLang: null, onlineOnly: true });
+    expect(slugsOf(online)).toEqual(['evals-in-practice', 'founder-office-hours']);
+    expect([online.going.map((e) => e.slug), online.preview]).toEqual([['founder-office-hours'], []]);
+    expect(selectForVariant(s, CATS, { evLang: 'zh', onlineOnly: true }).picks).toBe(1);
+    // A variant passes as the facets (it carries evLang / onlineOnly).
+    expect(selectForVariant(s, CATS, v('en:ai,hackathon,social,vc;l=zh;o'))).toEqual(selectForVariant(s, CATS, { evLang: 'zh', onlineOnly: true }));
+  });
+
+  it('isEmptyFor and pickCells agree with the selection', () => {
+    const s = facetFixture();
+    expect(isEmptyFor(s, ['social'], { evLang: 'en', onlineOnly: false })).toBe(true);
+    expect(isEmptyFor(s, ['social'], { evLang: 'zh', onlineOnly: false })).toBe(false);
+    expect(isEmptyFor(s, ['hackathon'], { evLang: 'en', onlineOnly: true })).toBe(true);
+    expect(isEmptyFor(s, ['vc'], { evLang: 'en', onlineOnly: true })).toBe(false); // hybrid counts as online
+    expect(pickCells(s)).toEqual([
+      { category: 'ai', lang: 'en', online: false },
+      { category: 'ai', lang: 'zh', online: true },
+      { category: 'hackathon', lang: 'bilingual', online: false },
+      { category: 'vc', lang: 'en', online: true },
+      { category: 'cycling', lang: 'en', online: false },
+      { category: 'social', lang: 'zh', online: false },
+    ]);
+  });
+
+  it('a snapshot frozen before F19 (no eventLanguage) reads every event as English', () => {
+    const old = fixture();
+    expect(old.events.every((e) => !('eventLanguage' in e))).toBe(true);
+    expect(selectForVariant(old, CATS, { evLang: 'en', onlineOnly: false }).picks).toBe(selectForVariant(old, CATS).picks);
+    expect(isEmptyFor(old, CATS, { evLang: 'zh', onlineOnly: false })).toBe(true);
+    expect(pickCells(old).every((c) => c.lang === 'en')).toBe(true);
+  });
+
+  it.each(['en', 'zh'] as const)('%s: subject counts follow the facets; one facet line in html and text', async (l) => {
+    const e = await must(renderVariant(facetFixture(), v(`${l}:ai,hackathon,social,vc;l=zh`)));
+    expectEmailSafe(e.html, l);
+    expect([e.picks, e.going]).toEqual([3, 1]);
+    expect(e.subject).toBe(l === 'en' ? '3 picks this week · Victor is going to 1' : '本周 3 场精选 · Victor 会去 1 场');
+    const note = l === 'en' ? 'Only Chinese or bilingual events. You can change this in your preferences.' : '只收：中文或双语活动。可以在订阅设置里修改。';
+    expect(e.html.split(note).length - 1).toBe(1);
+    expect(e.text.split(note).length - 1).toBe(1);
+    expect(e.html).not.toContain('ai-builders-night');
+    expect(e.html).not.toContain('board-game-night');
+    expect(e.html.split(TOKEN).length - 1).toBe(3); // the facet line adds no link
+    const both = await must(renderVariant(facetFixture(), v(`${l}:ai,hackathon,social,vc;l=en;o`)));
+    // Both facets AND together, so they read as one phrase, not a list.
+    expect(both.text).toContain(
+      l === 'en' ? 'Only online (incl. hybrid) English or bilingual events.' : '只收：线上（含线上线下同步）的英文或双语活动。',
+    );
+    expect([both.picks, both.going]).toEqual([1, 1]);
+  });
+
+  it('facets that leave the content as it is only add the facet line: the rest is byte-identical', async () => {
+    // fixture() has no eventLanguage (all English): an English-or-bilingual reader sees every event.
+    const plain = await must(renderVariant(fixture(), VARIANT('en')));
+    const faceted = await must(renderVariant(fixture(), v('en:ai,hackathon,social,vc;l=en')));
+    const line = /<p class="mut" style="margin:0 0 6px;font-size:12px;color:#[0-9a-f]{6};margin-bottom:10px">Only [^<]*<\/p>/;
+    expect(faceted.html).toMatch(line);
+    expect(faceted.html.replace(line, '')).toBe(plain.html);
+    expect(faceted.subject).toBe(plain.subject);
+  });
+
+  it.each(['en', 'zh'] as const)('%s empty notice with facets: the filters are named, and widening them is suggested', async (l) => {
+    const e = await renderEmptyNotice(facetFixture(), v(`${l}:social;l=en;o`));
+    expectEmailSafe(e.html, l);
+    const prefs = `${O}${l === 'zh' ? '/zh' : ''}/prefs/${TOKEN}`;
+    expect(e.preheader).toBe(l === 'en' ? "Nothing in your categories and filters this week that I'd recommend." : '这周你选的类别和筛选条件里没有我想推荐的活动。');
+    expect(e.text).toContain(
+      l === 'en' ? `You can add categories or widen your filters in your preferences <${prefs}>.` : `可以在订阅设置 <${prefs}>里多选几类，或者放宽筛选。`,
+    );
+    expect(e.text).toContain(l === 'en' ? 'Only online (incl. hybrid) English or bilingual events.' : '只收：线上（含线上线下同步）的英文或双语活动。');
+    expect(e.html.split(TOKEN).length - 1).toBe(4);
+    // Without facets the notice is the pre-F19 one.
+    const plain = await renderEmptyNotice(facetFixture(), v(`${l}:campus`));
+    expect(plain.preheader).toBe(l === 'en' ? "Nothing in your categories this week that I'd recommend." : '这周你选的类别里没有我想推荐的活动。');
+    expect(plain.text).not.toContain(l === 'en' ? 'You can change this in your preferences.' : '只收：');
+  });
+
+  it('facetNote: one facet is named as is; both read as ONE phrase (they AND), in each language', async () => {
+    const { facetNote } = await import('@/emails/copy');
+    const tail = { en: ' You can change this in your preferences.', zh: '可以在订阅设置里修改。' };
+    const cases = [
+      [{ evLang: 'zh', onlineOnly: false }, 'Only Chinese or bilingual events.', '只收：中文或双语活动。'],
+      [{ evLang: 'bilingual', onlineOnly: false }, 'Only bilingual events.', '只收：双语活动。'],
+      [{ evLang: null, onlineOnly: true }, 'Only online events (incl. hybrid).', '只收：线上活动（含线上线下同步）。'],
+      [{ evLang: 'zh', onlineOnly: true }, 'Only online (incl. hybrid) Chinese or bilingual events.', '只收：线上（含线上线下同步）的中文或双语活动。'],
+      [{ evLang: 'en', onlineOnly: true }, 'Only online (incl. hybrid) English or bilingual events.', '只收：线上（含线上线下同步）的英文或双语活动。'],
+    ] as const;
+    for (const [f, en, zh] of cases) {
+      expect(facetNote('en', f)).toBe(en + tail.en);
+      expect(facetNote('zh', f)).toBe(zh + tail.zh);
+    }
+    expect(facetNote('en', { evLang: null, onlineOnly: false })).toBeNull();
+  });
+
+  it('a variant without picks under its facets renders no digest (the claim sends the notice instead)', async () => {
+    expect(await renderVariant(facetFixture(), v('en:social;l=en'))).toBeNull();
+    expect(await renderVariant(facetFixture(), v('en:hackathon;o'))).toBeNull();
+  });
+});
+
 describe('personalize', () => {
   it('rejects anything that is not a plain link token', async () => {
     const e = await must(renderVariant(fixture(), VARIANT('en')));
@@ -595,14 +766,21 @@ describe('digestLinks', () => {
       prefs: `${O}/zh/prefs/TKN`,
       unsubscribe: `${O}/zh/unsubscribe?t=TKN`,
       otherLanguage: `${O}/prefs/TKN?lang=en`,
-      web: `${O}/zh/week/2026-W42`,
+      web: `${O}/zh/weekly/2026-W42`,
+      privacy: `${O}/zh/privacy`,
     });
     expect(digestLinks(fixture({ origin: 'https://other.example' }), 'en', 'TKN')).toEqual({
       prefs: 'https://other.example/prefs/TKN',
       unsubscribe: 'https://other.example/unsubscribe?t=TKN',
       otherLanguage: 'https://other.example/zh/prefs/TKN?lang=zh',
-      web: 'https://other.example/week/2026-W42',
+      web: 'https://other.example/weekly/2026-W42',
+      privacy: 'https://other.example/privacy',
     });
+  });
+
+  it('a snapshot without events (empty notices only) has no archive page, so "view in browser" opens the week', () => {
+    expect(digestLinks(snap(), 'zh', 'TKN').web).toBe(`${O}/zh/week/2026-W42`);
+    expect(digestLinks(snap(), 'en', 'TKN').web).toBe(`${O}/week/2026-W42`);
   });
 });
 

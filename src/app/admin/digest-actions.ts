@@ -3,8 +3,9 @@
 // /admin/digest mutations (M3 week 14). Server Functions bypass proxy.ts, so the one exported
 // action calls requireAdmin() first. Like the event editor, every submit of the editor form saves
 // the draft first and then runs the button that was pressed (`_op`):
-//   save | draft:<en|zh> | approve:<en|zh> | schedule | unschedule | test | send_now
+//   save | draft:<en|zh> | approve:<en|zh> | schedule | unschedule | test | seed | send_now
 // Content is only editable while the issue is a draft (saveIssue refuses anything else).
+import { createHash } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { refresh } from 'next/cache';
 import { after } from 'next/server';
@@ -17,13 +18,16 @@ import { buildSnapshot } from '@/lib/digest/assemble';
 import { cleanIntro as cleanStored, getIssue, saveIssue, scheduleIssue, unscheduleIssue } from '@/lib/digest/issues';
 import { personalize, renderEmptyNotice, renderVariant } from '@/lib/digest/render';
 import { runDigest, type RunResult } from '@/lib/digest/run';
-import type { DigestSnapshot } from '@/lib/digest/types';
+import { seedCoverage, seedEmails } from '@/lib/digest/seeds';
+import { type BatchError, classify, digestFrom, resendTransport } from '@/lib/digest/transport';
+import type { DigestSnapshot, RenderedEmail } from '@/lib/digest/types';
 import { parseVariantKey, type Variant, variantKey } from '@/lib/digest/variant';
 import { LATE_LIMIT_MS } from '@/lib/digest/week';
+import { isEvLang } from '@/lib/events/facets';
 import { maskEmail, sendEmail } from '@/lib/email/send';
 import { PT } from '@/lib/format/date';
 import { describeError } from '@/lib/log-safe';
-import { digestMode } from '@/lib/newsletter/status';
+import { digestMode, hasVerifiedSender } from '@/lib/newsletter/status';
 import { limit } from '@/lib/ratelimit';
 import { linksFor } from '@/lib/subscribers/links';
 import { normalizeEmail } from '@/lib/subscribers/service';
@@ -45,7 +49,7 @@ const INTRO_KEY = { en: 'introEn', zh: 'introZh' } as const;
  * length as a real token, so sizes measured with it are the real sizes.
  */
 const TEST_TOKEN = `sub_${'0'.repeat(16)}.${'A'.repeat(43)}`;
-const SAVES_FIRST = new Set(['save', 'draft', 'approve', 'schedule', 'test']);
+const SAVES_FIRST = new Set(['save', 'draft', 'approve', 'schedule', 'test', 'seed']);
 const EDIT_ONLY = new Set(['save', 'draft', 'approve']);
 
 const LOCKED: ActionState = { ok: false, message: 'Locked: unschedule to edit · 已排期或已发送，撤回排期后才能修改' };
@@ -134,6 +138,8 @@ export async function digestAction(issueId: string, _prev: ActionState, fd: Form
           : { ok: false, message: 'Only a scheduled issue can be unscheduled · 只能撤回已排期、还没开始发送的周报' };
       case 'test':
         return await sendTest(issue, fd);
+      case 'seed':
+        return await sendSeeds(issue, fd);
       case 'send_now':
         return sendNow(issue);
       default:
@@ -185,11 +191,29 @@ async function schedule(issue: Issue): Promise<ActionState> {
   return { ok: true, message: parts.join(' · ') };
 }
 
-/** The variant being previewed (hidden fields), defaulting to Chinese with every category. */
+/** The variant being previewed (hidden fields), defaulting to Chinese with every category and no F19 facets. */
 function testVariant(fd: FormData): Variant {
   const locale: Locale = fd.get('test_locale') === 'en' ? 'en' : 'zh';
   const cats = parseCategories(String(fd.get('test_cats') ?? ''));
-  return parseVariantKey(variantKey(locale, cats.length ? cats : CATEGORY_SLUGS)) as Variant;
+  const ev = fd.get('test_ev');
+  const facets = { evLang: isEvLang(ev) ? ev : null, onlineOnly: fd.get('test_online') === '1' };
+  return parseVariantKey(variantKey(locale, cats.length ? cats : CATEGORY_SLUGS, facets)) as Variant;
+}
+
+/** The variant's email as the cron would build it: the frozen snapshot once sending, else a fresh one. */
+async function renderForTest(issue: Issue, variant: Variant): Promise<{ snap: DigestSnapshot; email: RenderedEmail }> {
+  const snap = (issue.snapshot as DigestSnapshot | null) ?? (await buildSnapshot(issue));
+  const email = (await renderVariant(snap, variant)) ?? (await renderEmptyNotice(snap, variant));
+  return { snap, email };
+}
+
+/** The real send's headers (run.ts): one-click unsubscribe (RFC 8058) for this email's token, and the issue. */
+function sendHeaders(snap: DigestSnapshot, variant: Variant, token: string, issueId: string): Record<string, string> {
+  return {
+    'List-Unsubscribe': `<${linksFor(variant.locale, token, snap.origin).oneClick}>`,
+    'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    'X-Entity-Ref-ID': issueId,
+  };
 }
 
 /**
@@ -220,31 +244,97 @@ async function sendTest(issue: Issue, fd: FormData): Promise<ActionState> {
   const to = normalizeEmail(process.env.ADMIN_EMAIL);
   if (!to) return { ok: false, message: 'ADMIN_EMAIL is not set · 没有配置 ADMIN_EMAIL' };
   const variant = testVariant(fd);
-  const snap = (issue.snapshot as DigestSnapshot | null) ?? (await buildSnapshot(issue));
-  const email = (await renderVariant(snap, variant)) ?? (await renderEmptyNotice(snap, variant));
+  const { snap, email } = await renderForTest(issue, variant);
   // Counted only once the email rendered, so a render error doesn't use up the day's tests.
   if (!(await limit('digestTest', 'admin')).success) {
     return { ok: false, message: 'Daily test limit reached (10) · 今天的测试邮件已达 10 封上限' };
   }
   const token = await testToken(to);
   const mail = personalize(email, token);
-  const links = linksFor(variant.locale, token, snap.origin);
   await sendEmail({
     to,
     subject: `${variant.locale === 'zh' ? '[测试] ' : '[Test] '}${mail.subject}`,
     html: mail.html,
     text: mail.text,
-    headers: {
-      'List-Unsubscribe': `<${links.oneClick}>`,
-      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-      'X-Entity-Ref-ID': issue.id,
-    },
+    headers: sendHeaders(snap, variant, token, issue.id),
     // Not kind=digest: the webhook must never mark a digest_sends row or suppress anyone over a test.
     tags: [{ name: 'kind', value: 'digest_test' }, { name: 'issue', value: issue.id }],
   });
   return process.env.RESEND_API_KEY
     ? { ok: true, message: `Test sent to ${maskEmail(to)} · 测试邮件已发出` }
     : { ok: true, message: 'No RESEND_API_KEY: written to the server log · 未配置 Resend，已写入服务器日志' };
+}
+
+/** Resend's error code ('validation_error'); never its message, which can echo recipients. */
+const errorCode = (e: BatchError) => (/^[a-z_]{1,40}$/.test(e.name) ? e.name : 'error');
+
+/** A failed seed batch as the admin sees it: the code and what to do about it. */
+function seedError(e: BatchError): string {
+  const code = errorCode(e);
+  const step = classify(e);
+  if (step === 'retry') return `Resend is busy or unreachable (${code}): try again in a minute · Resend 暂时不可用，稍后再试`;
+  if (e.statusCode === 403 || code === 'invalid_from_address') {
+    return 'Resend refused the sender: verify mail.<domain> first (checklist 1) · 发信域名还没在 Resend 验证通过';
+  }
+  if (code.endsWith('_quota_exceeded')) return "Resend's sending quota is used up · Resend 的发送额度已用完";
+  return `Resend refused the batch (${code}) · Resend 拒绝了这批邮件`;
+}
+
+/**
+ * Seed send (guide「发送前」): the variant on preview to every DIGEST_SEED_EMAILS inbox, in one batch
+ * through the digest transport, so it leaves exactly as the real send does (From, headers, batch
+ * endpoint) and with the real subject, since inbox-vs-spam placement is what it checks. Gates, in
+ * order: a verified sender (onboarding@resend.dev only reaches the account owner; DIGEST_SENDING=0
+ * does not block seeding), seed addresses, the render, then 4 rounds a day. Seeds are not
+ * subscribers: TEST_TOKEN links even if a seed also subscribed, and tags without `sub`, so the
+ * webhook logs a seed bounce and suppresses the address but never marks a subscriber by id. The
+ * idempotency key covers the content and the minute: a retried request replays instead of sending
+ * twice, while a round with edited content (or a later one) is a new send. jobs_log and the reply
+ * carry domains only.
+ */
+async function sendSeeds(issue: Issue, fd: FormData): Promise<ActionState> {
+  if (!hasVerifiedSender()) {
+    return { ok: false, message: 'Seeds need the verified mail.<domain> sender: onboarding@resend.dev only reaches the account owner · 种子测试要等发信域名验证后才有意义' };
+  }
+  const seeds = seedEmails();
+  if (seeds.emails.length === 0) return { ok: false, message: 'DIGEST_SEED_EMAILS is not set · 没有配置种子邮箱' };
+  const variant = testVariant(fd);
+  const { snap, email } = await renderForTest(issue, variant);
+  if (!(await limit('digestSeed', 'admin')).success) {
+    return { ok: false, message: 'Daily seed limit reached (4 rounds) · 今天的种子邮件已达 4 轮上限' };
+  }
+  const mail = personalize(email, TEST_TOKEN);
+  const from = digestFrom();
+  const headers = sendHeaders(snap, variant, TEST_TOKEN, issue.id);
+  const tags = [{ name: 'kind', value: 'digest_seed' }, { name: 'issue', value: issue.id }];
+  const batch = seeds.emails.map((to) => ({ from, to, subject: mail.subject, html: mail.html, text: mail.text, headers, tags }));
+  const minute = new Date().toISOString().slice(0, 16);
+  const hash = createHash('sha256').update(JSON.stringify([from, [...seeds.emails].sort(), variant.key, mail.subject, mail.html, minute])).digest('base64url');
+  const r = await resendTransport()(batch, `digest-seed/${issue.id}/${hash.slice(0, 22)}`, 'permissive');
+
+  // Permissive mode: Resend sends the valid ones and lists the indices it rejected.
+  const rejected = new Set(r.ok ? r.invalid : []);
+  const accepted = r.ok ? seeds.emails.filter((_, i) => !rejected.has(i)) : [];
+  const invalid = seedCoverage(seeds.emails.filter((_, i) => rejected.has(i))).domains;
+  const ok = accepted.length > 0;
+  // domains: every seed in the round; n: how many Resend accepted; invalid: domains it rejected.
+  await db
+    .insert(jobsLog)
+    .values({
+      job: 'digest_seed', ok, finishedAt: new Date(),
+      detail: {
+        issue: issue.id, variant: variant.key, n: accepted.length, domains: seedCoverage(seeds.emails).domains, invalid,
+        ...(r.ok ? {} : { error: errorCode(r.error) }),
+      },
+    })
+    .catch((e: unknown) => console.error(`[digest] seed jobs_log write failed: ${describeError(e)}`));
+  if (!r.ok) return { ok: false, message: seedError(r.error) };
+  if (!ok) return { ok: false, message: `Resend rejected every seed address (${invalid.join(', ')}) · 种子地址全部被 Resend 拒收` };
+  const parts = [
+    `Seed sent to ${accepted.length} inbox(es) (${seedCoverage(accepted).domains.join(', ')}): check each landed in the inbox, not spam · 种子邮件已发出，逐个确认进了收件箱而不是垃圾箱`,
+  ];
+  if (rejected.size) parts.push(`Resend rejected ${rejected.size} (${invalid.join(', ')}) · ${rejected.size} 个被 Resend 拒收`);
+  return { ok: true, message: parts.join(' · ') };
 }
 
 /**
@@ -265,11 +355,24 @@ function sendNow(issue: Issue): ActionState {
 
 const NO_OP: readonly RunResult['skipped'][] = ['nothing_due', 'locked', 'no_verified_sender'];
 
+/**
+ * /weekly shows an issue from the moment it starts sending (the index once it is sent), so a run that
+ * froze, finished or closed one drops the cached archive. This runs inside after(), outside the
+ * action, where updateTag doesn't apply: revalidateTag with expire 0, imported lazily as in actions.ts.
+ */
+async function refreshArchive() {
+  const { revalidateTag } = await import('next/cache');
+  revalidateTag('digest', { expire: 0 });
+}
+
 /** Same jobs_log rule as the cron route: a row for any run that touched an issue or failed. Counts only. */
 async function runAndLog() {
   const startedAt = new Date();
+  // A run that throws may already have frozen the issue: refresh the archive then too.
+  let touched = true;
   try {
     const r = await runDigest();
+    touched = Boolean(r.issue || r.closed?.length);
     if (!r.ok || r.issue || r.closed?.length || r.tooLate?.length || !NO_OP.includes(r.skipped)) {
       await db.insert(jobsLog).values({ job: 'digest', startedAt, finishedAt: new Date(), ok: r.ok, detail: { trigger: 'admin', ...r } });
     }
@@ -279,5 +382,7 @@ async function runAndLog() {
       .insert(jobsLog)
       .values({ job: 'digest', startedAt, finishedAt: new Date(), ok: false, detail: { trigger: 'admin', error: e instanceof Error ? e.name : 'unknown' } })
       .catch(() => undefined);
+  } finally {
+    if (touched) await refreshArchive().catch((e: unknown) => console.error(`[digest] archive revalidate failed: ${describeError(e)}`));
   }
 }

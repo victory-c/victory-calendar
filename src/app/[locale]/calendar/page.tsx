@@ -9,7 +9,7 @@ import { FacetPanel } from '@/components/FacetPanel';
 import { PageShell } from '@/components/PageShell';
 import { SubscribeMenu } from '@/components/SubscribeMenu';
 import { Link } from '@/i18n/navigation';
-import { applyFilters, parseFilters } from '@/lib/events/filters';
+import { applyFilters, feedFacets, hasSiteOnlyFilter, parseFilters } from '@/lib/events/filters';
 import { getRange, getToday } from '@/lib/events/queries';
 import { monthBounds, monthTitle, parseMonth, shiftMonth } from '@/lib/format/calendar';
 import { pageMeta, validMonth } from '@/lib/seo';
@@ -61,7 +61,7 @@ async function Month({ locale, searchParams }: { locale: Locale; searchParams: P
   return (
     <>
       <FacetPanel locale={locale} filters={filters} action={base} keep={{ m: ym }} />
-      <SubscribeMenu locale={locale} cats={filters.cats} />
+      <SubscribeMenu locale={locale} cats={filters.cats} facets={feedFacets(filters)} siteOnly={hasSiteOnlyFilter(filters)} />
       <div className="mt-8 flex items-center justify-between gap-3">
         <h2 className="text-h2">{monthTitle(ym, locale)}</h2>
         <nav className="flex items-center gap-1" aria-label={t('title')}>

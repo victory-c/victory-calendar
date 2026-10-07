@@ -9,17 +9,33 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const h = vi.hoisted(() => ({
   locale: 'en' as 'en' | 'zh',
   open: true,
+  /** F20 alertsMode(): 'off' hides the going-alerts controls. */
+  alerts: 'dev' as 'live' | 'dev' | 'off',
   sub: null as unknown,
+  /** Use the real messages through next-intl's formatter, for tests that pin the reader's words. */
+  real: false,
 }));
 
-vi.mock('next-intl/server', () => ({
-  getLocale: async () => h.locale,
-  // Interpolated values are appended, so a test can see which date or category went in.
-  getTranslations:
-    async ({ locale, namespace }: { locale: string; namespace: string }) =>
-    (key: string, values?: Record<string, unknown>) =>
-      `${locale}:${namespace}.${key}${values ? ` ${Object.values(values).join(' ')}` : ''}`,
-}));
+vi.mock('next-intl/server', async () => {
+  const { createTranslator } = await import('next-intl');
+  const messages = { en: (await import('../messages/en.json')).default, zh: (await import('../messages/zh.json')).default };
+  return {
+    getLocale: async () => h.locale,
+    // Interpolated values are appended, so a test can see which date or category went in.
+    getTranslations: async ({ locale, namespace }: { locale: 'en' | 'zh'; namespace: string }) =>
+      h.real
+        ? createTranslator({
+            locale,
+            messages: messages[locale],
+            namespace: namespace as never,
+            onError: (e) => {
+              throw e;
+            },
+          })
+        : (key: string, values?: Record<string, unknown>) =>
+            `${locale}:${namespace}.${key}${values ? ` ${Object.values(values).join(' ')}` : ''}`,
+  };
+});
 vi.mock('next/server', async (orig) => ({ ...(await orig()), connection: async () => {} }));
 vi.mock('@/i18n/navigation', () => ({
   Link: ({ href, children, prefetch: _p, ...rest }: { href: string; children: ReactNode; prefetch?: boolean }) =>
@@ -29,7 +45,11 @@ vi.mock('@/components/PageShell', () => ({
   PageShell: ({ children }: { children: ReactNode }) => createElement('main', null, children),
 }));
 vi.mock('@/components/SubscribeMenu', () => ({ SubscribeMenu: () => createElement('details', { id: 'subscribe' }) }));
-vi.mock('@/lib/newsletter/status', () => ({ newsletterStatus: () => (h.open ? 'open' : 'closed'), linksWork: () => true }));
+vi.mock('@/lib/newsletter/status', () => ({
+  newsletterStatus: () => (h.open ? 'open' : 'closed'),
+  linksWork: () => true,
+  alertsMode: () => h.alerts,
+}));
 // The row is already a view here: the pages only pass it through viewOf.
 vi.mock('@/lib/subscribers/service', () => ({
   subscriberFromToken: async (token: string) => (token === 'good' ? h.sub : null),
@@ -44,10 +64,10 @@ vi.mock('@/app/[locale]/prefs/actions', () => ({
   unsubscribeFrom: async () => null,
 }));
 
-const { effectiveStatus, longDate, unsubscribeChoices, welcomeBanner } = await import('@/lib/newsletter/prefs-view');
+const { effectiveStatus, goingChoice, isGoingList, longDate, unsubscribeChoices, welcomeBanner } = await import('@/lib/newsletter/prefs-view');
 const { CategoryCheckboxes } = await import('@/components/CategoryCheckboxes');
 const { LinkProblem } = await import('@/components/LinkProblem');
-const { SubscribeForm } = await import('@/components/SubscribeForm');
+const { SubscribeForm, statusLine } = await import('@/components/SubscribeForm');
 const { default: PrefsPage } = await import('@/app/[locale]/prefs/[token]/page');
 const { default: UnsubscribePage } = await import('@/app/[locale]/unsubscribe/page');
 const { default: SubscribePage } = await import('@/app/[locale]/subscribe/page');
@@ -56,10 +76,14 @@ type View = import('@/lib/subscribers/service').SubscriberView;
 beforeEach(() => {
   h.locale = 'en';
   h.open = true;
+  h.alerts = 'dev';
   h.sub = null;
+  h.real = false;
 });
 
-const view = (over: Partial<View> = {}): View => ({ status: 'active', locale: 'en', categories: ['ai', 'vc'], pausedUntil: null, ...over });
+const view = (over: Partial<View> = {}): View => ({
+  status: 'active', locale: 'en', categories: ['ai', 'vc'], evLang: null, onlineOnly: false, goingAlerts: false, pausedUntil: null, ...over,
+});
 
 // ---- prefs-view ---------------------------------------------------------------------------------
 
@@ -119,6 +143,26 @@ describe('unsubscribeChoices', () => {
   });
 });
 
+describe('F20 ?list=going helpers', () => {
+  it('isGoingList: exactly "going"', () => {
+    expect(isGoingList('going')).toBe(true);
+    for (const v of [undefined, '', 'GOING', 'weekly', ['going']]) expect(isGoingList(v)).toBe(false);
+  });
+
+  it('unsubscribeChoices: no category buttons on a page opened from an alert', () => {
+    expect(unsubscribeChoices(view({ categories: ['ai', 'vc'] }), true)).toEqual([]);
+    expect(unsubscribeChoices(view({ categories: ['ai', 'vc'] }), false)).toEqual(['ai', 'vc']);
+  });
+
+  it('goingChoice: offer while on, "off" once off, nothing without the list or for a row that gets no email', () => {
+    expect(goingChoice(view({ goingAlerts: true }), true)).toBe('offer');
+    expect(goingChoice(view({ status: 'paused', goingAlerts: true }), true)).toBe('offer');
+    expect(goingChoice(view({ status: 'pending', goingAlerts: false }), true)).toBe('off');
+    expect(goingChoice(view({ goingAlerts: true }), false)).toBeNull();
+    for (const status of ['unsubscribed', 'suppressed'] as const) expect(goingChoice(view({ status, goingAlerts: true }), true)).toBeNull();
+  });
+});
+
 describe('longDate', () => {
   it('is the Pacific date, not the server one (this runner is on UTC)', () => {
     // 2026-10-31 22:00 PDT, already November 1 in UTC.
@@ -143,6 +187,14 @@ async function resolve(node: ReactNode): Promise<ReactNode> {
 }
 const html = async (page: Promise<ReactNode>) => load(renderToStaticMarkup((await resolve(await page)) as ReactElement));
 
+/** The first element of `type` in a resolved tree (client components are left unrendered there). */
+function findElement<P>(node: ReactNode, type: (props: P) => ReactNode): ReactElement<P> | null {
+  if (Array.isArray(node)) return node.map((n) => findElement(n, type)).find(Boolean) ?? null;
+  if (!isValidElement(node)) return null;
+  if (node.type === type) return node as ReactElement<P>;
+  return findElement((node as ReactElement<{ children?: ReactNode }>).props.children, type);
+}
+
 type Boundary = ReactElement<{ fallback?: ReactNode; children?: ReactNode }>;
 function findSuspense(node: ReactNode): Boundary | null {
   if (Array.isArray(node)) return node.map(findSuspense).find(Boolean) ?? null;
@@ -160,7 +212,7 @@ async function fallback(page: Promise<ReactNode>) {
 const prefsPage = (sp: Record<string, string> = {}, token = 'good') =>
   PrefsPage({ params: Promise.resolve({ token }), searchParams: Promise.resolve(sp) });
 const unsubscribePage = (sp: Record<string, string> = { t: 'good' }) => UnsubscribePage({ searchParams: Promise.resolve(sp) });
-const subscribePage = () => SubscribePage({ searchParams: Promise.resolve({}) });
+const subscribePage = (sp: Record<string, string> = {}) => SubscribePage({ searchParams: Promise.resolve(sp) });
 
 describe('noscript in the Suspense fallbacks', () => {
   it('prefs and unsubscribe: the links note next to (not inside) the busy placeholder', async () => {
@@ -302,6 +354,94 @@ describe('/unsubscribe', () => {
   });
 });
 
+describe('F20 going alerts on the token and subscribe pages', () => {
+  const values = ($: ReturnType<typeof load>) => $('input[name=c]').map((_i, el) => $(el).attr('value')).get();
+
+  it('/unsubscribe?list=going: "alerts or everything", with the alert\'s own choice first', async () => {
+    h.sub = view({ categories: ['ai', 'vc', 'social'], goingAlerts: true });
+    const $ = await html(unsubscribePage({ t: 'good', list: 'going' }));
+    expect($.text()).toContain('en:Newsletter.unsubscribe.goingLead');
+    expect($.text()).not.toContain('unsubscribe.lead');
+    expect(values($)).toEqual(['going', 'all']);
+    expect($('input[name=c][value=going]').closest('form').text()).toBe('en:Newsletter.unsubscribe.going');
+    // "More options" still leads to the preference center.
+    expect($('a[href="/prefs/good"]').text()).toBe('en:Newsletter.unsubscribe.more');
+  });
+
+  it('/unsubscribe?list=going with alerts already off: says so, and still offers everything', async () => {
+    h.sub = view({ goingAlerts: false });
+    const $ = await html(unsubscribePage({ t: 'good', list: 'going' }));
+    expect(values($)).toEqual(['all']);
+    expect($('[role=status]').text()).toBe('en:Newsletter.unsubscribe.alertsOff');
+    expect($.text()).not.toContain('goingLead');
+  });
+
+  it('the alert choice shows whatever the alert mode (an opt-out always works), but never on the plain page', async () => {
+    h.alerts = 'off';
+    h.sub = view({ categories: ['ai', 'vc'], goingAlerts: true });
+    expect(values(await html(unsubscribePage({ t: 'good', list: 'going' })))).toEqual(['going', 'all']);
+    expect(values(await html(unsubscribePage({ t: 'good' })))).toEqual(['ai', 'vc', 'all']);
+    expect(values(await html(unsubscribePage({ t: 'good', list: 'weekly' })))).toEqual(['ai', 'vc', 'all']);
+  });
+
+  it('/unsubscribe?list=going on an unsubscribed row: only the confirmation', async () => {
+    h.sub = view({ status: 'unsubscribed', goingAlerts: true });
+    const $ = await html(unsubscribePage({ t: 'good', list: 'going' }));
+    expect($('form')).toHaveLength(0);
+    expect($('[role=status]').text()).toBe('en:Newsletter.unsubscribe.done');
+  });
+
+  it('/prefs: the going-alerts box with the stored choice while alerts can be sent; none (and nothing posted) when off', async () => {
+    h.sub = view({ goingAlerts: true });
+    const $ = await html(prefsPage());
+    const box = $('input[name=alerts]');
+    expect(box.attr('checked')).toBeDefined();
+    expect(box.closest('label').text()).toBe('en:Newsletter.prefs.goingAlerts');
+    expect(box.closest('form').find('input[name=c]').length).toBeGreaterThan(0);
+    expect($('input[name=alerts_present]')).toHaveLength(1);
+    h.sub = view({ goingAlerts: false });
+    expect((await html(prefsPage()))('input[name=alerts]').attr('checked')).toBeUndefined();
+    h.alerts = 'off';
+    h.sub = view({ goingAlerts: true });
+    const off = await html(prefsPage());
+    expect(off('input[name=alerts]')).toHaveLength(0);
+    expect(off('input[name=alerts_present]')).toHaveLength(0);
+    expect(off.text()).not.toContain('prefs.goingAlerts');
+  });
+
+  it('/subscribe: an unticked box while alerts can be sent, none when they cannot', async () => {
+    const $ = await html(subscribePage());
+    expect($('input[name=alerts]').attr('checked')).toBeUndefined();
+    expect($('input[name=alerts]').closest('label').text()).toBe('en:Newsletter.form.goingAlerts');
+    h.alerts = 'live';
+    expect((await html(subscribePage()))('input[name=alerts]')).toHaveLength(1);
+    h.alerts = 'off';
+    expect((await html(subscribePage()))('input[name=alerts]')).toHaveLength(0);
+  });
+
+  it('in the reader\'s words, en and zh', async () => {
+    h.real = true;
+    const words = async (locale: 'en' | 'zh') => {
+      h.locale = locale;
+      h.sub = view({ goingAlerts: true, categories: ['ai', 'vc'] });
+      const unsub = await html(unsubscribePage({ t: 'good', list: 'going' }));
+      const prefs = await html(prefsPage());
+      const sub = await html(subscribePage());
+      return [
+        unsub('input[name=c][value=going]').closest('form').text(),
+        prefs('input[name=alerts]').closest('label').text(),
+        sub('input[name=alerts]').closest('label').text(),
+      ];
+    };
+    expect(await words('en')).toEqual([
+      'Turn off going alerts',
+      'Email me when Victor marks an event as going (at most one email a day)',
+      'Email me when Victor marks an event as going (at most one email a day)',
+    ]);
+    expect(await words('zh')).toEqual(['关闭会去提醒', 'Victor 标记会去时提醒我（每天最多一封）', 'Victor 标记会去时提醒我（每天最多一封）']);
+  });
+});
+
 // ---- shared controls ----------------------------------------------------------------------------
 
 describe('LinkProblem', () => {
@@ -366,13 +506,104 @@ describe('CategoryCheckboxes', () => {
   });
 });
 
+describe('F19 facets on the token and subscribe pages', () => {
+  it('/prefs shows the stored facets in the preferences form, labelled from Newsletter.prefs.*', async () => {
+    h.sub = view({ evLang: 'zh', onlineOnly: true });
+    const $ = await html(prefsPage());
+    expect($('input[name=ev_lang][value=zh]').attr('checked')).toBeDefined();
+    expect($('input[name=ev_lang][value=""]').attr('checked')).toBeUndefined();
+    expect($('input[name=online][value=1]').attr('checked')).toBeDefined();
+    expect($('input[name=facets_present]')).toHaveLength(1);
+    for (const key of ['evLang', 'evLangAny', 'evLangZh', 'evLangEn', 'onlineOnly']) expect($.text()).toContain(`en:Newsletter.prefs.${key}`);
+    expect($.text()).not.toContain('en:Newsletter.prefs.evLangBilingual');
+    h.sub = view();
+    const none = await html(prefsPage());
+    expect(none('input[name=ev_lang][value=""]').attr('checked')).toBeDefined();
+    expect(none('input[name=online]').attr('checked')).toBeUndefined();
+  });
+
+  it('/subscribe?ev_lang=zh&online=1 keeps them in hidden fields with a one-line summary and Remove', async () => {
+    const $ = await html(subscribePage({ c: 'ai', ev_lang: 'zh', online: '1' }));
+    expect($('input[type=hidden][name=ev_lang]').attr('value')).toBe('zh');
+    expect($('input[type=hidden][name=online]').attr('value')).toBe('1');
+    const line = $('input[name=ev_lang]').parent();
+    expect(line.text()).toContain('en:Newsletter.form.facets en:Newsletter.facets.onlineOf en:Newsletter.facets.zh');
+    expect(line.find('button[type=button]').text()).toBe('en:Newsletter.form.facetsRemove');
+    expect(line.find('button[type=button]').attr('class')).toMatch(/\bh-11\b/);
+    // No new controls: the form still has only the email, category and language inputs besides hidden ones.
+    expect($('select')).toHaveLength(0);
+    expect($('input[name=ev_lang]:not([type=hidden])')).toHaveLength(0);
+  });
+
+  it('the summary in the reader\'s words: both facets read as ONE phrase (they AND), in en and zh', async () => {
+    h.real = true;
+    const summary = async (locale: 'en' | 'zh', sp: Record<string, string>) => {
+      h.locale = locale;
+      const $ = await html(subscribePage({ c: 'ai', ...sp }));
+      const line = $('input[type=hidden][name=ev_lang], input[type=hidden][name=online]').first().parent();
+      return [line.children('span').text(), line.find('button[type=button]').text()];
+    };
+    expect(await summary('en', { ev_lang: 'zh', online: '1' })).toEqual(['Only online (incl. hybrid) Chinese or bilingual events', 'Remove']);
+    expect(await summary('zh', { ev_lang: 'zh', online: '1' })).toEqual(['只收：线上（含线上线下同步）的中文或双语活动', '清除']);
+    expect(await summary('en', { ev_lang: 'en', online: '1' })).toEqual(['Only online (incl. hybrid) English or bilingual events', 'Remove']);
+    expect(await summary('zh', { ev_lang: 'bilingual', online: '1' })).toEqual(['只收：线上（含线上线下同步）的双语活动', '清除']);
+    expect(await summary('en', { online: '1' })).toEqual(['Only online events (incl. hybrid)', 'Remove']);
+    expect(await summary('zh', { online: '1' })).toEqual(['只收：线上活动（含线上线下同步）', '清除']);
+    expect(await summary('en', { ev_lang: 'bilingual' })).toEqual(['Only bilingual events', 'Remove']);
+    expect(await summary('zh', { ev_lang: 'zh' })).toEqual(['只收：中文或双语活动', '清除']);
+  });
+
+  it('"Remove" hands the form its note in the page language, for the status line it moves focus to', async () => {
+    h.real = true;
+    const removed = async (locale: 'en' | 'zh') => {
+      h.locale = locale;
+      const form = findElement(await resolve(await subscribePage({ ev_lang: 'zh' })), SubscribeForm);
+      return form?.props.facets?.removed;
+    };
+    expect(await removed('en')).toBe('Filters removed.');
+    expect(await removed('zh')).toBe('已清除筛选。');
+  });
+
+  it('/subscribe without facets, or with unknown values, carries none', async () => {
+    for (const sp of [{}, { ev_lang: 'fr', online: 'yes' }] as Record<string, string>[]) {
+      const $ = await html(subscribePage(sp));
+      expect($('input[name=ev_lang]')).toHaveLength(0);
+      expect($('input[name=online]')).toHaveLength(0);
+      expect($.text()).not.toContain('Newsletter.form.facets');
+    }
+  });
+});
+
 describe('SubscribeForm before any answer', () => {
   const copy = {
     email: 'Email', emailPlaceholder: 'you@example.com', categories: 'Categories', categoriesHint: 'Pick at least one.',
-    language: 'Email language', submit: 'Subscribe', submitting: 'Sending…', privacy: 'Privacy line', honeypot: 'Leave this field empty',
-    pending: 'Check your inbox', pendingHint: 'Hint', again: 'Subscribe again',
+    language: 'Email language', submit: 'Subscribe', submitting: 'Sending…', privacy: 'Privacy line', privacyLink: 'How I handle your data',
+    honeypot: 'Leave this field empty', pending: 'Check your inbox', pendingHint: 'Hint', again: 'Subscribe again',
     errors: { invalid_email: 'bad email', no_category: 'pick one', bot: 'bot', server: 'server', rate_limited: 'slow down', closed: 'closed', busy: 'busy' },
   };
+
+  it('statusLine: the "filters removed" note shows until the next answer; an answer replaces it', () => {
+    const idle = { status: 'idle' } as const;
+    const removed = { at: idle, note: 'Filters removed.' };
+    expect(statusLine(idle, copy, removed)).toEqual({ text: 'Filters removed.', error: false });
+    expect(statusLine(idle, copy)).toEqual({ text: '', error: false });
+    expect(statusLine(idle, copy, { at: null, note: 'Filters removed.' })).toEqual({ text: '', error: false });
+    // A later answer is a new state: the note is gone, and an answer with no field takes the line.
+    expect(statusLine({ status: 'idle' }, copy, removed)).toEqual({ text: '', error: false });
+    expect(statusLine({ status: 'rate_limited' }, copy, removed)).toEqual({ text: 'slow down', error: true });
+    expect(statusLine({ status: 'error', code: 'server' }, copy, removed)).toEqual({ text: 'server', error: true });
+    expect(statusLine({ status: 'error', code: 'invalid_email', field: 'email' }, copy, removed)).toEqual({ text: '', error: false });
+    // Pressed while an answer with no field is showing: the note replaces it (confirms the removal).
+    const limited = { status: 'rate_limited' } as const;
+    expect(statusLine(limited, copy, { at: limited, note: 'Filters removed.' })).toEqual({ text: 'Filters removed.', error: false });
+  });
+
+  it('with carried facets, the status line stays empty until "Remove" is pressed', () => {
+    const facets = { value: { evLang: 'zh', onlineOnly: false }, summary: 'Only Chinese or bilingual events', remove: 'Remove', removed: 'Filters removed.' } as const;
+    const $ = load(renderToStaticMarkup(createElement(SubscribeForm, { locale: 'en', categories: ['ai'], copy, facets })));
+    expect($('input[type=hidden][name=ev_lang]').attr('value')).toBe('zh');
+    expect($('#subscribe-status').text()).toBe('');
+  });
 
   it('no field error yet; the status line can take focus for answers without a field', () => {
     const $ = load(renderToStaticMarkup(createElement(SubscribeForm, { locale: 'en', categories: ['ai'], copy })));
@@ -380,5 +611,20 @@ describe('SubscribeForm before any answer', () => {
     expect($('input[name=email]').attr('aria-describedby')).toBeUndefined();
     expect($('#subscribe-status').attr()).toMatchObject({ role: 'status', 'aria-live': 'polite', tabindex: '-1' });
     expect($('#category-hint').text()).toBe('Pick at least one.');
+  });
+
+  it('the privacy line links to /privacy in the page language, before anyone consents', () => {
+    const link = (locale: 'en' | 'zh') => {
+      const $ = load(renderToStaticMarkup(createElement(SubscribeForm, { locale, categories: ['ai'], copy })));
+      const a = $('a[href$="/privacy"]');
+      expect(a).toHaveLength(1);
+      // Below the button, in the same small print as the privacy line.
+      expect(a.parent().text()).toContain('Privacy line');
+      expect($('button[type=submit]').nextAll('p').find('a').attr('href')).toBe(a.attr('href'));
+      return { href: a.attr('href'), text: a.text(), line: a.parent().text() };
+    };
+    expect(link('en')).toEqual({ href: '/privacy', text: 'How I handle your data', line: 'Privacy line How I handle your data' });
+    // Chinese runs on without a space.
+    expect(link('zh')).toEqual({ href: '/zh/privacy', text: 'How I handle your data', line: 'Privacy lineHow I handle your data' });
   });
 });

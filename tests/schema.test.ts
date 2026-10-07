@@ -1,6 +1,6 @@
 import { eq, sql } from 'drizzle-orm';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { covers, eventSources, events, eventsPublic, settings } from '@/lib/db/schema';
+import { alertSends, covers, eventSources, events, eventsPublic, goingMarks, settings, subscribers } from '@/lib/db/schema';
 import { testDb } from './helpers/pglite';
 
 let h: Awaited<ReturnType<typeof testDb>>;
@@ -66,5 +66,60 @@ describe('schema', () => {
   it('indexes the canonical URL columns ingest dedupes on', async () => {
     const res = await h.db.execute(sql`select indexname from pg_indexes where indexname in ('events_source_url', 'event_sources_url') order by 1`);
     expect((res.rows as { indexname: string }[]).map((r) => r.indexname)).toEqual(['event_sources_url', 'events_source_url']);
+  });
+});
+
+describe('migration 0004: going alerts (F20)', () => {
+  const SUB = 'sub_0000000000000001';
+  const send = (over: Partial<typeof alertSends.$inferInsert> = {}) =>
+    h.db.insert(alertSends).values({ alertDay: '2026-10-07', subscriberId: SUB, eventIds: ['e1'], variantKey: 'en:e1', ...over });
+
+  beforeAll(async () => {
+    await h.db.insert(subscribers).values({ id: SUB, email: 'reader@example.org', status: 'active', categories: ['ai'] });
+  });
+
+  it('subscribers.going_alerts_since is a nullable timestamptz', async () => {
+    const [row] = await h.db.select().from(subscribers).where(eq(subscribers.id, SUB));
+    expect(row.goingAlertsSince).toBeNull();
+    const at = new Date('2026-10-01T15:00:00Z');
+    await h.db.update(subscribers).set({ goingAlertsSince: at }).where(eq(subscribers.id, SUB));
+    expect((await h.db.select().from(subscribers).where(eq(subscribers.id, SUB)))[0].goingAlertsSince?.getTime()).toBe(at.getTime());
+  });
+
+  it('going_marks: one row per event, alert on by default, gone with its event', async () => {
+    await h.db.insert(events).values({ id: 'e_mark', slug: 'e-mark', sourceUrl: 'https://luma.com/mark' });
+    await h.db.insert(goingMarks).values({ eventId: 'e_mark', markedAt: new Date('2026-10-06T18:00:00Z') });
+    expect((await h.db.select().from(goingMarks)).map((r) => [r.eventId, r.alert])).toEqual([['e_mark', true]]);
+    await expect(h.db.insert(goingMarks).values({ eventId: 'e_mark', markedAt: new Date() })).rejects.toThrow();
+    await expect(h.db.insert(goingMarks).values({ eventId: 'no_such_event', markedAt: new Date() })).rejects.toThrow();
+    await h.db.execute(sql`delete from events where id = 'e_mark'`);
+    expect(await h.db.select().from(goingMarks)).toEqual([]);
+  });
+
+  it('alert_sends: at most one row per subscriber per day (A2)', async () => {
+    await send();
+    await expect(send({ eventIds: ['e2'], variantKey: 'en:e2' })).rejects.toThrow();
+    await send({ alertDay: '2026-10-08' });
+    const rows = await h.db.select().from(alertSends);
+    expect(rows.map((r) => r.alertDay).sort()).toEqual(['2026-10-07', '2026-10-08']);
+    expect(rows[0].claimedAt).toBeInstanceOf(Date);
+    expect(rows.every((r) => r.resendId === null && r.error === null && r.batchKey === null)).toBe(true);
+  });
+
+  it('alert_sends: a yyyy-mm-dd day, 1–20 events and a real subscriber', async () => {
+    for (const alertDay of ['2026-10-7', '20261009', 'today', '2026-10-09T00:00']) {
+      await expect(send({ alertDay })).rejects.toThrow();
+    }
+    await expect(send({ alertDay: '2026-10-10', eventIds: [] })).rejects.toThrow();
+    await expect(send({ alertDay: '2026-10-11', eventIds: Array.from({ length: 21 }, (_, i) => `e${i}`) })).rejects.toThrow();
+    await send({ alertDay: '2026-10-12', eventIds: Array.from({ length: 20 }, (_, i) => `e${i}`) });
+    await expect(send({ alertDay: '2026-10-13', subscriberId: 'sub_0000000000000999' })).rejects.toThrow();
+  });
+
+  it('indexes the pending claims (partial) and the event ids (GIN)', async () => {
+    const res = await h.db.execute(sql`select indexname, indexdef from pg_indexes where tablename = 'alert_sends' order by 1`);
+    const defs = Object.fromEntries((res.rows as { indexname: string; indexdef: string }[]).map((r) => [r.indexname, r.indexdef]));
+    expect(defs.alert_sends_pending).toMatch(/\(alert_day, batch_key\) WHERE \(\(resend_id IS NULL\) AND \(error IS NULL\)\)/);
+    expect(defs.alert_sends_events).toMatch(/USING gin \(event_ids\)/);
   });
 });

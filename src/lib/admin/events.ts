@@ -1,6 +1,7 @@
 import 'server-only';
 import { and, asc, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import { recordGoingMark } from '../alerts/marks';
 import { templateCoverRow } from '../covers/template';
 import { db as defaultDb, type DB } from '../db';
 import { ACCESS, covers, EVENT_LANGUAGES, events, FORMATS, REGIONS } from '../db/schema';
@@ -45,6 +46,9 @@ export async function getAdminEvent(id: string, db: DB = defaultDb): Promise<Adm
   const [row] = await db.select().from(events).leftJoin(covers, eq(covers.id, events.coverId)).where(eq(events.id, id));
   return row ? { ...row.events, cover: row.covers } : null;
 }
+
+/** The event's F20 going mark, for the editor's alert switch (alerts/marks.ts). */
+export { getGoingMark } from '../alerts/marks';
 
 export async function listDrafts(db: DB = defaultDb) {
   const rows = await db
@@ -181,6 +185,12 @@ export function publishBlockers(e: Pick<AdminEvent, 'titleEn' | 'titleZh' | 'sta
   return out;
 }
 
+/**
+ * Publishing an event that is already marked going (public, not downgraded) makes it publicly
+ * going now: that records an F20 going mark, with the alert on for a first mark. Restoring a
+ * cancelled or archived event keeps the mark's stored choice: an alert Victor declined stays off
+ * (publish shows no switch). `alert` is the verdict (alerts/marks.ts GoingAlertVerdict).
+ */
 export async function publish(id: string, now = new Date(), db: DB = defaultDb) {
   const ev = await getAdminEvent(id, db);
   if (!ev) throw new AdminError('not found');
@@ -199,7 +209,8 @@ export async function publish(id: string, now = new Date(), db: DB = defaultDb) 
       sequence: ev.status === 'cancelled' ? ev.sequence + 1 : ev.sequence,
     })
     .where(eq(events.id, id));
-  return { ok: true as const, blockers: [] as string[] };
+  const alert = await recordGoingMark(db, ev, { ...ev, status: 'published' }, now, { alert: true, keepStored: true });
+  return { ok: true as const, blockers: [] as string[], alert };
 }
 
 /** 下架: off the site and feeds, row and cover kept (archived). */
@@ -228,13 +239,22 @@ export const GOING_VIS = ['public', 'after_event', 'hidden'] as const;
 /**
  * Guide「Going 状态安全规则」: a public `going` needs a listed platform, a non-private venue (or
  * online), a non-cycling category. Otherwise it is stored as after_event and the reason returned.
+ *
+ * F20: when this makes a published event publicly going (going / hosting / speaking), a going mark
+ * is recorded for the next morning's alert; `opts.alert` is Victor's "Alert subscribers" switch
+ * (default on). On an event that already is publicly going, `alert: false` cancels a pending
+ * alert and an explicit `alert: true` turns a declined one back on (left out, a decline stays).
+ * `alert` in the result is the verdict: 'queued', 'digest' or 'none' (alerts/marks.ts).
+ * The event is written first: if the mark then fails, the error surfaces and no alert is sent.
  */
 export async function setGoing(
   id: string,
   going: (typeof GOING)[number],
   visibility: (typeof GOING_VIS)[number],
   db: DB = defaultDb,
+  opts: { alert?: boolean; now?: Date } = {},
 ) {
+  const now = opts.now ?? new Date();
   const ev = await getAdminEvent(id, db);
   if (!ev) throw new AdminError('not found');
   let vis = visibility;
@@ -243,8 +263,12 @@ export async function setGoing(
     reason = goingDowngradeReason({ ...ev, going, goingVisibility: vis, recurring: await isRecurring(ev, db) } as never);
     if (reason) vis = 'after_event';
   }
-  await db.update(events).set({ going, goingVisibility: vis, updatedAt: new Date() }).where(eq(events.id, id));
-  return { going, visibility: vis, reason };
+  await db.update(events).set({ going, goingVisibility: vis, updatedAt: now }).where(eq(events.id, id));
+  const alert = await recordGoingMark(db, ev, { ...ev, going, goingVisibility: vis }, now, {
+    alert: opts.alert ?? true,
+    explicit: opts.alert !== undefined,
+  });
+  return { going, visibility: vis, reason, alert, startAt: ev.startAt };
 }
 
 /** Guide: same host and same venue at least twice within 4 weeks counts as recurring. */

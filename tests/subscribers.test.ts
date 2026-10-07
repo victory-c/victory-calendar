@@ -2,13 +2,14 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clientIp } from '@/lib/client-ip';
 import type { DB } from '@/lib/db';
-import { digestIssues, digestSends, subscribers } from '@/lib/db/schema';
+import { alertSends, digestIssues, digestSends, jobsLog, subscribers } from '@/lib/db/schema';
+import { EXPIRE_MS } from '@/lib/digest/claim';
 import { newId } from '@/lib/ids';
 import { subscriberLinks } from '@/lib/subscribers/links';
 import {
-  cleanCategories, confirmSubscription, inboxKey, normalizeEmail, PAUSE_MS, PENDING_TTL_MS, pauseSubscription, purgeStalePending,
-  requestSubscription, resubscribe, resumeSubscription, subscriberFromToken, suppressEmails, unsubscribeAll,
-  unsubscribeCategory, updatePreferences, viewOf, type Consent, type SubscribeInput, type Subscriber,
+  cleanCategories, confirmSubscription, deleteSubscriber, disableGoingAlerts, inboxKey, normalizeEmail, PAUSE_MS, PENDING_TTL_MS, pauseSubscription,
+  purgeOldUnsubscribed, purgeStalePending, requestSubscription, resubscribe, resumeSubscription, subscriberFromToken, suppressEmails,
+  UNSUBSCRIBED_TTL_MS, unsubscribeAll, unsubscribeCategory, updatePreferences, viewOf, type Consent, type SubscribeInput, type Subscriber,
 } from '@/lib/subscribers/service';
 import { linkToken, tokenId, verifyToken } from '@/lib/subscribers/token';
 import { CATEGORY_SLUGS } from '@/lib/taxonomy';
@@ -193,6 +194,18 @@ describe('requestSubscription', () => {
     expect(sub.consentSource!.startsWith('zh/subscribe')).toBe(true);
   });
 
+  it('F19: stores the facets on insert (NULL when off) and replaces them on re-arm', async () => {
+    const r = (await requestSubscription(input({ facets: { evLang: 'zh', onlineOnly: true } }), opts(ago(DAY)))) as { sub: Subscriber };
+    expect(r.sub).toMatchObject({ evLangPref: ['zh'], onlineOnly: true });
+    const plain = (await requestSubscription(input({ email: 'plain@example.org' }), opts())) as { sub: Subscriber };
+    expect(plain.sub).toMatchObject({ evLangPref: null, onlineOnly: null });
+    // Re-armed with the new choices: these facets, or none.
+    await requestSubscription(input({ facets: { evLang: 'bilingual', onlineOnly: false } }), opts());
+    expect(await reload(r.sub.id)).toMatchObject({ evLangPref: ['bilingual'], onlineOnly: null });
+    await requestSubscription(input(), opts());
+    expect(await reload(r.sub.id)).toMatchObject({ evLangPref: null, onlineOnly: null });
+  });
+
   it('asking again while pending re-arms the same row with the new choices', async () => {
     const first = (await requestSubscription(input(), opts(ago(2 * DAY)))) as { sub: Subscriber };
     const again = await requestSubscription(input({ locale: 'zh', categories: ['cycling'], ip: null, ua: null, source: 'zh/subscribe' }), opts());
@@ -308,10 +321,11 @@ describe('confirmSubscription', () => {
     expect((await confirmSubscription(linkToken(fresh), opts())).result).toBe('confirmed');
   });
 
-  it('asking again re-arms an expired link', async () => {
+  it('asking again re-arms an expired request: the new email\'s link confirms, the old one no longer does', async () => {
     const stale = await pending(8 * DAY);
-    await requestSubscription(input({ email: stale.email }), opts());
-    expect((await confirmSubscription(linkToken(stale), opts())).result).toBe('confirmed');
+    const r = (await requestSubscription(input({ email: stale.email }), opts())) as { sub: Subscriber };
+    expect(await confirmSubscription(linkToken(stale), opts())).toEqual({ result: 'invalid', sub: null });
+    expect((await confirmSubscription(linkToken(r.sub), opts())).result).toBe('confirmed');
   });
 
   it('confirming a re-armed former subscriber restamps confirmed_at and keeps the last opt-out time', async () => {
@@ -349,6 +363,17 @@ describe('preferences, pause and resume', () => {
       expect(row).toMatchObject({ status, locale: 'zh', categories: ['campus', 'social'] });
       expect(await reload(sub.id)).toEqual(row);
     }
+  });
+
+  it('F19: updatePreferences writes facets when given, and leaves them alone when not', async () => {
+    const sub = await seed({ evLangPref: ['en'], onlineOnly: true });
+    const kept = await updatePreferences(sub, { locale: 'zh', categories: ['ai'] }, opts());
+    expect(kept).toMatchObject({ locale: 'zh', evLangPref: ['en'], onlineOnly: true });
+    const set = await updatePreferences(kept, { locale: 'zh', categories: ['ai'], facets: { evLang: 'zh', onlineOnly: false } }, opts());
+    expect(set).toMatchObject({ evLangPref: ['zh'], onlineOnly: null });
+    const cleared = await updatePreferences(set, { locale: 'zh', categories: ['ai'], facets: { evLang: null, onlineOnly: false } }, opts());
+    expect(cleared).toMatchObject({ evLangPref: null, onlineOnly: null });
+    expect(await reload(sub.id)).toEqual(cleared);
   });
 
   it('updatePreferences with no category unsubscribes', async () => {
@@ -633,8 +658,481 @@ describe('viewOf', () => {
     const until = new Date(NOW.getTime() + PAUSE_MS);
     const sub = await seed({ status: 'paused', locale: 'zh', categories: ['vc', 'bogus', 'ai'], pausedUntil: until });
     const view = viewOf(sub);
-    expect(view).toEqual({ status: 'paused', locale: 'zh', categories: ['ai', 'vc'], pausedUntil: until.toISOString() });
+    expect(view).toEqual({
+      status: 'paused', locale: 'zh', categories: ['ai', 'vc'], evLang: null, onlineOnly: false, goingAlerts: false, pausedUntil: until.toISOString(),
+    });
     expect(JSON.stringify(view)).not.toContain('@');
     expect(viewOf(await seed()).pausedUntil).toBeNull();
+    // F19: facets as the digest reads them; a malformed stored value is no preference.
+    expect(viewOf(await seed({ evLangPref: ['zh'], onlineOnly: true }))).toMatchObject({ evLang: 'zh', onlineOnly: true });
+    expect(viewOf(await seed({ evLangPref: ['zh', 'en'], onlineOnly: false }))).toMatchObject({ evLang: null, onlineOnly: false });
+    // F20: the going-alerts choice, never when it was made.
+    const alerts = viewOf(await seed({ goingAlerts: true, goingAlertsSince: ago(DAY) }));
+    expect(alerts.goingAlerts).toBe(true);
+    expect(JSON.stringify(alerts)).not.toContain(ago(DAY).toISOString());
+  });
+});
+
+// ---- week 15: admin Delete (DESIGN D2) and retention (D3) ---------------------------------------
+
+let issueWeek = 0;
+const HOUR = 3600_000;
+/**
+ * A digest_sends row for `sub` in a new sent issue; `inFlight` leaves it claimed but unresolved
+ * (an hour ago by default: young enough to still be sent, see EXPIRE_MS).
+ */
+async function sendRow(sub: Subscriber, state: 'sent' | 'failed' | 'inFlight' = 'sent', claimedAt = ago(state === 'inFlight' ? HOUR : DAY)) {
+  const [issue] = await db
+    .insert(digestIssues)
+    .values({ id: newId('dig'), isoWeek: `2025-W${String(10 + ++issueWeek).padStart(2, '0')}`, status: state === 'inFlight' ? 'sending' : 'sent' })
+    .returning();
+  await db.insert(digestSends).values({
+    issueId: issue.id, subscriberId: sub.id, variantKey: 'en:ai', claimedAt,
+    resendId: state === 'sent' ? 're_1' : null, sentAt: state === 'sent' ? ago(DAY) : null, error: state === 'failed' ? 'failed:bounced' : null,
+  });
+  return issue;
+}
+const sendsOf = async (id: string) => db.select().from(digestSends).where(eq(digestSends.subscriberId, id));
+const audits = async (job: string) => db.select().from(jobsLog).where(eq(jobsLog.job, job));
+
+describe('deleteSubscriber', () => {
+  it('deletes the row and its send history in one statement, with an id-only audit row', async () => {
+    const sub = await seed({ consentIp: '203.0.113.9', consentUa: 'Mozilla/5.0 (audit)' });
+    const other = await seed();
+    await sendRow(sub, 'sent');
+    await sendRow(sub, 'failed');
+    await sendRow(other, 'sent');
+    expect(await deleteSubscriber(sub.id, opts())).toEqual({ result: 'deleted', sends: 2 });
+    expect(await reload(sub.id)).toBeUndefined();
+    expect(await sendsOf(sub.id)).toEqual([]);
+    expect(await sendsOf(other.id)).toHaveLength(1);
+    expect(await reload(other.id)).toBeDefined();
+    const [audit, ...more] = await audits('admin_delete');
+    expect(more).toEqual([]);
+    expect(audit).toMatchObject({ ok: true, detail: { id: sub.id }, startedAt: NOW, finishedAt: NOW });
+    expect(JSON.stringify(audit)).not.toMatch(/@|203\.0\.113\.9|Mozilla/);
+    // Idempotent: the second press finds nothing and writes no second audit row.
+    expect(await deleteSubscriber(sub.id, opts())).toEqual({ result: 'not_found', sends: 0 });
+    expect(await audits('admin_delete')).toHaveLength(1);
+  });
+
+  it('passes the NO ACTION foreign key only because both deletes share one statement', async () => {
+    const sub = await seed();
+    await sendRow(sub);
+    // A plain DELETE still trips the foreign key: the constraint is there and enforced.
+    await expect(db.delete(subscribers).where(eq(subscribers.id, sub.id))).rejects.toMatchObject({ cause: { code: '23503' } });
+    expect(await deleteSubscriber(sub.id, opts())).toEqual({ result: 'deleted', sends: 1 });
+  });
+
+  it('a subscriber with no history is deleted too', async () => {
+    const sub = await seed({ status: 'pending', confirmedAt: null });
+    expect(await deleteSubscriber(sub.id, opts())).toEqual({ result: 'deleted', sends: 0 });
+    expect(await reload(sub.id)).toBeUndefined();
+  });
+
+  it('is refused while a claim is in flight, and works once the send resolves', async () => {
+    const sub = await seed();
+    await sendRow(sub, 'sent');
+    const issue = await sendRow(sub, 'inFlight');
+    expect(await deleteSubscriber(sub.id, opts())).toEqual({ result: 'in_flight', sends: 0 });
+    expect(await reload(sub.id)).toBeDefined();
+    expect(await sendsOf(sub.id)).toHaveLength(2);
+    expect(await audits('admin_delete')).toEqual([]);
+    await db.update(digestSends).set({ resendId: 're_2', sentAt: NOW }).where(eq(digestSends.issueId, issue.id));
+    expect(await deleteSubscriber(sub.id, opts())).toEqual({ result: 'deleted', sends: 2 });
+  });
+
+  it('a suppressed row needs allowSuppressed: deleting it drops the do-not-send block', async () => {
+    const sub = await seed({ status: 'suppressed' });
+    await sendRow(sub);
+    expect(await deleteSubscriber(sub.id, opts())).toEqual({ result: 'suppressed', sends: 0 });
+    expect(await reload(sub.id)).toMatchObject({ status: 'suppressed' });
+    expect(await deleteSubscriber(sub.id, { ...opts(), allowSuppressed: true })).toEqual({ result: 'deleted', sends: 1 });
+    expect(await reload(sub.id)).toBeUndefined();
+  });
+
+  it('in flight wins over suppressed, so the message is the one that can be acted on', async () => {
+    const sub = await seed({ status: 'suppressed' });
+    await sendRow(sub, 'inFlight');
+    expect((await deleteSubscriber(sub.id, opts())).result).toBe('in_flight');
+    expect((await deleteSubscriber(sub.id, { ...opts(), allowSuppressed: true })).result).toBe('in_flight');
+  });
+
+  it('unknown or malformed ids touch nothing', async () => {
+    const sub = await seed();
+    for (const id of ['sub_0000000000000000', 'nope', sub.email, `${sub.id}' or '1'='1`]) {
+      expect(await deleteSubscriber(id, opts())).toEqual({ result: 'not_found', sends: 0 });
+    }
+    expect(await reload(sub.id)).toBeDefined();
+  });
+
+  it('a claim that lands mid-statement (foreign key violation) reads as in flight', async () => {
+    const sub = await seed();
+    const fk = Object.assign(new Error('Failed query'), { cause: Object.assign(new Error('violates foreign key constraint'), { code: '23503' }) });
+    const racing = new Proxy(db, { get: (t, p) => (p === 'execute' ? async () => { throw fk; } : Reflect.get(t, p)) });
+    expect(await deleteSubscriber(sub.id, { db: racing, now: NOW })).toEqual({ result: 'in_flight', sends: 0 });
+    const other = Object.assign(new Error('boom'), { code: '57014' });
+    const failing = new Proxy(db, { get: (t, p) => (p === 'execute' ? async () => { throw other; } : Reflect.get(t, p)) });
+    await expect(deleteSubscriber(sub.id, { db: failing, now: NOW })).rejects.toBe(other);
+  });
+});
+
+describe('purgeOldUnsubscribed', () => {
+  it('deletes rows unsubscribed more than 365 days ago with their history; the boundary row stays', async () => {
+    const old = await seed({ status: 'unsubscribed', unsubscribedAt: ago(UNSUBSCRIBED_TTL_MS + 1) });
+    const ancient = await seed({ status: 'unsubscribed', unsubscribedAt: ago(3 * UNSUBSCRIBED_TTL_MS), confirmedAt: null });
+    const edge = await seed({ status: 'unsubscribed', unsubscribedAt: ago(UNSUBSCRIBED_TTL_MS) });
+    const recent = await seed({ status: 'unsubscribed', unsubscribedAt: ago(30 * DAY) });
+    await sendRow(old);
+    await sendRow(old, 'failed');
+    await sendRow(edge);
+    expect(await purgeOldUnsubscribed(opts())).toEqual({ deleted: 2 });
+    expect(await reload(old.id)).toBeUndefined();
+    expect(await reload(ancient.id)).toBeUndefined();
+    expect(await sendsOf(old.id)).toEqual([]);
+    expect(await reload(edge.id)).toBeDefined();
+    expect(await sendsOf(edge.id)).toHaveLength(1);
+    expect(await reload(recent.id)).toBeDefined();
+    expect(await purgeOldUnsubscribed(opts())).toEqual({ deleted: 0 });
+  });
+
+  it('keeps suppressed rows (the do-not-send list) and everyone subscribed now, however old the opt-out', async () => {
+    const longAgo = ago(2 * UNSUBSCRIBED_TTL_MS);
+    const kept = await Promise.all(
+      (['suppressed', 'active', 'paused', 'pending'] as const).map((status) => seed({ status, unsubscribedAt: longAgo })),
+    );
+    const never = await seed({ status: 'unsubscribed', unsubscribedAt: null }); // legacy row with no date: not provably old
+    await sendRow(kept[0]);
+    expect(await purgeOldUnsubscribed(opts())).toEqual({ deleted: 0 });
+    for (const r of [...kept, never]) expect(await reload(r.id)).toBeDefined();
+    expect(await sendsOf(kept[0].id)).toHaveLength(1);
+  });
+
+  it('a row with a claim in flight waits for the next run, and does not block the others', async () => {
+    const busy = await seed({ status: 'unsubscribed', unsubscribedAt: ago(UNSUBSCRIBED_TTL_MS + DAY) });
+    const idle = await seed({ status: 'unsubscribed', unsubscribedAt: ago(UNSUBSCRIBED_TTL_MS + DAY) });
+    const issue = await sendRow(busy, 'inFlight');
+    expect(await purgeOldUnsubscribed(opts())).toEqual({ deleted: 1 });
+    expect(await reload(busy.id)).toBeDefined();
+    expect(await reload(idle.id)).toBeUndefined();
+    await db.update(digestSends).set({ error: 'ineligible' }).where(eq(digestSends.issueId, issue.id));
+    expect(await purgeOldUnsubscribed(opts())).toEqual({ deleted: 1 });
+    expect(await reload(busy.id)).toBeUndefined();
+  });
+});
+
+// ---- F20 going alerts: the opt-in, its start time, and the send history it leaves ----------------
+
+/** going_alerts and going_alerts_since as stored. */
+const alertsOf = async (id: string) => {
+  const row = await reload(id);
+  return { on: row.goingAlerts, since: row.goingAlertsSince };
+};
+
+describe('going alerts: requestSubscription', () => {
+  it('a new row stores the checkbox, stamped now when ticked; unticked or not shown is off with no time', async () => {
+    const on = (await requestSubscription(input({ goingAlerts: true }), opts())) as { sub: Subscriber };
+    expect(await alertsOf(on.sub.id)).toEqual({ on: true, since: NOW });
+    const off = (await requestSubscription(input({ email: 'off@example.org', goingAlerts: false }), opts())) as { sub: Subscriber };
+    expect(await alertsOf(off.sub.id)).toEqual({ on: false, since: null });
+    const hidden = (await requestSubscription(input({ email: 'hidden@example.org' }), opts())) as { sub: Subscriber };
+    expect(await alertsOf(hidden.sub.id)).toEqual({ on: false, since: null });
+  });
+
+  it('a re-request is a new opt-in: ticked restarts the clock, unticked turns alerts off', async () => {
+    const sub = await seed({ status: 'unsubscribed', unsubscribedAt: ago(5 * DAY), goingAlerts: true, goingAlertsSince: ago(90 * DAY) });
+    await requestSubscription(input({ email: sub.email, goingAlerts: true }), opts());
+    expect(await alertsOf(sub.id)).toEqual({ on: true, since: NOW });
+    await requestSubscription(input({ email: sub.email, goingAlerts: false }), opts(new Date(NOW.getTime() + 60_000)));
+    expect(await alertsOf(sub.id)).toEqual({ on: false, since: null });
+  });
+
+  it('without the checkbox (alerts off here) a re-request keeps the stored choice, restarted from now', async () => {
+    const on = await seed({ status: 'pending', confirmedAt: null, consentAt: ago(2 * DAY), goingAlerts: true, goingAlertsSince: ago(2 * DAY) });
+    await requestSubscription(input({ email: on.email, categories: ['vc'] }), opts());
+    expect(await reload(on.id)).toMatchObject({ categories: ['vc'], goingAlerts: true, goingAlertsSince: NOW });
+    const off = await seed({ status: 'unsubscribed', unsubscribedAt: ago(DAY) });
+    await requestSubscription(input({ email: off.email }), opts());
+    expect(await alertsOf(off.id)).toEqual({ on: false, since: null });
+  });
+
+  it('a re-request on a still-pending row voids the earlier confirm link: it cannot confirm choices its email never described', async () => {
+    // Someone who knows the address asks again with alerts ticked; the owner then clicks the first email's link.
+    const first = (await requestSubscription(input({ goingAlerts: false }), opts(ago(DAY)))) as { sub: Subscriber };
+    const again = (await requestSubscription(input({ categories: ['vc'], goingAlerts: true }), opts())) as { sub: Subscriber };
+    expect(again.sub.id).toBe(first.sub.id);
+    expect(again.sub.tokenVersion).toBe(first.sub.tokenVersion + 1);
+    expect(await confirmSubscription(linkToken(first.sub), opts())).toEqual({ result: 'invalid', sub: null });
+    expect(await reload(first.sub.id)).toMatchObject({ status: 'pending', confirmedAt: null });
+    // The new email's link (built from the returned row) confirms what that email described.
+    expect((await confirmSubscription(linkToken(again.sub), opts())).sub).toMatchObject({
+      status: 'active', categories: ['vc'], goingAlerts: true, goingAlertsSince: NOW,
+    });
+  });
+
+  it('re-arming an unsubscribed row keeps token_version, so the links in its past emails keep working', async () => {
+    const sub = await seed({ status: 'unsubscribed', unsubscribedAt: ago(DAY) });
+    const r = (await requestSubscription(input({ email: sub.email }), opts())) as { sub: Subscriber };
+    expect(r.sub.tokenVersion).toBe(sub.tokenVersion);
+    expect(await subscriberFromToken(linkToken(sub), { db })).toMatchObject({ id: sub.id, status: 'pending' });
+    // Asking again while that request is pending re-arms a pending row: now the version moves on.
+    const again = (await requestSubscription(input({ email: sub.email }), opts())) as { sub: Subscriber };
+    expect(again.sub.tokenVersion).toBe(sub.tokenVersion + 1);
+  });
+
+  it('active, paused and suppressed rows keep their alerts whatever the form says', async () => {
+    for (const status of ['active', 'paused', 'suppressed'] as const) {
+      const sub = await seed({ status, goingAlerts: false, pausedUntil: status === 'paused' ? new Date(NOW.getTime() + DAY) : null });
+      await requestSubscription(input({ email: sub.email, goingAlerts: true }), opts());
+      expect(await reload(sub.id)).toEqual(sub);
+    }
+  });
+});
+
+describe('going alerts: updatePreferences', () => {
+  const prefs = { locale: 'en' as const, categories: ['ai' as const] };
+
+  it('off → on stamps now; saving again with them on keeps the first time, even from a stale row', async () => {
+    const sub = await seed();
+    const on = await updatePreferences(sub, { ...prefs, goingAlerts: true }, opts());
+    expect(on).toMatchObject({ goingAlerts: true, goingAlertsSince: NOW });
+    const later = new Date(NOW.getTime() + 3 * DAY);
+    // `sub` still says off: the statement reads the row as it is now, so the start doesn't move.
+    await updatePreferences(sub, { ...prefs, goingAlerts: true }, opts(later));
+    expect(await alertsOf(sub.id)).toEqual({ on: true, since: NOW });
+  });
+
+  it('on → off clears the time; switching on again starts over', async () => {
+    const sub = await seed({ goingAlerts: true, goingAlertsSince: ago(30 * DAY) });
+    expect(await updatePreferences(sub, { ...prefs, goingAlerts: false }, opts())).toMatchObject({ goingAlerts: false, goingAlertsSince: null });
+    await updatePreferences(sub, { ...prefs, goingAlerts: true }, opts());
+    expect(await alertsOf(sub.id)).toEqual({ on: true, since: NOW });
+  });
+
+  it('left undefined (language switch, or the box not shown) the stored choice and time stay', async () => {
+    const sub = await seed({ goingAlerts: true, goingAlertsSince: ago(30 * DAY) });
+    expect(await updatePreferences(sub, { locale: 'zh', categories: ['vc'] }, opts())).toMatchObject({
+      locale: 'zh', categories: ['vc'], goingAlerts: true, goingAlertsSince: ago(30 * DAY),
+    });
+  });
+
+  it('no category with alerts unticked: unsubscribed and alerts off in the same save, so "Subscribe again" doesn\'t bring them back', async () => {
+    const sub = await seed({ goingAlerts: true, goingAlertsSince: ago(30 * DAY) });
+    const row = await updatePreferences(sub, { locale: 'en', categories: [], goingAlerts: false }, opts());
+    expect(row).toMatchObject({ status: 'unsubscribed', unsubscribedAt: NOW, categories: ['ai', 'vc'], goingAlerts: false, goingAlertsSince: null });
+    expect(await reload(sub.id)).toEqual(row);
+    expect((await resubscribe(row, PREFS_CONSENT, opts())).sub).toMatchObject({ status: 'active', goingAlerts: false, goingAlertsSince: null });
+  });
+
+  it('no category with alerts ticked, or the box not shown: unsubscribed, the stored alerts choice left as it was', async () => {
+    const off = await seed();
+    expect(await updatePreferences(off, { locale: 'en', categories: [], goingAlerts: true }, opts())).toMatchObject({
+      status: 'unsubscribed', goingAlerts: false, goingAlertsSince: null,
+    });
+    const on = await seed({ goingAlerts: true, goingAlertsSince: ago(30 * DAY) });
+    expect(await updatePreferences(on, { locale: 'en', categories: [] }, opts())).toMatchObject({
+      status: 'unsubscribed', goingAlerts: true, goingAlertsSince: ago(30 * DAY),
+    });
+    // An unsubscribed row is not editable: an empty save from a stale page changes nothing.
+    const gone = await seed({ status: 'unsubscribed', unsubscribedAt: ago(DAY), goingAlerts: true, goingAlertsSince: ago(30 * DAY) });
+    expect(await updatePreferences(gone, { locale: 'en', categories: [], goingAlerts: false }, opts())).toEqual(gone);
+  });
+
+  it('pending and paused rows can switch alerts; unsubscribed and suppressed rows cannot', async () => {
+    for (const status of ['pending', 'paused'] as const) {
+      const sub = await seed({ status, pausedUntil: status === 'paused' ? new Date(NOW.getTime() + DAY) : null });
+      expect(await updatePreferences(sub, { ...prefs, goingAlerts: true }, opts())).toMatchObject({ status, goingAlerts: true, goingAlertsSince: NOW });
+    }
+    for (const status of ['unsubscribed', 'suppressed'] as const) {
+      const sub = await seed({ status });
+      await updatePreferences(sub, { ...prefs, goingAlerts: true }, opts());
+      expect(await reload(sub.id)).toEqual(sub);
+    }
+  });
+});
+
+describe('going alerts: disableGoingAlerts', () => {
+  it('turns off alerts only: status, categories, language and the weekly email stay; repeating it is harmless', async () => {
+    for (const status of ['pending', 'active', 'paused', 'unsubscribed'] as const) {
+      const sub = await seed({
+        status, locale: 'zh', goingAlerts: true, goingAlertsSince: ago(DAY), pausedUntil: status === 'paused' ? new Date(NOW.getTime() + DAY) : null,
+      });
+      const row = await disableGoingAlerts(sub, opts());
+      expect(row).toEqual({ ...sub, goingAlerts: false, goingAlertsSince: null });
+      expect(await disableGoingAlerts(sub, opts())).toEqual(row);
+      expect(await reload(sub.id)).toEqual(row);
+    }
+  });
+
+  it('leaves a suppressed row alone, and is a no-op when alerts are already off', async () => {
+    const suppressed = await seed({ status: 'suppressed', goingAlerts: true, goingAlertsSince: ago(DAY) });
+    expect(await disableGoingAlerts(suppressed, opts())).toEqual(suppressed);
+    expect(await reload(suppressed.id)).toEqual(suppressed);
+    const off = await seed();
+    expect(await disableGoingAlerts(off, opts())).toEqual(off);
+  });
+
+  it('turned off while unsubscribed, "Subscribe again" brings back the weekly email without the alerts', async () => {
+    const sub = await seed({ status: 'unsubscribed', unsubscribedAt: ago(DAY), goingAlerts: true, goingAlertsSince: ago(60 * DAY) });
+    await disableGoingAlerts(sub, opts());
+    const r = await resubscribe(await reload(sub.id), PREFS_CONSENT, opts());
+    expect(r.sub).toMatchObject({ status: 'active', goingAlerts: false, goingAlertsSince: null });
+  });
+});
+
+describe('going alerts: an unconfirmed re-request and the 7-day purge', () => {
+  it('alerts switched on by a request nobody confirmed are off after the revert; "Subscribe again" brings back only the weekly email', async () => {
+    const former = await seed({ status: 'unsubscribed', confirmedAt: ago(60 * DAY), unsubscribedAt: ago(20 * DAY) });
+    await requestSubscription(input({ email: former.email, categories: ['vc'], goingAlerts: true }), opts(ago(8 * DAY)));
+    expect(await alertsOf(former.id)).toEqual({ on: true, since: ago(8 * DAY) });
+    expect(await purgeStalePending(opts())).toEqual({ deleted: 0, reverted: 1 });
+    expect(await reload(former.id)).toMatchObject({ status: 'unsubscribed', unsubscribedAt: ago(20 * DAY), goingAlerts: false, goingAlertsSince: null });
+    const r = await resubscribe(await reload(former.id), PREFS_CONSENT, opts());
+    expect(r).toMatchObject({ needsConfirm: false, sub: { status: 'active', goingAlerts: false, goingAlertsSince: null } });
+  });
+
+  it('conservative: alerts that were on before the unconfirmed request are switched off too (the reader can tick them again)', async () => {
+    const former = await seed({ status: 'unsubscribed', unsubscribedAt: ago(20 * DAY), goingAlerts: true, goingAlertsSince: ago(90 * DAY) });
+    await requestSubscription(input({ email: former.email }), opts(ago(8 * DAY))); // box not shown: the stored choice is kept
+    expect(await alertsOf(former.id)).toEqual({ on: true, since: ago(8 * DAY) });
+    await purgeStalePending(opts());
+    expect(await alertsOf(former.id)).toEqual({ on: false, since: null });
+  });
+
+  it('rows the purge doesn\'t revert keep their alerts', async () => {
+    const fresh = await seed({ status: 'pending', confirmedAt: ago(60 * DAY), consentAt: ago(DAY), goingAlerts: true, goingAlertsSince: ago(DAY) });
+    const active = await seed({ goingAlerts: true, goingAlertsSince: ago(30 * DAY) });
+    expect(await purgeStalePending(opts())).toEqual({ deleted: 0, reverted: 0 });
+    expect(await reload(fresh.id)).toEqual(fresh);
+    expect(await reload(active.id)).toEqual(active);
+  });
+});
+
+describe('going alerts: resubscribe', () => {
+  it('alerts that were on come back counting from now, so no mark from while they were away is sent', async () => {
+    const sub = await seed({ status: 'unsubscribed', unsubscribedAt: ago(10 * DAY), goingAlerts: true, goingAlertsSince: ago(60 * DAY) });
+    expect((await resubscribe(sub, PREFS_CONSENT, opts())).sub).toMatchObject({ status: 'active', goingAlerts: true, goingAlertsSince: NOW });
+    const never = await seed({ status: 'unsubscribed', confirmedAt: null, unsubscribedAt: ago(DAY), goingAlerts: true, goingAlertsSince: ago(9 * DAY) });
+    expect((await resubscribe(never, PREFS_CONSENT, opts())).sub).toMatchObject({ status: 'pending', goingAlerts: true, goingAlertsSince: NOW });
+    const off = await seed({ status: 'unsubscribed', unsubscribedAt: ago(DAY) });
+    expect((await resubscribe(off, PREFS_CONSENT, opts())).sub).toMatchObject({ goingAlerts: false, goingAlertsSince: null });
+  });
+});
+
+/** An alert_sends row for `sub` on a Pacific day; `inFlight` leaves it claimed (an hour ago by default) but unresolved. */
+async function alertRow(sub: Subscriber, day: string, state: 'sent' | 'failed' | 'inFlight' = 'sent', claimedAt = ago(state === 'inFlight' ? HOUR : DAY)) {
+  await db.insert(alertSends).values({
+    alertDay: day, subscriberId: sub.id, eventIds: ['evt_0123456789abcdef'], variantKey: 'en:evt_0123456789abcdef', claimedAt,
+    resendId: state === 'sent' ? 're_a' : null, sentAt: state === 'sent' ? ago(DAY) : null, error: state === 'failed' ? 'failed:bounced' : null,
+  });
+}
+const alertsSentTo = async (id: string) => db.select().from(alertSends).where(eq(alertSends.subscriberId, id));
+
+describe('going alerts: delete, retention and purge cover alert_sends', () => {
+  it('alert_sends references the subscriber (NO ACTION): a plain DELETE fails, so every delete path must take them along', async () => {
+    const sub = await seed();
+    await alertRow(sub, '2026-10-01');
+    await expect(db.delete(subscribers).where(eq(subscribers.id, sub.id))).rejects.toMatchObject({ cause: { code: '23503' } });
+  });
+
+  it('admin Delete removes the alert history with the row and counts it with the digest sends', async () => {
+    const sub = await seed();
+    const other = await seed();
+    await sendRow(sub);
+    await alertRow(sub, '2026-10-01');
+    await alertRow(sub, '2026-10-02', 'failed');
+    await alertRow(other, '2026-10-01');
+    expect(await deleteSubscriber(sub.id, opts())).toEqual({ result: 'deleted', sends: 3 });
+    expect(await reload(sub.id)).toBeUndefined();
+    expect(await alertsSentTo(sub.id)).toEqual([]);
+    expect(await alertsSentTo(other.id)).toHaveLength(1);
+    expect(await audits('admin_delete')).toHaveLength(1);
+  });
+
+  it('admin Delete waits while an alert is in flight, like a digest claim', async () => {
+    const sub = await seed();
+    await alertRow(sub, '2026-10-01');
+    await alertRow(sub, '2026-10-02', 'inFlight');
+    expect(await deleteSubscriber(sub.id, opts())).toEqual({ result: 'in_flight', sends: 0 });
+    expect(await alertsSentTo(sub.id)).toHaveLength(2);
+    expect(await audits('admin_delete')).toEqual([]);
+    // A suppressed row with an alert in flight: in flight is the message that can be acted on.
+    const suppressed = await seed({ status: 'suppressed' });
+    await alertRow(suppressed, '2026-10-02', 'inFlight');
+    expect((await deleteSubscriber(suppressed.id, { ...opts(), allowSuppressed: true })).result).toBe('in_flight');
+    await db.update(alertSends).set({ resendId: 're_b', sentAt: NOW }).where(eq(alertSends.subscriberId, sub.id));
+    expect(await deleteSubscriber(sub.id, opts())).toEqual({ result: 'deleted', sends: 2 });
+  });
+
+  it('retention deletes old unsubscribed rows with their alert history; an alert in flight makes one wait', async () => {
+    const old = await seed({ status: 'unsubscribed', unsubscribedAt: ago(UNSUBSCRIBED_TTL_MS + DAY) });
+    const busy = await seed({ status: 'unsubscribed', unsubscribedAt: ago(UNSUBSCRIBED_TTL_MS + DAY) });
+    const recent = await seed({ status: 'unsubscribed', unsubscribedAt: ago(30 * DAY) });
+    await alertRow(old, '2025-09-01');
+    await sendRow(old);
+    await alertRow(busy, '2025-09-01', 'inFlight');
+    await alertRow(recent, '2026-09-01');
+    expect(await purgeOldUnsubscribed(opts())).toEqual({ deleted: 1 });
+    expect(await reload(old.id)).toBeUndefined();
+    expect(await alertsSentTo(old.id)).toEqual([]);
+    expect(await sendsOf(old.id)).toEqual([]);
+    expect(await reload(busy.id)).toBeDefined();
+    expect(await alertsSentTo(recent.id)).toHaveLength(1);
+    await db.update(alertSends).set({ error: 'ineligible' }).where(eq(alertSends.subscriberId, busy.id));
+    expect(await purgeOldUnsubscribed(opts())).toEqual({ deleted: 1 });
+    expect(await alertsSentTo(busy.id)).toEqual([]);
+  });
+
+  it('the stale-pending purge leaves a never-confirmed row with alert history alone, without throwing', async () => {
+    const odd = await seed({ status: 'pending', confirmedAt: null, consentAt: ago(10 * DAY) });
+    await alertRow(odd, '2026-09-25');
+    const stranger = await seed({ status: 'pending', confirmedAt: null, consentAt: ago(10 * DAY) });
+    expect(await purgeStalePending(opts())).toEqual({ deleted: 1, reverted: 0 });
+    expect(await reload(odd.id)).toMatchObject({ status: 'pending' });
+    expect(await alertsSentTo(odd.id)).toHaveLength(1);
+    expect(await reload(stranger.id)).toBeUndefined();
+  });
+});
+
+describe('in flight means a claim that can still be sent (younger than EXPIRE_MS)', () => {
+  it('a claim stuck past 23 h (the run stopped, then alerts were switched off) blocks neither admin Delete nor retention', async () => {
+    // Claimed, never resolved, and no run since to mark it expired (runAlerts returns early while 'off').
+    const sub = await seed();
+    await alertRow(sub, '2026-10-02', 'inFlight', ago(EXPIRE_MS));
+    await sendRow(sub, 'inFlight', ago(EXPIRE_MS + HOUR));
+    expect(await deleteSubscriber(sub.id, opts())).toEqual({ result: 'deleted', sends: 2 });
+    expect(await alertsSentTo(sub.id)).toEqual([]);
+    expect(await sendsOf(sub.id)).toEqual([]);
+
+    const old = await seed({ status: 'unsubscribed', unsubscribedAt: ago(UNSUBSCRIBED_TTL_MS + DAY) });
+    await alertRow(old, '2025-09-01', 'inFlight', ago(400 * DAY));
+    await sendRow(old, 'inFlight', ago(400 * DAY));
+    expect(await purgeOldUnsubscribed(opts())).toEqual({ deleted: 1 });
+    expect(await reload(old.id)).toBeUndefined();
+    expect(await alertsSentTo(old.id)).toEqual([]);
+    expect(await sendsOf(old.id)).toEqual([]);
+  });
+
+  it.each([
+    ['an alert claim', (sub: Subscriber, at: Date) => alertRow(sub, '2026-10-03', 'inFlight', at)],
+    ['a digest claim', (sub: Subscriber, at: Date) => sendRow(sub, 'inFlight', at)],
+  ])('%s just inside the window still blocks Delete and retention; once 23 h old it no longer does', async (_label, claim) => {
+    const sub = await seed();
+    await claim(sub, ago(EXPIRE_MS - 60_000));
+    expect(await deleteSubscriber(sub.id, opts())).toEqual({ result: 'in_flight', sends: 0 });
+    expect(await deleteSubscriber(sub.id, opts(new Date(NOW.getTime() + 60_000)))).toEqual({ result: 'deleted', sends: 1 });
+
+    const old = await seed({ status: 'unsubscribed', unsubscribedAt: ago(UNSUBSCRIBED_TTL_MS + DAY) });
+    await claim(old, ago(EXPIRE_MS - 60_000));
+    expect(await purgeOldUnsubscribed(opts())).toEqual({ deleted: 0 });
+    expect(await purgeOldUnsubscribed(opts(new Date(NOW.getTime() + 60_000)))).toEqual({ deleted: 1 });
+  });
+
+  it('"why nothing was deleted" uses the same rule: a suppressed row with only a stale claim says suppressed, not in flight', async () => {
+    const sub = await seed({ status: 'suppressed' });
+    await alertRow(sub, '2026-10-02', 'inFlight', ago(2 * DAY));
+    await sendRow(sub, 'inFlight', ago(2 * DAY));
+    expect(await deleteSubscriber(sub.id, opts())).toEqual({ result: 'suppressed', sends: 0 });
+    expect(await deleteSubscriber(sub.id, { ...opts(), allowSuppressed: true })).toEqual({ result: 'deleted', sends: 2 });
   });
 });

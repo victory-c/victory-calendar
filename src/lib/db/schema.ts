@@ -1,5 +1,6 @@
 // Drizzle schema. Mirrors IMPLEMENTATION_GUIDE.md「数据模型」SQL one-to-one:
-// 14 business tables. Better Auth tables are generated separately in week 2
+// 14 business tables, plus going_marks and alert_sends for F20 going alerts (M4, migration 0004).
+// Better Auth tables are generated separately in week 2
 // (`pnpm dlx @better-auth/cli generate`) and live in ./auth-schema.ts.
 import { getTableColumns, sql } from 'drizzle-orm';
 import {
@@ -157,6 +158,9 @@ export const subscribers = pgTable(
     locale: text('locale', { enum: ['en', 'zh'] }).notNull().default('en'),
     categories: text('categories').array().notNull().default(sql`'{}'`),
     goingAlerts: boolean('going_alerts').notNull().default(false),
+    // F20: when going alerts were last switched on. Only marks made after it (or after confirmed_at
+    // when unset) are alerted, so a new opt-in never gets a backlog (alerts/claim.ts).
+    goingAlertsSince: tstz('going_alerts_since'),
     evLangPref: text('ev_lang_pref').array(),
     onlineOnly: boolean('online_only'),
     tokenVersion: integer('token_version').notNull().default(1),
@@ -223,6 +227,54 @@ export const digestSends = pgTable(
     primaryKey({ columns: [t.issueId, t.subscriberId] }),
     check('digest_sends_kind_check', inList('kind', ['digest', 'empty'])),
     index('digest_sends_pending').on(t.issueId, t.batchKey).where(sql`${t.resendId} is null and ${t.error} is null`),
+  ],
+);
+
+/**
+ * F20 going alerts: when an event last became publicly going (going / hosting / speaking, public,
+ * published). Written by setGoing() and publish() on that transition only (alerts/marks.ts); the
+ * alert cron re-checks the event live before anything is sent, so unmarking needs no write here.
+ * `alert` is Victor's per-mark switch ("Alert subscribers"). A separate table, so events_public is
+ * untouched; the row goes with its event.
+ */
+export const goingMarks = pgTable('going_marks', {
+  eventId: text('event_id')
+    .primaryKey()
+    .references(() => events.id, { onDelete: 'cascade' }),
+  markedAt: tstz('marked_at').notNull(),
+  alert: boolean('alert').notNull().default(true),
+});
+
+/**
+ * F20: one alert email per subscriber per Pacific day (the primary key), claimed before anything is
+ * sent like digest_sends. event_ids are the events it carries, sorted; an event in a row that may
+ * have been delivered is never alerted to that subscriber again. Same lifecycle columns as
+ * digest_sends (batch_key groups a Resend call, error is final).
+ */
+export const alertSends = pgTable(
+  'alert_sends',
+  {
+    alertDay: text('alert_day').notNull(),
+    subscriberId: text('subscriber_id')
+      .notNull()
+      .references(() => subscribers.id),
+    eventIds: text('event_ids').array().notNull(),
+    variantKey: text('variant_key').notNull(),
+    claimedAt: tstz('claimed_at').notNull().defaultNow(),
+    batchKey: text('batch_key'),
+    resendId: text('resend_id'),
+    sentAt: tstz('sent_at'),
+    // Final, never retried: invalid | ineligible | unmarked | idem_conflict | id_mismatch | expired |
+    // render_failed | too_large (replay_… on a replay) | failed:<reason> | refused:<name> (Resend
+    // refused a first attempt outright; its events merge into the next day's alert).
+    error: text('error'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.alertDay, t.subscriberId] }),
+    check('alert_sends_day_check', sql`${t.alertDay} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'`),
+    check('alert_sends_event_ids_check', sql`cardinality(${t.eventIds}) between 1 and 20`),
+    index('alert_sends_pending').on(t.alertDay, t.batchKey).where(sql`${t.resendId} is null and ${t.error} is null`),
+    index('alert_sends_events').using('gin', t.eventIds),
   ],
 );
 

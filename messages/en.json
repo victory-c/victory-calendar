@@ -14,7 +14,8 @@
     "nav": "Main",
     "calendar": "Calendar",
     "going": "Going",
-    "archive": "Archive"
+    "archive": "Archive",
+    "weekly": "Weekly"
   },
   "Home": {
     "thisWeek": "This week",
@@ -56,17 +57,23 @@
     "outlook": "Outlook",
     "hostedBy": "Hosted by {host}",
     "coverCredit": "Cover: {host} via {platform}",
+    "coverOpenverse": "Cover: <page>{work}</page> · <deed>{license}</deed>",
+    "coverCropped": "cropped",
+    "coverPadded": "padded to square",
+    "coverVia": "Image via <page>{host}</page>",
+    "coverAi": "AI-generated cover",
     "yourTime": "Your time",
     "rsvpAt": "RSVP on {platform}",
-    "refreshNote": "Calendar apps refresh subscriptions on their own schedule; cancellations also go out by email.",
+    "refreshNote": "Calendar subscriptions refresh on each app's own schedule; time changes and cancellations show up at the next refresh, and a cancelled event stays in the feed, marked cancelled. An event added on its own is a one-time copy and won't update.",
     "onlineAt": "Online"
   },
   "Facets": {
     "title": "More filters",
     "lang": "Event language",
     "langAny": "Any",
-    "langZh": "Chinese",
-    "langBilingual": "Bilingual",
+    "langZh": "Chinese (incl. bilingual)",
+    "langEn": "English (incl. bilingual)",
+    "langBilingual": "Bilingual only",
     "fmt": "Format",
     "fmtAny": "Any",
     "fmtInPerson": "In person",
@@ -81,7 +88,9 @@
     "online": "Online",
     "free": "Free only",
     "apply": "Apply",
-    "clear": "Clear"
+    "clear": "Clear",
+    "subscribeFiltered": "Subscribe to this selection",
+    "siteOnly": "Area, price and in-person filters apply on the site only."
   },
   "Calendar": {
     "title": "Calendar",
@@ -111,6 +120,20 @@
     "next": "Next week",
     "description": "Victor's picks for the week of {date}: Bay Area tech events, with a note on why each one is worth going to."
   },
+  "Weekly": {
+    "title": "Weekly picks",
+    "intro": "Every issue of the weekly email, newest first.",
+    "empty": "No issues have gone out yet.",
+    "issueTitle": "Weekly picks · week of {date}",
+    "description": "Victor's weekly email for the week of {date}: Bay Area tech events, with a note on why each one is worth going to.",
+    "allIssues": "All issues",
+    "allEvents": "All events this week",
+    "going": "Victor is going",
+    "planToGo": "I plan to go",
+    "preview": "Next week · week of {date}",
+    "previewMore": "That week's picks",
+    "nothingLeft": "The events in this issue have since been taken down."
+  },
   "About": {
     "title": "About",
     "body1": "I'm Victor, a Berkeley student who goes to a lot of Bay Area tech events. Every week I pick the ones I'd actually recommend and say why in a line or two.",
@@ -120,6 +143,125 @@
       "calendar": "Calendar",
       "going": "Where I'm going",
       "archive": "Archive"
+    },
+    "brave": "Some cover images are found with <brave>Brave Search</brave>'s image search."
+  },
+  "Privacy": {
+    "title": "Privacy",
+    "description": "What Victor's Picks collects, what it's for, who handles it for me, how long I keep it, and how to have it deleted.",
+    "updated": "Last updated <time>{date}</time>",
+    "lead": "This is a small personal site, so this page is short and in plain words. Everything on it describes what the site does today.",
+    "who": {
+      "title": "Who runs this",
+      "body": "I'm Victor, a Berkeley student, and Victor's Picks is my personal project. It has no ads and no paid placements.",
+      "contact": "Questions, data requests and takedowns: <mail>{email}</mail>",
+      "noContact": "A contact address for questions, data requests and takedowns will be added here before the email newsletter opens."
+    },
+    "short": {
+      "title": "The short version",
+      "items": {
+        "none": "No ads, no analytics, no tracking pixels. The only outside code is Vercel's bot check, and it runs only when you press Subscribe.",
+        "sell": "I never sell your data, and I don't share it with anyone except the services that run this site for me (listed below).",
+        "email": "Your email address is used for the newsletter you asked for and nothing else.",
+        "leave": "Every Sunday email has a one-click unsubscribe, and you can ask me to delete your data."
+      }
+    },
+    "browse": {
+      "title": "If you just browse",
+      "items": {
+        "account": "There are no accounts. Nothing asks for your name or email unless you subscribe.",
+        "cookie": "One cookie, <code>NEXT_LOCALE</code>, and only if you use the language switch: it remembers English or Chinese for a year. My code sets no other cookies for visitors.",
+        "fonts": "Fonts and images are served by this site, so your browser doesn't call Google Fonts or any other outside service while you read.",
+        "logs": "Vercel, which hosts the site, keeps standard request logs (IP address, browser, the page requested) on its own schedule. I use them only to fix problems and stop abuse.",
+        "links": "When you follow a link to an event page, that site only learns that you came from this site, not from which page.",
+        "feeds": "Calendar feeds and RSS need no account. Their links carry only your choices: language, categories, and optionally event language and online-only."
+      }
+    },
+    "subscribe": {
+      "title": "If you subscribe",
+      "storeLead": "What I store:",
+      "items": {
+        "email": "Your email address, the language and categories you picked, the event-language and online-only filters if you set them, whether you turned on going alerts and since when, and your status (waiting for confirmation, subscribed, paused or unsubscribed) with its dates.",
+        "consent": "The most recent sign-up request for your address, confirmed or not: when it was made, which page it came from, and the IP address and browser user-agent it was sent from. Once you confirm, that's the record that you asked to subscribe.",
+        "sends": "Which weekly emails and going alerts were sent to you, and when.",
+        "nothing": "Nothing else: no name, no location, no browsing history."
+      },
+      "bot": "When you press Subscribe, your browser runs Vercel's bot check (BotID), loaded through this site's own address, to tell people from scripts. It is Vercel's service, covered by Vercel's privacy policy.",
+      "limits": "To stop abuse I count sign-up attempts per network and per inbox. The counters hold a one-way hash of your IP address and of your email address, never the plain values, and expire within about 2 days."
+    },
+    "use": {
+      "title": "What I use it for",
+      "items": {
+        "send": "Sending the confirmation email, the Sunday email and, if you turned them on, going alerts (at most one a morning when I mark an event I plan to go to), in your language and with only your categories and filters.",
+        "abuse": "Stopping bots, and stopping anyone from flooding someone else's inbox with sign-up emails.",
+        "proof": "Showing that you asked to subscribe, and making sure an unsubscribe sticks.",
+        "nothing": "Nothing else: no ads, no profiling, no selling."
+      },
+      "ai": "I use AI (Anthropic's Claude, through Vercel's AI Gateway) to help draft event summaries and translations, and sometimes to make an abstract cover image (Recraft or Black Forest Labs FLUX, through the same gateway) from a fixed prompt plus the event's category. It only sees public event pages and my own notes, never your email address or anything else about subscribers or visitors."
+    },
+    "tracking": {
+      "title": "Opens and clicks",
+      "items": {
+        "none": "I don't track whether you open an email or which links you click.",
+        "same": "Every reader gets the same images, loaded from this site, and links go straight to their pages: no redirects, no tracking codes.",
+        "token": "The only personal links are preferences and unsubscribe. They carry a code, never your address."
+      }
+    },
+    "processors": {
+      "title": "Services that handle data for me",
+      "lead": "These companies run parts of the site for me.",
+      "items": {
+        "vercel": "<b>Vercel</b> hosts the site: request logs, the bot check, the firewall and image storage.",
+        "neon": "<b>Neon</b> (part of Databricks) runs the database that holds subscriptions and send records.",
+        "upstash": "<b>Upstash</b> keeps the rate-limit counters, which hold hashes only, plus site-wide daily counters and a one-day cache of Openverse search results (public image data).",
+        "resend": "<b>Resend</b> sends the emails. It sees your address, the email itself, and whether it was delivered, bounced or marked as spam."
+      },
+      "policy": "{name} privacy policy",
+      "where": "All four are US companies. The database and the counters are in the US East region."
+    },
+    "retention": {
+      "title": "How long I keep things",
+      "items": {
+        "pending": "A sign-up that's never confirmed: deleted after 7 days. If you had subscribed before, it goes back to unsubscribed instead, with going alerts off.",
+        "active": "While you're subscribed or paused: kept.",
+        "unsubscribed": "After you unsubscribe: kept for 12 months, so the unsubscribe sticks and the latest sign-up request is on record if a question comes up, then deleted along with its send records.",
+        "suppressed": "Addresses that bounced, marked an email as spam, or that I blocked by hand: the whole subscription record, sign-up IP address and user-agent included, and its send records are kept indefinitely on a do-not-send list, so the address never gets email from me again. Resend also keeps bounced and spam-flagged addresses on its own do-not-send list. Both stay until you ask me to delete them.",
+        "limits": "Rate-limit counters: about 2 days at most.",
+        "providers": "Logs and backups at Vercel, Neon and Resend: deleted on each provider's own schedule (see their policies above). My own log lines never contain full email addresses."
+      }
+    },
+    "choices": {
+      "title": "Your choices",
+      "items": {
+        "prefs": "Every Sunday email and going alert links to a preferences page where you can change the language, categories, event-language and online-only filters, turn going alerts on or off, pause for 4 weeks, or unsubscribe in one click, and your mail app's Unsubscribe button works too (on a going alert it turns off just the alerts). The one-time confirmation email has neither: if you ignore it, nothing more is sent.",
+        "request": "To see what I hold about you, or to have it deleted, email me from the address you subscribed with, at the address under “<contact>Who runs this</contact>”. Deleting removes your subscription and its send records from my database, and takes your address off Resend's do-not-send list if it's there. Copies in provider logs and backups expire on their own schedules.",
+        "suppressed": "If your address is on my do-not-send list, it may be on Resend's as well. A deletion request takes it off both, so the block is lifted and you can subscribe again.",
+        "change": "To change your address, subscribe with the new one and unsubscribe the old one."
+      }
+    },
+    "signals": {
+      "title": "Do Not Track and Global Privacy Control",
+      "body": "I don't track you across sites, and no third party collects information about your activity over time and across different websites through this site. So Do Not Track and Global Privacy Control have nothing to switch off here: the site works the same whether or not your browser sends them. Either way, I don't sell or share personal information."
+    },
+    "takedown": {
+      "title": "For event hosts: takedowns",
+      "items": {
+        "keep": "For each pick I keep the public facts (title, time, place, host, link), a short summary in my own words, and sometimes a cover. A cover is one of: the event's official cover image, credited as “Cover: host via platform”; a tile made from the hosts' profile photos on the event page (credited in emails as “Host photos via platform”); an openly licensed photo from Openverse (CC0, CC BY or CC BY-SA), credited with its title, creator and licence and linked to its source; an image I found with Brave image search, credited “Image via” its site and linked to it; an image I uploaded or linked to by hand, for example the host's own poster; or an abstract image made with AI, labelled as such. Brave finds never appear in emails or share cards, and Openverse photos that need a credit never appear on share cards: those use a plain template there.",
+        "promise": "If you host an event and want its cover (official, made from host photos, or any other) or its listing removed, or you own an image used as a cover, email me at the address under “<contact>Who runs this</contact>”. Within 24 hours I'll swap the cover for a plain template or take the listing down, on this site and in future emails.",
+        "limits": "Emails already sent, and copies kept by search engines or other sites, are beyond my reach.",
+        "inbox": "Some picks start as invitations in my own calendars. Those wait in a private list only I can see, which keeps the title, time, place, links and a short snippet with email addresses removed (never the guest list), and are cleared a week after the event."
+      }
+    },
+    "scope": {
+      "title": "Children, and where this applies",
+      "items": {
+        "kids": "This site isn't meant for children under 13, and I don't knowingly collect their information. If you think a child has subscribed, email me at the address under “<contact>Who runs this</contact>” and I'll delete it.",
+        "where": "I run it from California for people in the Bay Area. It isn't aimed at readers in the EU or mainland China."
+      }
+    },
+    "changes": {
+      "title": "Changes",
+      "body": "When this page changes, the date at the top changes too. If a change affects what happens to subscriber data, I'll say so in the next Sunday email."
     }
   },
   "Subscribe": {
@@ -131,7 +273,7 @@
     "outlook": "Outlook",
     "url": "Feed URL",
     "urlHint": "Paste into any calendar app that accepts a URL.",
-    "refresh": "Calendar apps refresh on their own schedule: Apple in 15 minutes to a few hours, Outlook in 3–12 hours, Google in 12–24 hours or longer. Cancellations also go out by email."
+    "refresh": "Calendar apps refresh on their own schedule: Apple in 15 minutes to a few hours, Outlook in 3–12 hours, Google in 12–24 hours or longer. Time changes and cancellations show up at the next refresh; a cancelled event stays in the feed, marked cancelled."
   },
   "Newsletter": {
     "title": "Get the picks by email",
@@ -148,7 +290,19 @@
       "submit": "Subscribe",
       "submitting": "Sending…",
       "privacy": "I only use your email to send this newsletter. Every email has a one-click unsubscribe.",
-      "honeypot": "Leave this field empty"
+      "privacyLink": "How I handle your data",
+      "honeypot": "Leave this field empty",
+      "facets": "Only {facets}",
+      "facetsRemove": "Remove",
+      "facetsRemoved": "Filters removed.",
+      "goingAlerts": "Email me when Victor marks an event as going (at most one email a day)"
+    },
+    "facets": {
+      "zh": "Chinese or bilingual events",
+      "en": "English or bilingual events",
+      "bilingual": "bilingual events",
+      "online": "online events (incl. hybrid)",
+      "onlineOf": "online (incl. hybrid) {events}"
     },
     "state": {
       "pending": "Almost done: open the email I just sent and click the link. Nothing arrives until you do.",
@@ -171,7 +325,7 @@
       "unavailable": "Subscriptions are unavailable right now. Try again later.",
       "subscribeAgain": "Subscribe again",
       "home": "Back to this week's picks",
-      "unsubscribeHint": "To stop the emails, use the unsubscribe link in your latest email, or the Unsubscribe button your mail app shows for this newsletter.",
+      "unsubscribeHint": "To stop the emails, use the unsubscribe link in your latest email, or the Unsubscribe button your mail app shows on a Sunday email (on a going alert, that button turns off only the alerts).",
       "unsubscribeUnavailable": "Unsubscribing isn't available right now. Try again later."
     },
     "prefs": {
@@ -203,7 +357,14 @@
       "langSwitchToEn": "Switch to English",
       "langSwitchToZh": "Switch to Chinese",
       "langSwitchedEn": "Done. Your next email will be in English.",
-      "langSwitchedZh": "Done. Your next email will be in Chinese."
+      "langSwitchedZh": "Done. Your next email will be in Chinese.",
+      "evLang": "Event language",
+      "evLangAny": "Any",
+      "evLangZh": "Chinese or bilingual",
+      "evLangEn": "English or bilingual",
+      "evLangBilingual": "Bilingual only",
+      "onlineOnly": "Online events only (incl. hybrid)",
+      "goingAlerts": "Email me when Victor marks an event as going (at most one email a day)"
     },
     "unsubscribe": {
       "title": "Unsubscribe",
@@ -212,11 +373,14 @@
       "stopped": "Done. No more {category}.",
       "all": "Unsubscribe from everything",
       "done": "You're unsubscribed. No more emails.",
-      "more": "More options"
+      "more": "More options",
+      "goingLead": "Turn off only the going alerts, or unsubscribe from everything.",
+      "going": "Turn off going alerts",
+      "alertsOff": "Going alerts are off. The weekly email is unchanged."
     },
     "noscript": {
       "form": "This form needs JavaScript.",
-      "links": "This page needs JavaScript. Without it, you can still stop the emails with the Unsubscribe button your mail app shows for this newsletter."
+      "links": "This page needs JavaScript. Without it, you can still stop the emails with the Unsubscribe button your mail app shows on a Sunday email (on a going alert, that button turns off only the alerts)."
     }
   }
 }
