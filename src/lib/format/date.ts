@@ -54,6 +54,51 @@ export function fmtRange(start: Date, end: Date | null, locale: Locale) {
   return `${day.format(start)}${sep}${range} ${zone}`;
 }
 
+// ---- all-day events -----------------------------------------------------------------------
+// A day has no clock time, so these never say "12:00 AM" or a zone. The stored end is exclusive:
+// the midnight after the last day, as in ICS (RFC 5545) and the digest.
+
+/** 全天 / All day. Written here like zoneLabel: RSS and share cards have no message catalog. */
+export const allDayLabel = (locale: Locale) => (locale === 'zh' ? '全天' : 'All day');
+
+/** "10月14日周三" / "Wed, Oct 14": a day without a clock time. */
+export function fmtDayLabel(d: Date, locale: Locale) {
+  const { date, weekday } = fmtDayHeader(d, locale);
+  return locale === 'zh' ? `${date}${weekday}` : `${weekday}, ${date}`;
+}
+
+/**
+ * The last day of a multi-day all-day event, or null for a single day. The end is exclusive, so the
+ * last day holds the instant just before it; an end typed as 23:59 on the last day reads the same.
+ */
+export function allDayLastDay(start: Date, end: Date | null): Date | null {
+  if (!end) return null;
+  const last = new Date(end.getTime() - 1);
+  return last > start && dayKey(last) !== dayKey(start) ? last : null;
+}
+
+/**
+ * The pieces of an all-day line in reading order (the digest's wording), for pages that put their
+ * own separator between them (the archive hides it from screen readers):
+ * one day → ["10月14日周三", "全天"] · several → ["全天", "10月14日周三–10月16日周五"]
+ */
+export function allDayParts(start: Date, end: Date | null, locale: Locale): [string, string] {
+  const last = allDayLastDay(start, end);
+  if (!last) return [fmtDayLabel(start, locale), allDayLabel(locale)];
+  const dash = locale === 'zh' ? '–' : ' – ';
+  return [allDayLabel(locale), `${fmtDayLabel(start, locale)}${dash}${fmtDayLabel(last, locale)}`];
+}
+
+/** zh → 10月14日周三 · 全天 · en → All day · Wed, Oct 14 – Fri, Oct 16 */
+export function fmtAllDay(start: Date, end: Date | null, locale: Locale) {
+  return allDayParts(start, end, locale).join(' · ');
+}
+
+/** The time line a person reads: the Pacific time range, or the day(s) for an all-day event. */
+export function fmtWhen(e: { startAt: Date; endAt: Date | null; allDay: boolean }, locale: Locale) {
+  return e.allDay ? fmtAllDay(e.startAt, e.endAt, locale) : fmtRange(e.startAt, e.endAt, locale);
+}
+
 /** Full date for headings: 2026年10月7日星期三 / Wednesday, October 7, 2026 */
 export function fmtLongDate(d: Date, locale: Locale) {
   return new Intl.DateTimeFormat(tag(locale), {

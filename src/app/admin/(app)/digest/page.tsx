@@ -23,7 +23,7 @@ import { titles } from '@/lib/events/display';
 import { isEvLang } from '@/lib/events/facets';
 import { publicEvents } from '@/lib/events/public-rows';
 import type { PublicEvent } from '@/lib/events/types';
-import { fmtRange, PT } from '@/lib/format/date';
+import { fmtRange, fmtWhen, PT } from '@/lib/format/date';
 import { aiConfigured } from '@/lib/ingest/extract';
 import { describeError } from '@/lib/log-safe';
 import { digestMode, hasVerifiedSender } from '@/lib/newsletter/status';
@@ -77,7 +77,7 @@ const eventTitle = (e: Pick<PublicEvent, 'titleEn' | 'titleZh'>) => {
   return t.secondary ? `${t.primary} · ${t.secondary}` : t.primary;
 };
 const editorEvent = (e: PublicEvent): DigestEditorEvent & { tag: string } => ({
-  id: e.id, title: eventTitle(e), when: fmtRange(e.startAt, e.endAt, 'zh'), tag: CATEGORIES[e.category].zh,
+  id: e.id, title: eventTitle(e), when: fmtWhen(e, 'zh'), tag: CATEGORIES[e.category].zh,
 });
 
 function previewVariant(sp: Search): Variant {

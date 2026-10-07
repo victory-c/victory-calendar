@@ -3,7 +3,7 @@ import { Link } from '@/i18n/navigation';
 import { titles } from '@/lib/events/display';
 import type { SealKind } from '@/lib/events/going';
 import type { PublicEvent } from '@/lib/events/types';
-import { fmtDayHeader, fmtTime } from '@/lib/format/date';
+import { allDayLabel, fmtDayHeader, fmtTime } from '@/lib/format/date';
 import type { Locale } from '@/lib/taxonomy';
 import { CoverImage } from './CoverImage';
 
@@ -30,7 +30,7 @@ export async function GoingStrip({ items, locale }: { items: Item[]; locale: Loc
                   {primary}
                 </Link>
                 <p className="tnum mt-0.5 font-mono text-xs text-muted">
-                  {day.weekday} {fmtTime(e.startAt, locale)}
+                  {day.weekday} {e.allDay ? allDayLabel(locale) : fmtTime(e.startAt, locale)}
                 </p>
               </div>
             </li>

@@ -75,7 +75,7 @@ const events = [newYork, shanghai, pacific];
 
 describe('event times are read on the Pacific clock, whatever zone the event is stored in', () => {
   it('the detail page line says the Pacific time next to the PT label', async () => {
-    const $ = await html(<DateTime start={newYork.startAt} end={newYork.endAt} locale="en" />);
+    const $ = await html(<DateTime start={newYork.startAt} end={newYork.endAt} allDay={false} locale="en" />);
     expect($('time').text()).toBe('Wed, Oct 7 · 6:00 – 8:00 PM PT');
     expect($('time').attr('datetime')).toBe('2026-10-07T18:00-07:00');
   });
@@ -109,5 +109,35 @@ describe('event times are read on the Pacific clock, whatever zone the event is 
     const xml = buildRss({ events: [newYork], locale: 'zh', origin: 'https://picks.example.com', now });
     expect(xml).toContain('10月7日周三 18:00–20:00 北美太平洋时间');
     expect(xml).not.toContain('21:00');
+  });
+});
+
+// All-day events show their day(s) and 全天 / All day, never a midnight clock time.
+describe('all-day events show the day, not "12:00 AM"', () => {
+  const conference: PublicEvent = {
+    ...base,
+    id: 'conf',
+    slug: 'conf',
+    allDay: true,
+    startAt: new Date('2026-10-14T07:00:00Z'), // Wed Oct 14 00:00 PT
+    endAt: new Date('2026-10-17T07:00:00Z'), //   exclusive: the last day is Fri Oct 16
+    tz: 'America/Los_Angeles',
+  };
+  const oneDay: PublicEvent = { ...conference, id: 'one', slug: 'one', endAt: null };
+
+  it('the detail page line gives the days, with a date-only datetime', async () => {
+    const $ = await html(<DateTime start={conference.startAt} end={conference.endAt} allDay locale="en" />);
+    expect($('time').text()).toBe('All day · Wed, Oct 14 – Fri, Oct 16');
+    expect($('time').attr('datetime')).toBe('2026-10-14');
+    const $zh = await html(<DateTime start={oneDay.startAt} end={oneDay.endAt} allDay locale="zh" />);
+    expect($zh('time').text()).toBe('10月14日周三 · 全天');
+  });
+
+  it('the RSS description gives the days too', () => {
+    const xml = buildRss({ events: [conference], locale: 'en', origin: 'https://picks.example.com', now });
+    // Only the item's own text: the feed's <lastBuildDate> is a real clock time.
+    const item = xml.match(/<item>[\s\S]*?<description>([^<]*)<\/description>/)?.[1] ?? '';
+    expect(item).toContain('All day · Wed, Oct 14 – Fri, Oct 16');
+    expect(item).not.toMatch(/12:00|AM|PT/);
   });
 });

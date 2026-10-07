@@ -2,7 +2,7 @@ import { ImageResponse } from 'next/og';
 import { shareCardCover } from '@/lib/covers/share-card';
 import { titles } from '@/lib/events/display';
 import { getEventBySlug } from '@/lib/events/queries';
-import { fmtRange } from '@/lib/format/date';
+import { fmtWhen } from '@/lib/format/date';
 import { OgCard } from '@/lib/og/cards';
 import { ogFonts } from '@/lib/og/fonts';
 import { CATEGORIES } from '@/lib/taxonomy';
@@ -22,7 +22,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ lang: s
   const { event } = await getEventBySlug(slug);
   if (!event) return new Response('not found', { status: 404 });
   const { primary } = titles(event, lang);
-  const dateLine = fmtRange(event.startAt, event.endAt, lang);
+  const dateLine = fmtWhen(event, lang);
   const [cover, fonts] = await Promise.all([
     shareCardCover(event.cover),
     ogFonts({

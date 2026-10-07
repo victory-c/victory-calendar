@@ -109,7 +109,7 @@ async function Detail({ locale, data }: { locale: Locale; data: Found }) {
         )}
 
         <div className="mt-4 space-y-1">
-          <DateTime start={e.startAt} end={e.endAt} locale={locale} className="tnum block font-mono text-sm" />
+          <DateTime start={e.startAt} end={e.endAt} allDay={e.allDay} locale={locale} className="tnum block font-mono text-sm" />
           {e.format !== 'in_person' && (
             <>
               <LocalTime iso={e.startAt.toISOString()} locale={locale} label={t('yourTime')} />

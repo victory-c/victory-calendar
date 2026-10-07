@@ -1,4 +1,4 @@
-import { dayKey, fmtDayHeader, fmtRange, PT } from '../format/date';
+import { allDayLastDay, fmtDayLabel, fmtWhen } from '../format/date';
 import type { Locale } from '../taxonomy';
 import { COPY } from '@/emails/copy';
 import type { DigestEvent, DigestSnapshot } from './types';
@@ -23,27 +23,18 @@ export function clip(text: string, max: number) {
   return `${(space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[\s\p{P}]+$/u, '')}…`;
 }
 
-/** "10月14日周三" / "Wed, Oct 14": the going list's day, never a clock time. */
-export const dayLabel = (d: Date, l: Locale) => {
-  const { date, weekday } = fmtDayHeader(d, l);
-  return l === 'zh' ? `${date}${weekday}` : `${weekday}, ${date}`;
-};
+/** "10月14日周三" / "Wed, Oct 14": the going list's day, never a clock time (shared with the site). */
+export const dayLabel = fmtDayLabel;
 /**
- * fmtRange in PT; all-day events say so, with the day span when they run over several days. A
- * single all-day day says only 全天 / All day under a day header (Item); `dated` adds the day for
- * rows without one (the next-week preview).
+ * The site's time line (fmtWhen: PT range, or the day span of an all-day event). Under a day
+ * header (Item) a single all-day day says only 全天 / All day; `dated` adds the day for rows
+ * without one (the next-week preview).
  */
 export function when(e: DigestEvent, l: Locale, dated = false) {
   const start = new Date(e.startAt);
-  if (e.allDay) {
-    // An all-day end is exclusive (next midnight), so the last day is the instant before it.
-    const last = e.endAt ? new Date(Date.parse(e.endAt) - 1) : null;
-    if (!last || last <= start || dayKey(last, PT) === dayKey(start, PT)) {
-      return dated ? `${dayLabel(start, l)} · ${COPY[l].allDay}` : COPY[l].allDay;
-    }
-    return `${COPY[l].allDay} · ${dayLabel(start, l)}${l === 'zh' ? '–' : '\u2009–\u2009'}${dayLabel(last, l)}`;
-  }
-  return fmtRange(start, e.endAt ? new Date(e.endAt) : null, l);
+  const end = e.endAt ? new Date(e.endAt) : null;
+  if (e.allDay && !dated && !allDayLastDay(start, end)) return COPY[l].allDay;
+  return fmtWhen({ startAt: start, endAt: end, allDay: e.allDay }, l);
 }
 
 /** Neighbourhood or city (never an address), or 线上 / Online; hybrid adds the hybrid label. */

@@ -11,7 +11,7 @@ import { blobConfigured } from '@/lib/covers/blob';
 import { braveConfigured } from '@/lib/covers/brave';
 import { OPENVERSE_QUERY } from '@/lib/covers/openverse';
 import { platformName } from '@/lib/events/platform';
-import { fmtRange } from '@/lib/format/date';
+import { fmtWhen } from '@/lib/format/date';
 import { aiConfigured } from '@/lib/ingest/extract';
 import { alertsMode } from '@/lib/newsletter/status';
 import { peekRemaining } from '@/lib/ratelimit';
@@ -79,7 +79,7 @@ async function Editor({ params, searchParams }: PageProps<'/admin/e/[id]'>) {
         values={values}
         autoFields={e.autoFields}
         heading={e.titleZh || e.titleEn || platformName(e.sourceUrl) || 'Untitled'}
-        when={e.startAt ? fmtRange(e.startAt, e.endAt, 'zh') : null}
+        when={e.startAt ? fmtWhen({ startAt: e.startAt, endAt: e.endAt, allDay: e.allDay }, 'zh') : null}
         publicHref={e.status === 'published' || e.status === 'cancelled' ? `/events/${e.slug}` : null}
         cover={<CoverPanel id={e.id} preview={preview} kind={e.cover?.kind ?? null} letterboxed={e.cover?.letterboxed ?? false} attribution={e.cover?.attribution ?? null} blobReady={blobConfigured()} hasCategory={isCategory(e.category)} sources={sources} />}
         going={

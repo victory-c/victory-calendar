@@ -2,7 +2,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { CoverImage } from '@/components/CoverImage';
 import type { AdminEvent } from '@/lib/admin/events';
-import { fmtRange } from '@/lib/format/date';
+import { fmtWhen } from '@/lib/format/date';
 import { CATEGORIES, isCategory } from '@/lib/taxonomy';
 import { Chip } from './ui';
 
@@ -30,7 +30,7 @@ export function EventRow({ e, actions, chips }: { e: AdminEvent; actions?: React
           {title}
         </Link>
         <p className="mt-0.5 truncate text-sm text-muted">
-          {e.startAt ? fmtRange(e.startAt, e.endAt, 'zh') : '没有时间 · no date'}
+          {e.startAt ? fmtWhen({ startAt: e.startAt, endAt: e.endAt, allDay: e.allDay }, 'zh') : '没有时间 · no date'}
         </p>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           {isCategory(e.category) && <Chip>{CATEGORIES[e.category].zh}</Chip>}

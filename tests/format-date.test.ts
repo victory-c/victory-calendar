@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  allDayLastDay,
   dayKey,
+  fmtAllDay,
   fmtBeijing,
   fmtDateBadge,
   fmtDayHeader,
@@ -9,6 +11,7 @@ import {
   fmtRange,
   fmtTime,
   isoWithOffset,
+  fmtWhen,
   normalizeSpaces,
 } from '@/lib/format/date';
 
@@ -71,5 +74,35 @@ describe('helpers', () => {
     expect(dayKey(start)).toBe('2026-10-07');
     expect(isoWithOffset(start)).toBe('2026-10-07T18:30-07:00');
     expect(isoWithOffset(new Date('2026-11-05T02:30:00Z'))).toBe('2026-11-04T18:30-08:00');
+  });
+});
+
+// All-day events (PRD, digest): the stored end is exclusive, the midnight after the last day, as
+// in ICS. No clock time and no zone label: a day is shown, never "12:00 AM PT".
+describe('all-day events', () => {
+  const day1 = new Date('2026-10-14T07:00:00Z'); // Wed Oct 14 00:00 PDT
+  const after3 = new Date('2026-10-17T07:00:00Z'); // Sat Oct 17 00:00 PDT: Oct 14–16 inclusive
+  const lastAt2359 = new Date('2026-10-17T06:59:00Z'); // Fri Oct 16 23:59 PDT, typed by hand
+
+  it('allDayLastDay: no end, or an end at the next midnight, is a single day', () => {
+    expect(allDayLastDay(day1, null)).toBeNull();
+    expect(allDayLastDay(day1, new Date('2026-10-15T07:00:00Z'))).toBeNull();
+  });
+  it('allDayLastDay: the last day is the one just before an exclusive end, or the 23:59 day', () => {
+    expect(dayKey(allDayLastDay(day1, after3)!)).toBe('2026-10-16');
+    expect(dayKey(allDayLastDay(day1, lastAt2359)!)).toBe('2026-10-16');
+  });
+  it('fmtAllDay: one day says the day and 全天 / All day, never a clock time', () => {
+    expect(fmtAllDay(day1, null, 'en')).toBe('Wed, Oct 14 · All day');
+    expect(fmtAllDay(day1, null, 'zh')).toBe('10月14日周三 · 全天');
+  });
+  it('fmtAllDay: several days give the first and the last day, the same as the digest', () => {
+    expect(fmtAllDay(day1, after3, 'en')).toBe('All day · Wed, Oct 14\u2009–\u2009Fri, Oct 16');
+    expect(fmtAllDay(day1, after3, 'zh')).toBe('全天 · 10月14日周三–10月16日周五');
+    expect(fmtAllDay(day1, lastAt2359, 'en')).toBe('All day · Wed, Oct 14\u2009–\u2009Fri, Oct 16');
+  });
+  it('fmtWhen: all-day events get their day(s), timed events their Pacific range', () => {
+    expect(fmtWhen({ startAt: day1, endAt: after3, allDay: true }, 'en')).toBe(fmtAllDay(day1, after3, 'en'));
+    expect(fmtWhen({ startAt: start, endAt: end, allDay: false }, 'zh')).toBe('10月7日周三 18:30–20:00 北美太平洋时间');
   });
 });

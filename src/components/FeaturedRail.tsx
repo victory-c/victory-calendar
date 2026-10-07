@@ -3,7 +3,7 @@ import { Link } from '@/i18n/navigation';
 import { note, titles } from '@/lib/events/display';
 import type { GoingDisplay } from '@/lib/events/going';
 import type { PublicEvent } from '@/lib/events/types';
-import { fmtDateBadge, fmtTime, isoWithOffset } from '@/lib/format/date';
+import { allDayLabel, fmtDateBadge, fmtTime, isoWithOffset } from '@/lib/format/date';
 import type { Locale } from '@/lib/taxonomy';
 import { CoverImage } from './CoverImage';
 import { CuratorNote } from './CuratorNote';
@@ -45,7 +45,7 @@ export async function FeaturedRail({ items, locale }: { items: Item[]; locale: L
                 <time dateTime={isoWithOffset(e.startAt)} className="shrink-0 text-center font-mono leading-none">
                   <span className="tnum block text-h3">{badge.day}</span>
                   <span className="mt-1 block text-xs text-muted">{badge.weekday}</span>
-                  <span className="tnum mt-1 block text-xs text-muted">{fmtTime(e.startAt, locale)}</span>
+                  <span className="tnum mt-1 block text-xs text-muted">{e.allDay ? allDayLabel(locale) : fmtTime(e.startAt, locale)}</span>
                 </time>
                 <div className="min-w-0">
                   <h3 className="text-[1.0625rem] font-display">

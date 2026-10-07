@@ -1,4 +1,4 @@
-import { fmtRange } from './format/date';
+import { fmtWhen } from './format/date';
 import { note, titles } from './events/display';
 import type { PublicEvent } from './events/types';
 import { eventUrl } from './ics';
@@ -15,7 +15,7 @@ export function buildRss({ events, locale, origin, now }: { events: PublicEvent[
     .map((e) => {
       const { primary } = titles(e, locale);
       const n = note(e, locale);
-      const when = fmtRange(e.startAt, e.endAt, locale);
+      const when = fmtWhen(e, locale);
       const prefix = e.status === 'cancelled' ? (zh ? '[已取消] ' : '[Cancelled] ') : '';
       const body = [when, n?.text, `RSVP: ${e.sourceUrl}`].filter(Boolean).join('\n');
       return `<item>

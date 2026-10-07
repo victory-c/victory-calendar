@@ -301,6 +301,18 @@ describe('DigestArchive', () => {
     expect(spoken(row).replace(/\s+/g, ' ')).toBe('10月20日周二 全天 线上 已取消');
   });
 
+  it('a multi-day all-day preview row gives the first and last day, its dot hidden too', async () => {
+    // Tue Oct 20 00:00 PDT, exclusive end Fri Oct 23 00:00: the last day is Thu Oct 22.
+    const days = { allDay: true, startAt: new Date('2026-10-20T07:00:00Z'), endAt: new Date('2026-10-23T07:00:00Z') };
+    const $ = await render(issue({}, [live(AI_WED), live(PV_1, { ...days, format: 'online', city: null })]), 'zh');
+    const row = $('#preview-h').next('ul').find('li p').first();
+    expect(row.text()).toBe('全天 · 10月20日周二–10月22日周四 · 线上');
+    expect(row.find('time').attr('datetime')).toBe('2026-10-20');
+    const c = row.clone();
+    c.find('[aria-hidden]').remove();
+    expect(c.text().replace(/\s+/g, ' ')).toBe('全天 10月20日周二–10月22日周四 线上');
+  });
+
   it('kill switch on: no going section and no seal on any card', async () => {
     const $ = await render(issue({ showAttendance: false }));
     expect($('#going-h')).toHaveLength(0);

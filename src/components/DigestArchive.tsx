@@ -5,7 +5,7 @@ import { type ArchiveView, weekDate } from '@/lib/digest/archive';
 import { dayLabel } from '@/lib/digest/fields';
 import { place, titles } from '@/lib/events/display';
 import type { PublicEvent } from '@/lib/events/types';
-import { fmtRange, isoWithOffset } from '@/lib/format/date';
+import { allDayParts, dayKey, fmtRange, isoWithOffset } from '@/lib/format/date';
 import { CATEGORIES, type Locale } from '@/lib/taxonomy';
 import { CoverImage } from './CoverImage';
 import { DayHeader } from './DayHeader';
@@ -133,11 +133,15 @@ export async function DigestArchive({ view, locale }: { view: ArchiveView; local
                   </Link>
                   <p className="mt-0.5 font-mono text-xs text-muted">
                     {e.allDay ? (
-                      <>
-                        {dayLabel(e.startAt, locale)}
-                        {' '}<span aria-hidden>·</span>{' '}
-                        {te('allDay')}
-                      </>
+                      // The day(s) and 全天 / All day, with the same screen-reader-hidden dot as the rest of the row.
+                      <time dateTime={dayKey(e.startAt)}>
+                        {allDayParts(e.startAt, e.endAt, locale).map((part, i) => (
+                          <Fragment key={i}>
+                            {i > 0 && <>{' '}<span aria-hidden>·</span>{' '}</>}
+                            {part}
+                          </Fragment>
+                        ))}
+                      </time>
                     ) : (
                       // Pacific clock like every time on the site, whatever zone the event is in.
                       <time dateTime={isoWithOffset(e.startAt)}>{fmtRange(e.startAt, e.endAt, locale)}</time>
