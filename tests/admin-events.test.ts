@@ -132,6 +132,18 @@ describe('status', () => {
     const past = await listLive(new Date('2026-10-20T00:00:00Z'), db);
     expect(past.past.map((e) => e.id)).toEqual(['evt_1']);
   });
+
+  it('an all-day event stays in this week until its day is over', async () => {
+    await saveEvent('evt_1', { noteEn: 'x' }, db);
+    await publish('evt_1', new Date(), db);
+    // Sat Oct 10 2026, all day (00:00 PDT), no end.
+    await db.update(events).set({ allDay: true, startAt: new Date('2026-10-10T07:00:00Z'), endAt: null }).where(eq(events.id, 'evt_1'));
+    const morning = await listLive(new Date('2026-10-10T16:00:00Z'), db); // 09:00 PT on the day
+    expect(morning.week.map((e) => e.id)).toEqual(['evt_1']);
+    expect(morning.past).toEqual([]);
+    const after = await listLive(new Date('2026-10-11T07:00:00Z'), db); // the midnight after
+    expect(after.past.map((e) => e.id)).toEqual(['evt_1']);
+  });
 });
 
 describe('setGoing (safety rules)', () => {

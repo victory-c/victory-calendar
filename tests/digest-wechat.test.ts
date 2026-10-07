@@ -260,7 +260,7 @@ describe('liveState: a frozen issue against the live rows (the archive\'s rules)
   /** The event's current row as publicEvents() returns it: unchanged unless overridden. */
   const row = (e: DigestEvent, over: Partial<LiveRow> = {}): LiveRow => ({
     id: e.id, status: 'published', going: e.seal ?? 'none', goingVisibility: 'public', category: e.category, format: e.format,
-    privateVenue: false, sourceUrl: e.sourceUrl, startAt: new Date(e.startAt), endAt: e.endAt ? new Date(e.endAt) : null, ...over,
+    privateVenue: false, sourceUrl: e.sourceUrl, startAt: new Date(e.startAt), endAt: e.endAt ? new Date(e.endAt) : null, allDay: e.allDay, ...over,
   });
   const PREVIEW = ev({ id: 'evt_wc00000000000009', titleZh: '下周路演日', startAt: '2026-10-21T01:00:00.000Z', featured: true });
   const frozen = week({ preview: [PREVIEW] });

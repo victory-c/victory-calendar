@@ -5,7 +5,7 @@ import { recordGoingMark } from '../alerts/marks';
 import { templateCoverRow } from '../covers/template';
 import { db as defaultDb, type DB } from '../db';
 import { ACCESS, covers, EVENT_LANGUAGES, events, FORMATS, REGIONS } from '../db/schema';
-import { goingDowngradeReason } from '../events/going';
+import { goingDowngradeReason, hasEnded } from '../events/going';
 import { zonedInstant } from '../format/calendar';
 import { isoWithOffset } from '../format/date';
 import { newId } from '../ids';
@@ -70,7 +70,8 @@ export async function listLive(now: Date, db: DB = defaultDb) {
     .orderBy(asc(events.startAt));
   const list = rows.map((r) => ({ ...r.events, cover: r.covers }));
   const weekEnd = now.getTime() + 7 * 864e5;
-  const ended = (e: AdminEvent) => (e.endAt ?? new Date(e.startAt!.getTime() + 3 * 36e5)).getTime() <= now.getTime();
+  // Same rule as the public 去过 seal: an all-day event stays in this week through its last day.
+  const ended = (e: AdminEvent) => hasEnded({ startAt: e.startAt!, endAt: e.endAt, allDay: e.allDay }, now);
   return {
     week: list.filter((e) => !ended(e) && e.startAt!.getTime() < weekEnd),
     later: list.filter((e) => e.startAt!.getTime() >= weekEnd),

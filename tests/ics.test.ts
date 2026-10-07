@@ -72,3 +72,23 @@ describe('RFC 5545 details', () => {
     expect(text.endsWith('END:VCALENDAR\r\n')).toBe(true);
   });
 });
+
+// RFC 5545: an all-day DTEND is the day after the last day. A missing end means one day; an end
+// typed as 23:59 on the last day must not drop that day.
+describe('all-day events span whole days', () => {
+  const allDay = { ...seedEvents(now)[0], allDay: true, tz: 'America/Los_Angeles' };
+  const dates = (e: typeof allDay) =>
+    unfold(buildIcs({ events: [e], locale: 'en', name: 'x', now, showAttendance: false }))
+      .split('\r\n')
+      .filter((l) => /^DT(START|END);VALUE=DATE:/.test(l));
+
+  it('one day without an end lasts that whole day', () => {
+    const e = { ...allDay, startAt: new Date('2026-10-10T07:00:00Z'), endAt: null }; // Sat Oct 10
+    expect(dates(e)).toEqual(['DTSTART;VALUE=DATE:20261010', 'DTEND;VALUE=DATE:20261011']);
+  });
+  it('an exclusive end, or 23:59 on the last day, ends after the last day', () => {
+    const start = new Date('2026-10-14T07:00:00Z'); // Wed Oct 14, through Fri Oct 16
+    expect(dates({ ...allDay, startAt: start, endAt: new Date('2026-10-17T07:00:00Z') })).toEqual(['DTSTART;VALUE=DATE:20261014', 'DTEND;VALUE=DATE:20261017']);
+    expect(dates({ ...allDay, startAt: start, endAt: new Date('2026-10-17T06:59:00Z') })).toEqual(['DTSTART;VALUE=DATE:20261014', 'DTEND;VALUE=DATE:20261017']);
+  });
+});

@@ -30,7 +30,7 @@ export type WeChatText = { text: string; chars: number; picks: number; going: nu
 /** What liveState() reads from an event's current row; publicEvents() rows fit. */
 export type LiveRow = Pick<
   PublicEvent,
-  'id' | 'status' | 'going' | 'goingVisibility' | 'category' | 'format' | 'privateVenue' | 'sourceUrl' | 'startAt' | 'endAt'
+  'id' | 'status' | 'going' | 'goingVisibility' | 'category' | 'format' | 'privateVenue' | 'sourceUrl' | 'startAt' | 'endAt' | 'allDay'
 >;
 
 const CANCELLED = '[已取消]';

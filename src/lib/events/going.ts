@@ -1,5 +1,6 @@
 // "Victor 会去" public display rules (PRD §7, guide「Going 状态安全规则」). Pure and tested:
 // every public surface (cards, /going, going.ics, digest) must go through publicGoing().
+import { allDayEndsAt } from '../format/calendar';
 import type { PublicEvent } from './types';
 
 export type SealKind = 'going' | 'hosting' | 'speaking' | 'went';
@@ -21,7 +22,7 @@ export function isListedPlatform(url: string) {
 
 type GoingInput = Pick<
   PublicEvent,
-  'going' | 'goingVisibility' | 'category' | 'format' | 'privateVenue' | 'sourceUrl' | 'startAt' | 'endAt' | 'status'
+  'going' | 'goingVisibility' | 'category' | 'format' | 'privateVenue' | 'sourceUrl' | 'startAt' | 'endAt' | 'allDay' | 'status'
 > & { recurring?: boolean };
 
 /**
@@ -36,8 +37,9 @@ export function goingDowngradeReason(e: GoingInput): string | null {
   return null;
 }
 
-export function hasEnded(e: Pick<PublicEvent, 'startAt' | 'endAt'>, now: Date) {
-  const end = e.endAt ?? new Date(e.startAt.getTime() + 3 * 3600_000);
+/** All-day events run to the midnight after their last day; others to their end, or 3 h without one. */
+export function hasEnded(e: Pick<PublicEvent, 'startAt' | 'endAt' | 'allDay'>, now: Date) {
+  const end = e.allDay ? allDayEndsAt(e.startAt, e.endAt) : (e.endAt ?? new Date(e.startAt.getTime() + 3 * 3600_000));
   return end.getTime() <= now.getTime();
 }
 

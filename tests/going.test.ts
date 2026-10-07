@@ -6,7 +6,7 @@ const future = { startAt: new Date('2026-10-03T01:00:00Z'), endAt: new Date('202
 const past = { startAt: new Date('2026-09-28T01:00:00Z'), endAt: new Date('2026-09-28T03:00:00Z') };
 const base = {
   going: 'going' as const, goingVisibility: 'public' as const, category: 'ai' as const, format: 'in_person' as const,
-  privateVenue: false, sourceUrl: 'https://luma.com/abc', status: 'published' as const, ...future,
+  privateVenue: false, sourceUrl: 'https://luma.com/abc', status: 'published' as const, allDay: false, ...future,
 };
 
 describe('publicGoing', () => {
@@ -59,5 +59,25 @@ describe('isListedPlatform', () => {
   it('rejects look-alikes', () => {
     for (const u of ['https://notluma.com/x', 'https://luma.com.evil.io/x', 'nope'])
       expect(isListedPlatform(u), u).toBe(false);
+  });
+});
+
+// An all-day event is on until the midnight (PT) after its last day, not for 3 hours from 00:00:
+// otherwise an after_event going would show 去过 on the morning of the day itself.
+describe('all-day events', () => {
+  // Sat Oct 10 2026, all day (00:00 PDT), no end: one day.
+  const day = { ...base, allDay: true, goingVisibility: 'after_event' as const, startAt: new Date('2026-10-10T07:00:00Z'), endAt: null };
+  it('no 去过 while the day is still on, and a public going keeps its seal all day', () => {
+    expect(publicGoing(day, new Date('2026-10-10T16:00:00Z'), true)).toEqual({ kind: 'none' }); // 09:00 PT
+    expect(publicGoing(day, new Date('2026-10-11T06:59:00Z'), true)).toEqual({ kind: 'none' }); // 23:59 PT
+    expect(publicGoing({ ...day, goingVisibility: 'public' }, new Date('2026-10-10T22:00:00Z'), true)).toEqual({ kind: 'seal', seal: 'going' });
+  });
+  it('去过 from the midnight after the day', () => {
+    expect(publicGoing(day, new Date('2026-10-11T07:00:00Z'), true)).toEqual({ kind: 'seal', seal: 'went' });
+  });
+  it('a multi-day event is on through its last day (exclusive end)', () => {
+    const conf = { ...day, endAt: new Date('2026-10-13T07:00:00Z') }; // Oct 10–12
+    expect(publicGoing(conf, new Date('2026-10-12T20:00:00Z'), true)).toEqual({ kind: 'none' });
+    expect(publicGoing(conf, new Date('2026-10-13T07:00:00Z'), true)).toEqual({ kind: 'seal', seal: 'went' });
   });
 });

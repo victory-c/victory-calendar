@@ -312,7 +312,7 @@ describe("'queued' only when tomorrow's run will send it", () => {
 describe('alertSeal / recordGoingMark directly', () => {
   const base = {
     id: 'evt_x', status: 'published' as const, going: 'going' as const, goingVisibility: 'public' as const, category: 'ai' as const,
-    format: 'in_person' as const, privateVenue: false, sourceUrl: 'https://lu.ma/x', startAt: LATER, endAt: null,
+    format: 'in_person' as const, privateVenue: false, sourceUrl: 'https://lu.ma/x', startAt: LATER, endAt: null, allDay: false,
   };
 
   it('is the public seal, never went or interested', () => {

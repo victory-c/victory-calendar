@@ -1,5 +1,5 @@
 // Calendar arithmetic on Pacific-time day keys ("YYYY-MM-DD"). Pure, tested.
-import { dayKey, PT } from './date';
+import { allDayLastDay, dayKey, PT } from './date';
 import type { Locale } from '../taxonomy';
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -35,6 +35,15 @@ export function zonedInstant(y: number, mo: number, d: number, h = 0, mi = 0, tz
 export function startOfKey(key: string, addDays = 0) {
   const { y, m, d } = keyToParts(key);
   return zonedInstant(y, m, d + addDays);
+}
+
+/**
+ * When an all-day event is over: the midnight PT after its last day (allDayLastDay; no end = one
+ * day). Used for ICS DTEND and for when 去过 may show, so an event isn't "over" at 3 AM on its day.
+ */
+export function allDayEndsAt(start: Date, end: Date | null) {
+  const lastDay = allDayLastDay(start, end) ?? start; // a one-day event's last day is its first
+  return startOfKey(dayKey(lastDay), 1); // midnight PT at the start of the following day
 }
 
 export function addDaysKey(key: string, n: number) {

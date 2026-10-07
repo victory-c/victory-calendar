@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isoWeekBounds, isoWeekOf, monthBounds, monthGrid, monthTitle, shiftMonth, startOfKey, weekdayLabels } from '@/lib/format/calendar';
+import { allDayEndsAt, isoWeekBounds, isoWeekOf, monthBounds, monthGrid, monthTitle, shiftMonth, startOfKey, weekdayLabels } from '@/lib/format/calendar';
 
 describe('month grid', () => {
   it('October 2026 starts Thursday; en weeks start Sunday, zh Monday', () => {
@@ -45,5 +45,14 @@ describe('zonedInstant', () => {
     expect(zonedInstant(2026, 11, 1, 0, 0).toISOString()).toBe('2026-11-01T07:00:00.000Z');
     expect(zonedInstant(2026, 11, 1, 12, 0).toISOString()).toBe('2026-11-01T20:00:00.000Z');
     expect(zonedInstant(2026, 9, 28 + 13, 12, 0).toISOString()).toBe('2026-10-11T19:00:00.000Z');
+  });
+});
+
+describe('allDayEndsAt', () => {
+  it('is the midnight PT after the last day, across a DST change too', () => {
+    // Sun Nov 1 2026 is 25 h long (PDT → PST): the next midnight is 08:00Z, not 07:00Z.
+    expect(allDayEndsAt(new Date('2026-11-01T07:00:00Z'), null).toISOString()).toBe('2026-11-02T08:00:00.000Z');
+    // Wed Oct 14 through Fri Oct 16 (exclusive end Oct 17): over at Sat Oct 17 00:00 PDT.
+    expect(allDayEndsAt(new Date('2026-10-14T07:00:00Z'), new Date('2026-10-17T07:00:00Z')).toISOString()).toBe('2026-10-17T07:00:00.000Z');
   });
 });

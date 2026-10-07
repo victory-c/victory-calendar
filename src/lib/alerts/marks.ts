@@ -20,7 +20,7 @@ import { digestIssueOn, digestOn, LOOKBACK_MS } from './pool';
 /** The admin event fields the public going rule reads (an AdminEvent or a row about to be written). */
 export type AdminEventLike = Pick<
   typeof events.$inferSelect,
-  'id' | 'status' | 'going' | 'goingVisibility' | 'category' | 'format' | 'privateVenue' | 'sourceUrl' | 'startAt' | 'endAt'
+  'id' | 'status' | 'going' | 'goingVisibility' | 'category' | 'format' | 'privateVenue' | 'sourceUrl' | 'startAt' | 'endAt' | 'allDay'
 >;
 
 /**

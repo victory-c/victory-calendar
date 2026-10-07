@@ -6,6 +6,7 @@ import { note, titles } from './events/display';
 import { type EvLang, type Facets, NO_FACETS } from './events/facets';
 import { publicGoing } from './events/going';
 import type { PublicEvent } from './events/types';
+import { allDayEndsAt } from './format/calendar';
 import { publicHost, publicOrigin } from './host';
 import { CATEGORIES, type Category, type Locale } from './taxonomy';
 import { vtimezone } from './vtimezones';
@@ -62,7 +63,8 @@ export function buildIcs({ events, locale, name, now, showAttendance, single }: 
     const loc = [e.venueName, e.address, e.format === 'online' ? null : e.city].filter(Boolean).join(', ');
     // ical-generator formats plain Dates with the *server's* local clock when a TZID is set;
     // TZDate (withTimeZone) makes DTSTART/DTEND wall-clock correct on UTC servers.
-    const end = e.endAt ?? new Date(e.startAt.getTime() + 2 * 3600_000);
+    // All-day: DTEND is the day after the last day (RFC 5545), also for no end or a 23:59 end.
+    const end = e.allDay ? allDayEndsAt(e.startAt, e.endAt) : (e.endAt ?? new Date(e.startAt.getTime() + 2 * 3600_000));
     cal.createEvent({
       id: `${e.id}@${host}`,
       sequence: e.sequence,
