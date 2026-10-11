@@ -155,7 +155,7 @@
       "title": "Who runs this",
       "body": "I'm Victor, a Berkeley student, and Victor's Picks is my personal project. It has no ads and no paid placements.",
       "contact": "Questions, data requests and takedowns: <mail>{email}</mail>",
-      "noContact": "A contact address for questions, data requests and takedowns will be added here before the email newsletter opens."
+      "noContact": "A contact address for questions, data requests and takedowns will be added here soon."
     },
     "short": {
       "title": "The short version",
@@ -316,8 +316,8 @@
       "busy": "Sign-ups are paused for the rest of today. Please try again tomorrow."
     },
     "closed": {
-      "title": "The email newsletter starts soon",
-      "body": "Until then, subscribe by calendar. It updates on its own."
+      "title": "Subscribe to Victor's Picks in your calendar",
+      "body": "Picks show up in your calendar app and stay in sync when events move or get cancelled. Pick only the categories you care about."
     },
     "link": {
       "invalid": "This link doesn't work. It may be old or incomplete.",

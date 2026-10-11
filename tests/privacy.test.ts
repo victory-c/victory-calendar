@@ -141,12 +141,12 @@ describe('/privacy', () => {
     ['unset', undefined],
     ['blank', ' '],
     ['malformed', 'privacy team'],
-  ])('contact %s: the "added before the newsletter opens" line, never the admin address', async (_label, value) => {
+  ])('contact %s: the "added here soon" line, never the admin address', async (_label, value) => {
     vi.stubEnv('PRIVACY_CONTACT_EMAIL', value);
     for (const l of ['en', 'zh'] as const) {
       const { $, html } = await page(l);
       expect($('a[href^="mailto:"]')).toHaveLength(0);
-      expect($('#who').text()).toContain(l === 'zh' ? '邮件周报开放之前' : 'will be added here before the email newsletter opens');
+      expect($('#who').text()).toContain(l === 'zh' ? '联系邮箱稍后会放在这里' : 'will be added here soon');
       expect(html).not.toContain('owner@example.edu');
       expect(html).not.toContain('@');
     }

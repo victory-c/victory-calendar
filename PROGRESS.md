@@ -8,9 +8,9 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 
 | # | 步骤 | 何时需要 | 状态 |
 |---|---|---|---|
-| 1 | 买域名，决定 `picks.<domain>`（站点）和 `mail.<domain>`（Resend 发信）。买好后告诉我域名，我改 `PUBLIC_HOST` 并在 Vercel 绑定 | M3 newsletter 首发前（Resend 发信的前置） | ⏸ 2026-09-30 决定暂不买，继续用 `victor-picks.vercel.app` |
+| 1 | 买域名，决定 `picks.<domain>`（站点）和 `mail.<domain>`（Resend 发信）。买好后告诉我域名，我改 `PUBLIC_HOST` 并在 Vercel 绑定 | M3 newsletter 首发前（Resend 发信的前置） | ⏸ 2026-09-30 决定暂不买；2026-10-10 决定不做 newsletter 上线，不再是上线前置 |
 | 2 | Vercel 集成：**Neon**（免费，iad1）、**Upstash Redis**（免费，iad1）、**Blob**（公开，iad1）已于 2026-09-30 装好并连到生产与预览环境，Neon 已建表。**Resend 暂不装**：通过 Vercel 安装必须填自有发信域名，随域名推迟到 M3 前 | M0 第 2 周 | ✅（Resend ⏸） |
-| 3 | Resend：添加 `mail.<domain>`，把它生成的 DKIM、SPF 记录加到 DNS，再加 DMARC `v=DMARC1; p=none; rua=mailto:<你的别名>` | 域名买好后（M3 前） | ⏸ 随第 1 项推迟 |
+| 3 | Resend：添加 `mail.<domain>`，把它生成的 DKIM、SPF 记录加到 DNS，再加 DMARC `v=DMARC1; p=none; rua=mailto:<你的别名>` | 域名买好后（M3 前） | ➖ 2026-10-10 不做 newsletter，不需要 |
 | 4 | Google Calendar（**berkeley.edu 账号**）：设置 → 选日历 → Integrate calendar → 看有没有「Secret address in iCal format」。Workspace 管理员可能隐藏了它：**没有就改用个人 Gmail 日历**并告诉我。有的话复制到 Vercel env `GCAL_SECRET_ICS_URL` | M2 第 11 周 | ⬜ |
 | 5 | Google Calendar：Settings → Event settings → 「Add invitations to my calendar」设为 **From everyone**，否则 Luma 邀请不会进日历 | 同上 | ⬜ |
 | 6 | Luma：Settings → Calendar Syncing → Add iCal Subscription，复制 URL 到 Vercel env `LUMA_PERSONAL_ICS_URL` | M2 第 11 周 | ⬜ |
@@ -23,9 +23,10 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 | 13 | G1 实测：iPhone「设置 → 日历 → 账户 → 添加已订阅的日历」填 `webcal://victor-picks.vercel.app/calendar.ics?lang=zh`，Google Calendar 用「通过网址添加」填同一地址的 https 版；看活动时间是否是本地时间、改期后是否更新 | 第 12 项之后 | ✅ 2026-09-30 你已订阅，没有问题 |
 | 14 | 给我 20 场你真的想推荐的活动（链接 + 一句点评即可），替换示例数据。M2 的后台做好后也可以自己录 | M1 第 6 周 | ⬜ |
 | 15 | weekly-events skill 推送到收件箱：后台「设置」生成令牌，名字写 `weekly-events-skill`、只勾 candidates；把令牌存进本机文件 `~/.config/victor-picks/skill-token`（`chmod 600`）。没有这个文件时 skill 的第 5 步自动跳过 | M2 第 11 周 | ⬜ |
-| 16 | 订阅表单开放前（域名和 Resend 就绪后）：① Vercel env 设 `RESEND_API_KEY`、`RESEND_FROM`（必须是自有域名地址，例如 `Victor's Picks <picks@mail.<domain>>`）、`RESEND_WEBHOOK_SECRET`；② Resend 控制台建 webhook 指向 `/api/webhooks/resend`，勾 email.bounced、email.complained、email.suppressed、email.failed；③ Resend 关闭打开与点击追踪；④ Vercel Firewall 加一条规则：POST `/subscribe` 与 `/zh/subscribe` 限速；⑤ 确认项目 Settings → Security 里 OIDC Federation 是开启的（BotID 需要）；⑥ Vercel env 设 `PRIVACY_CONTACT_EMAIL`：`/privacy` 上公开的联系邮箱（数据请求、下架），**不要用登录后台的 `ADMIN_EMAIL`**，可以是一个别名；没设时 Vercel 上表单保持关闭。都齐了之后重新部署，表单自动打开（`NEWSLETTER_OPEN=0` 可随时关） | M3 首发前 | ⬜ |
-| 17 | G3 前的种子邮箱：准备 gmail.com、icloud.com、outlook.com、qq.com、163.com 各一个你能登录的邮箱，逗号分隔写进 Vercel env `DIGEST_SEED_EMAILS`（标成 Sensitive）。每期排期后在 `/admin/digest` 点「发种子邮件」，中文、英文各一次，挨个看是否进了收件箱而不是垃圾箱。另外：把 gmail 那个用正式表单订阅，等周报到了点 Gmail 自带的「退订」，再到 `/admin/subscribers` 搜一下确认变成已退订；把微信文字粘到「文件传输助手」点一下链接，看 `*.vercel.app` 会不会被拦 | M3 首发前（需要第 16 项） | ⬜ |
+| 16 | 订阅表单开放前（域名和 Resend 就绪后）：① Vercel env 设 `RESEND_API_KEY`、`RESEND_FROM`（必须是自有域名地址，例如 `Victor's Picks <picks@mail.<domain>>`）、`RESEND_WEBHOOK_SECRET`；② Resend 控制台建 webhook 指向 `/api/webhooks/resend`，勾 email.bounced、email.complained、email.suppressed、email.failed；③ Resend 关闭打开与点击追踪；④ Vercel Firewall 加一条规则：POST `/subscribe` 与 `/zh/subscribe` 限速；⑤ 确认项目 Settings → Security 里 OIDC Federation 是开启的（BotID 需要）；⑥ Vercel env 设 `PRIVACY_CONTACT_EMAIL`：`/privacy` 上公开的联系邮箱（数据请求、下架），**不要用登录后台的 `ADMIN_EMAIL`**，可以是一个别名；没设时 Vercel 上表单保持关闭。都齐了之后重新部署，表单自动打开（`NEWSLETTER_OPEN=0` 可随时关） | M3 首发前 | ➖ 2026-10-10 不做 newsletter，除了 ⑥（见第 20 项）都不需要 |
+| 17 | G3 前的种子邮箱：准备 gmail.com、icloud.com、outlook.com、qq.com、163.com 各一个你能登录的邮箱，逗号分隔写进 Vercel env `DIGEST_SEED_EMAILS`（标成 Sensitive）。每期排期后在 `/admin/digest` 点「发种子邮件」，中文、英文各一次，挨个看是否进了收件箱而不是垃圾箱。另外：把 gmail 那个用正式表单订阅，等周报到了点 Gmail 自带的「退订」，再到 `/admin/subscribers` 搜一下确认变成已退订；把微信文字粘到「文件传输助手」点一下链接，看 `*.vercel.app` 会不会被拦 | M3 首发前（需要第 16 项） | ➖ 2026-10-10 不做 newsletter，不需要 |
 | 18 | （可选）Brave 图片搜索：在 Brave Search API 注册并绑卡（每月 $5 免费额度，超出按 $5/千次扣费；代码限制每天最多 30 次），把密钥写进 Vercel env `BRAVE_SEARCH_API_KEY`（标成 Sensitive）后重新部署。没有它，封面选择器里只是不显示这一项；设了之后「关于」页会自动加一行 Brave 署名 | M4 起，随时 | ⬜ |
+| 20 | Vercel env 设 `PRIVACY_CONTACT_EMAIL`（一个别名即可，**不要用 `ADMIN_EMAIL`**）后重新部署：`/privacy` 会显示它，主办方要撤封面或下架活动时写信给它。只设它不会打开订阅表单（还要自有发信域名） | 上线（分享链接）前 | ⬜ |
 | 19 | 真机试一次长图：在 `/admin/digest` 生成微信长图，用「原图」发到文件传输助手，看清不清楚；再保存一组小红书图片，看顺序和裁切 | 第一次用之前 | ⬜ |
 
 ## 当前状态
@@ -37,6 +38,7 @@ Secrets, tokens and private iCal URLs go only into `.env.local` or Vercel env. N
 - M3：第 13 周订阅流程（#14）、第 14 周周报（#15）已合并；2026-10-05 已在生产库跑过迁移 `0003_digest_send` 并抽查。第 15 周（隐私页、`/weekly` 存档、订阅者后台、微信文字、种子邮件，#16）2026-10-05 已合并，没有新迁移。**M3 的代码部分已经完成**，第 16 周（软发布与 G3 门槛）要等域名和 Resend。M4 第一轮（微信长图与小红书导出、封面的三个新来源、活动语言与线上偏好，#18）2026-10-06 已合并，没有新迁移；第二轮「会去」即时提醒（#19）2026-10-06 已合并，同一天在生产库跑过迁移 `0004_going_alerts` 并抽查（`/api/cron/alerts` 无密钥 401、`/unsubscribe?list=going` 正常）。**M4 里不依赖域名的部分都做完了**；剩下的 Gmail 转发（F18）要域名和 Resend Pro，发布帖等软发布前写。生产上订阅表单和周报发送都保持关闭，等域名和 Resend 发信域名（checklist 1、3、16、17）
 - 另一个分支 `claude/fervent-hawking-99mi50`（把所有显示的时间统一成太平洋时间）合并 #16 后只有 `src/emails/digest.tsx` 一处冲突：保留 main 的版本即可（`dayLabel`、`when` 已挪到 `src/lib/digest/fields.ts`，并且已经不再传时区参数）。我在临时工作区试合并过：类型检查通过，相关测试 190 个通过（含它新增的 `public-times` 测试）
 - 域名：2026-09-30 决定暂不买，继续用 `*.vercel.app`。影响见「待确认」里的域名一条
+- **2026-10-10 决定：不做 newsletter，直接上线网站 + 日历订阅。** 上线只差：录真实活动（第 14 项，录之前最好先做第 8 项）、`PRIVACY_CONTACT_EMAIL`（第 20 项）、两台设备的 passkey（第 10 项：没有 Resend，passkey 丢了只能去 Vercel 日志找登录链接）。PR「launch without newsletter」把关闭状态下的周报入口收起来：页脚和 sitemap 不再列空的 `/weekly`，`/subscribe` 关闭时就是「用日历订阅」页，隐私页不再说「周报开放之前」。newsletter 代码都留着，以后买域名、装 Resend 后自动打开
 
 - Vercel 项目：`victor-picks`（victory-c-8190s-projects），已连 GitHub，推送分支自动出预览
 - 分支固定预览地址：`https://victor-picks-git-m0-foundations-victory-c-8190s-projects.vercel.app`（受 Vercel Authentication 保护：登录 Vercel 即可看；给别人看需要临时分享链接，23 小时有效）
@@ -511,6 +513,8 @@ Lighthouse 说明：本机测量时 Chrome 找得到苹方，所以中文正文�
 - **邮件 App 的一键退订只关闭提醒**（RFC 8058 按列表），提醒邮件页脚另有「全部退订」。
 - **提醒和周报共用每天 60 封的配额**，提醒自己每天最多 30 封；超出的第二天合并发。
 - **没确认的重新订阅申请过期时，会去提醒也一起关掉**，避免别人替你开了提醒。
+
+- **不做 newsletter 时保留全部代码，只收起入口**（2026-10-10）：`newsletterStatus()` 关闭时页脚不链 `/weekly`、sitemap 不列 `/weekly` 索引页（已发的期次照列，现在没有），`/subscribe` 的标题和导语换成日历订阅。`/weekly` 地址本身仍能打开（空状态）。周报和提醒的 cron 在没有发信域名时本来就什么都不做，留着。`/admin/digest` 的微信长图和小红书导出仍可用来在社交平台发每周精选。
 
 ## 文档冲突记录（按实现指南执行）
 

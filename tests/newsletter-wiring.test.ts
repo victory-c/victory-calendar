@@ -248,6 +248,11 @@ describe('Subscribe entry points follow newsletterStatus()', () => {
       expect(subscribeLinks(await footer('zh'))).toEqual([['/subscribe', '订阅']]);
     });
 
+    it('the footer links the /weekly archive', async () => {
+      gate('open');
+      expect(await footer('zh')).toMatch(/<a [^>]*href="\/weekly"[^>]*>周报<\/a>/);
+    });
+
     it('the header link is visible on phones (no hidden/sm: gate) and has a 44 px hit area', async () => {
       gate('open');
       const cls = /<a [^>]*class="([^"]*)"[^>]*href="\/subscribe"|<a [^>]*href="\/subscribe"[^>]*class="([^"]*)"/.exec(await header());
@@ -323,6 +328,11 @@ describe('Subscribe entry points follow newsletterStatus()', () => {
       expect(m).toContain('id="subscribe"'); // the calendar menu itself is unchanged
     });
 
+    it('no /weekly link in the footer (the archive is empty without a newsletter)', async () => {
+      gate(state);
+      expect(await footer()).not.toContain('href="/weekly"');
+    });
+
     it('sitemap leaves /subscribe out', async () => {
       gate(state);
       const urls = await sitemapUrls();
@@ -333,8 +343,15 @@ describe('Subscribe entry points follow newsletterStatus()', () => {
 });
 
 describe('sitemap: the /weekly digest archive (week 15)', () => {
-  it('lists /weekly, /privacy and each sent issue with its zh alternate and send time', async () => {
+  it('closed: leaves the empty /weekly index out but still lists sent issues', async () => {
     gate('flag-closed');
+    const urls = (await (await import('@/app/sitemap')).default()).map((e) => e.url);
+    expect(urls).not.toContain('https://picks.example.org/weekly');
+    expect(urls).toContain('https://picks.example.org/weekly/2026-W42');
+  });
+
+  it('lists /weekly, /privacy and each sent issue with its zh alternate and send time', async () => {
+    gate('open');
     const entries = await (await import('@/app/sitemap')).default();
     const urls = entries.map((e) => e.url);
     expect(urls).toEqual(expect.arrayContaining(['https://picks.example.org/weekly', 'https://picks.example.org/privacy']));

@@ -41,8 +41,8 @@ test.describe('closed form (no database or no link secret)', () => {
     test(`${path}: closed copy and the calendar menu, no form, noindex`, async ({ page }) => {
       const res = await page.goto(path);
       expect(res?.status()).toBe(200);
-      await expect(page.getByRole('heading', { level: 1 })).toHaveText(N[locale].title);
-      await expect(page.getByRole('heading', { level: 2, name: N[locale].closed.title })).toBeVisible();
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText(N[locale].closed.title);
+      await expect(page.getByText(N[locale].lead)).toHaveCount(0);
       await expect(page.getByText(N[locale].closed.body)).toBeVisible();
       await expect(page.locator('#subscribe')).toHaveCount(1);
       await expect(page.locator('#subscribe summary')).toBeVisible();
@@ -85,7 +85,7 @@ test.describe('link pages never 404', () => {
       expect(res?.status()).toBe(200);
       await expect(page).toHaveURL(new RegExp(`^https?://[^/]+${prefix}/subscribe\\?link=invalid$`));
       await expect(page.getByText(N[locale].link.invalid)).toBeVisible();
-      await expect(page.getByRole('heading', { level: 1 })).toHaveText(N[locale].title);
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText(formOpen ? N[locale].title : N[locale].closed.title);
     });
 
     test(`${prefix}/prefs/<bad> shows the link problem with status 200`, async ({ page }) => {

@@ -16,9 +16,10 @@ type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 export async function generateMetadata(): Promise<Metadata> {
   const locale = (await getLocale()) as Locale;
   const t = await getTranslations({ locale, namespace: 'Newsletter' });
-  const meta = pageMeta({ path: '/subscribe', locale, title: t('title'), description: t('metaDescription') });
+  if (newsletterStatus() === 'open') return pageMeta({ path: '/subscribe', locale, title: t('title'), description: t('metaDescription') });
   // While closed the page is only a pointer to the calendar feeds: keep it out of search results.
-  return newsletterStatus() === 'open' ? meta : { ...meta, robots: { index: false, follow: true } };
+  const meta = pageMeta({ path: '/subscribe', locale, title: t('closed.title'), description: t('closed.body') });
+  return { ...meta, robots: { index: false, follow: true } };
 }
 
 // Open or closed is read from env, so it is fixed per deployment and part of the static shell.
@@ -30,16 +31,11 @@ export default async function SubscribePage({ searchParams }: { searchParams: Se
   const open = newsletterStatus() === 'open';
   return (
     <PageShell locale={locale} path="/subscribe">
+      {/* Closed, the page promises no email: it is the calendar subscription page. */}
       <div className="max-w-prose pt-6 md:pt-10">
-        <h1 className="text-h1">{t('title')}</h1>
-        <p className="mt-2 text-muted">{t('lead')}</p>
+        <h1 className="text-h1">{t(open ? 'title' : 'closed.title')}</h1>
+        <p className="mt-2 text-muted">{t(open ? 'lead' : 'closed.body')}</p>
       </div>
-      {!open && (
-        <div className="mt-8 max-w-prose">
-          <h2 className="text-h2">{t('closed.title')}</h2>
-          <p className="mt-2">{t('closed.body')}</p>
-        </div>
-      )}
       {/* Without JS the streamed form is never swapped in (and could not post anyway): say so. */}
       <Suspense
         fallback={
