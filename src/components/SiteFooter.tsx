@@ -13,7 +13,8 @@ export async function SiteFooter({ locale }: { locale: Locale }) {
         <Link href="/calendar">{t('calendar')}</Link>
         <Link href="/going">{t('going')}</Link>
         <Link href="/archive">{t('archive')}</Link>
-        <Link href="/weekly">{t('weekly')}</Link>
+        {/* The digest archive is empty while there is no newsletter, so it is linked only once open. */}
+        {newsletterStatus() === 'open' && <Link href="/weekly">{t('weekly')}</Link>}
         <Link href="/about">{t('about')}</Link>
         <Link href="/privacy">{t('privacy')}</Link>
         {newsletterStatus() === 'open' && <Link href="/subscribe">{t('subscribe')}</Link>}

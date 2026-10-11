@@ -827,11 +827,12 @@ describe('/subscribe page', () => {
     expect((await page({ link: 'other' })).text()).not.toContain('Newsletter.link.');
   });
 
-  it('closed: closed copy plus one calendar menu for the ?c= picks, and no form', async () => {
+  it('closed: the calendar page (closed copy as the heading), one calendar menu for the ?c= picks, no form', async () => {
     vi.stubEnv('NEWSLETTER_OPEN', '0');
     const $ = await page({ c: 'ai', link: 'invalid' });
     expect($('form')).toHaveLength(0);
-    expect($('h2').text()).toBe('en:Newsletter.closed.title');
+    expect($('h1').text()).toBe('en:Newsletter.closed.title');
+    expect($.text()).not.toContain('Newsletter.lead');
     expect($.text()).toContain('en:Newsletter.closed.body');
     expect($('#subscribe')).toHaveLength(1);
     expect($('#subscribe').attr('data-cats')).toBe('ai');

@@ -5,7 +5,7 @@ import { publicOrigin } from '@/lib/host';
 import { newsletterStatus } from '@/lib/newsletter/status';
 
 // Token pages (/confirm, /prefs, /unsubscribe) never join. Digest issues are listed once sent (D7).
-const PAGES = ['/', '/calendar', '/going', '/archive', '/weekly', '/about', '/privacy'];
+const PAGES = ['/', '/calendar', '/going', '/archive', '/about', '/privacy'];
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const origin = publicOrigin();
@@ -18,8 +18,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       alternates: { languages: { en: `${origin}${p || '/'}`, 'zh-Hans': `${origin}/zh${p}`, 'x-default': `${origin}${p || '/'}` } },
     };
   };
-  // /subscribe is noindex while the form is closed, so it is listed only when open.
-  const pages = newsletterStatus() === 'open' ? [...PAGES, '/subscribe'] : PAGES;
+  // /subscribe is noindex while the form is closed, and /weekly has nothing in it without a
+  // newsletter, so both are listed only when open. Sent issues stay listed either way.
+  const pages = newsletterStatus() === 'open' ? [...PAGES, '/weekly', '/subscribe'] : PAGES;
   return [
     ...pages.map((p) => entry(p)),
     ...issues.map((i) => entry(`/weekly/${i.isoWeek}`, i.sentAt ?? undefined)),

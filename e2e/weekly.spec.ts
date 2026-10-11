@@ -25,8 +25,14 @@ test('malformed, impossible and unknown weeks are 404', async ({ request }) => {
   }
 });
 
-test('the sitemap lists the archive index', async ({ request }) => {
+// Mirrors newsletterStatus() for the local `pnpm start` server (see newsletter.spec.ts): the empty
+// archive index is listed only while the newsletter is open.
+const newsletterOpen = Boolean(process.env.DATABASE_URL && process.env.SUBSCRIBER_LINK_SECRET) && process.env.NEWSLETTER_OPEN !== '0';
+
+test('the sitemap lists the archive index only while the newsletter is open', async ({ request }) => {
   const res = await request.get('/sitemap.xml');
   expect(res.status()).toBe(200);
-  expect(await res.text()).toMatch(/\/weekly<\/loc>/);
+  const body = await res.text();
+  if (newsletterOpen) expect(body).toMatch(/\/weekly<\/loc>/);
+  else expect(body).not.toMatch(/\/weekly<\/loc>/);
 });
